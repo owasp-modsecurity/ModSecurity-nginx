@@ -101,7 +101,11 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 
     if (conf->modsec == NULL)
     {
-       dd("failed to create ModSecurity local configuration");
+        dd("failed to create ModSecurity local configuration");
+    }
+    else
+    {
+        msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.1-alpha");
     }
 
     return conf;
@@ -204,26 +208,26 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
      */
     if (c->rules_remote.len != 0)
     {
-        char *rules_remote = ngx_str_to_char(c->rules_remote, cf->pool);
-        msc_rules_add_remote(c->rules_set, rules_remote, "whee");
+        const char *error;
+        const char *rules_remote = ngx_str_to_char(c->rules_remote, cf->pool);
+        msc_rules_add_remote(c->rules_set, rules_remote, rules_remote, &error);
         dd("Loading rules from: '%s'", rules_remote);
     }
     else if (c->rules_file.len != 0)
     {
+        const char *error;
         char *rules_set = ngx_str_to_char(c->rules_file, cf->pool);
-        msc_rules_add_file(c->rules_set, rules_set);
+        msc_rules_add_file(c->rules_set, rules_set, &error);
         dd("Loading rules from: '%s'", rules_set);
     }
     else if (c->rules.len != 0)
     {
+        const char *error;
         char *rules = ngx_str_to_char(c->rules, cf->pool);
-        msc_rules_add(c->rules_set, rules);
+        msc_rules_add(c->rules_set, rules, &error);
         dd("Loading rules: '%s'", rules);
     }
-    else
-    {
-        msc_rules_add(c->rules_set, "");
-    }
+
     return NGX_CONF_OK;
 }
 
@@ -307,21 +311,24 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
 }
 
 
-int ngx_http_modsecurity_process_intervention (ModSecurityIntervention *intervention, ngx_http_request_t *r)
+int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t *r)
 {
+    ModSecurityIntervention intervention;
+    intervention.status = 200;
+
     dd("processing intervention.");
 
-    if (intervention == NULL)
+    if (msc_intervention(assay, &intervention) == 0)
     {
         dd("nothing to do.");
         return 0;
     }
 
-    if (intervention->log == NULL)
+    if (intervention.log == NULL)
     {
-        intervention->log = "(no log message was specified)";
+        intervention.log = "(no log message was specified)";
     }
-    if (intervention->url != NULL)
+    if (intervention.url != NULL)
     {
         dd("intervention -- redirecting to: %s with status code: %d", intervention->url, intervention->status);
 
@@ -344,8 +351,8 @@ int ngx_http_modsecurity_process_intervention (ModSecurityIntervention *interven
         ngx_http_clear_location(r);
         ngx_str_t a = ngx_string("");
 
-        a.data = (unsigned char *)intervention->url;
-        a.len = strlen(intervention->url);
+        a.data = (unsigned char *)intervention.url;
+        a.len = strlen(intervention.url);
 
         ngx_table_elt_t *location = NULL;
         location = ngx_list_push(&r->headers_out.headers);
@@ -354,18 +361,18 @@ int ngx_http_modsecurity_process_intervention (ModSecurityIntervention *interven
         r->headers_out.location = location;
         r->headers_out.location->hash = 1;
 
-        return intervention->status;
+        return intervention.status;
     }
 
-    if (intervention->status != 200)
+    if (intervention.status != 200)
     {
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");       
             return -1;
         }
-        dd("intervention -- returning code: %d", intervention->status);
-        return intervention->status;
+        dd("intervention -- returning code: %d", intervention.status);
+        return intervention.status;
     }
     return 0;
 }
@@ -396,7 +403,7 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_ERROR;
     }
 
-    msc_process_logging(ctx->modsec_assay);
+    msc_process_logging(ctx->modsec_assay, r->access_code);
 
     return NGX_OK;
 }
@@ -431,6 +438,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
 
     dd("creating assay with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
+
     ctx->modsec_assay = msc_new_assay(cf->modsec, loc_cf->rules_set);
     dd("assay created");
 
@@ -465,7 +473,6 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 
     if (ctx == NULL)
     {
-        ModSecurityIntervention *intervention = NULL;
         int ret = 0;
 
         ngx_connection_t *connection = r->connection;
@@ -474,6 +481,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          *
          */
         ngx_str_t addr_text = connection->addr_text;
+        ngx_str_t server_addr_text = connection->listening->addr_text;
 
         ctx = ngx_http_modsecurity_create_ctx(r);
 
@@ -494,8 +502,10 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * erliest phase that nginx allow us to attach those kind of hooks.
          *
          */
-        msc_process_connection(ctx->modsec_assay, ngx_str_to_char(addr_text, r->pool));
-        intervention = msc_intervention(ctx->modsec_assay);
+
+        msc_process_connection(ctx->modsec_assay,
+            ngx_str_to_char(addr_text, r->pool), 0,
+            ngx_str_to_char(server_addr_text, r->pool), 0);
         /**
          *
          * FIXME: Check how we can finalize a request without crash nginx.
@@ -505,15 +515,21 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * and try to use it later. 
          *
          */
-        ret = ngx_http_modsecurity_process_intervention(intervention, r);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
         if (ret > 0)
         {
             return ret;
         }
 
-        msc_process_uri(ctx->modsec_assay, ngx_str_to_char(r->unparsed_uri, r->pool));
-        intervention = msc_intervention(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(intervention, r);
+        /**
+         * TODO: Fix http_version
+         *
+         */
+
+        msc_process_uri(ctx->modsec_assay, ngx_str_to_char(r->unparsed_uri, r->pool),
+            ngx_str_to_char(r->method_name, r->pool), "1.0"
+        );
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
         if (ret > 0)
         {
             return ret;
@@ -544,6 +560,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
              * it to ModSecurity, it will handle with those later.
              * 
              */
+
             msc_add_n_request_header(ctx->modsec_assay,
                 (const unsigned char *) data[i].key.data,
                 data[i].key.len,
@@ -555,9 +572,9 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * Since ModSecurity already knew about all headers, i guess it is safe
          * to process this information.
          */
+
         msc_process_request_headers(ctx->modsec_assay);
-        intervention = msc_intervention(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(intervention, r);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
         if (ret > 0)
         {
             return ret;
@@ -636,7 +653,6 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
 
     if (ctx->waiting_more_body == 0)
     {
-        ModSecurityIntervention *intervention = NULL;
         int ret = 0;
 
         dd("request body is ready to be processed");
@@ -669,8 +685,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
              * it may ask for a intervention in consequence of that.
              * 
              */
-            intervention = msc_intervention(ctx->modsec_assay);
-            ret = ngx_http_modsecurity_process_intervention(intervention, r);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
             if (ret > 0)
             {
                 return ret;
@@ -683,9 +698,9 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
          * happened; consequently we have to check if ModSecurity have
          * returned any kind of intervention.
          */
+
         msc_process_request_body(ctx->modsec_assay);
-        intervention = msc_intervention(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(intervention, r);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
         if (ret > 0)
         {
             return ret;
@@ -727,7 +742,6 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
     int ret = 0;
-    ModSecurityIntervention *intervention = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
@@ -771,6 +785,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
          * Doing this ugly cast here, explanation on the request_header
          * 
          */
+
         msc_add_n_response_header(ctx->modsec_assay,
             (const unsigned char *) data[i].key.data,
             data[i].key.len,
@@ -779,8 +794,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 
     msc_process_response_headers(ctx->modsec_assay);
-    intervention = msc_intervention(ctx->modsec_assay);
-    ret = ngx_http_modsecurity_process_intervention(intervention, r);
+    ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
     if (ret > 0)
     {
         return ret;
@@ -839,11 +853,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (buffer_fully_loadead == 1)
     {
         int ret;
-        ModSecurityIntervention *intervention = NULL;
 
         for (chain = in; chain != NULL; chain = chain->next)
         {
             u_char *data = chain->buf->start;
+
             msc_append_response_body(ctx->modsec_assay, data, chain->buf->end - data);
             /**
              * FIXME: Body size also matters. check for intervention.
@@ -851,8 +865,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         }
 
         msc_process_response_body(ctx->modsec_assay);
-        intervention = msc_intervention(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(intervention, r);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
         if (ret > 0)
         {
             return ret;

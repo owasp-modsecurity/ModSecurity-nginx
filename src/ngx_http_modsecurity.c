@@ -148,7 +148,7 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
         ngx_palloc(cf->pool, sizeof(ngx_http_modsecurity_loc_conf_t));
 
     dd("creaing a loc conf");
-    
+
     if (conf == NULL)
     {
         return NULL;
@@ -182,7 +182,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
     c = child;
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
-    
+
     c->rules_set = msc_create_rules_set();
 
     dd("Rules set: '%p'\n", c->rules_set);
@@ -266,7 +266,7 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
         return NGX_ERROR;
     }
     *h_rewrite = ngx_http_modsecurity_rewrite_handler;
-    
+
     /**
      *
      * Processing the request body on the preaccess phase.
@@ -281,7 +281,6 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
     }
     *h_preaccess = ngx_http_modsecurity_preaccess_handler;
 
-    
     /**
      * Process the log phase.
      *
@@ -322,7 +321,6 @@ int ngx_http_modsecurity_process_intervention (ModSecurityIntervention *interven
     {
         intervention->log = "(no log message was specified)";
     }
-    
     if (intervention->url != NULL)
     {
         dd("intervention -- redirecting to: %s with status code: %d", intervention->url, intervention->status);
@@ -361,7 +359,6 @@ int ngx_http_modsecurity_process_intervention (ModSecurityIntervention *interven
 
     if (intervention->status != 200)
     {
-      
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");       
@@ -379,7 +376,7 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
-    
+
     dd("catching a new _log_ pahase handler");
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
@@ -409,9 +406,9 @@ static ngx_inline void
 ngx_http_modsecurity_cleanup(void *data)
 {
     ngx_http_modsecurity_ctx_t *ctx;
-    
+
     ctx = (ngx_http_modsecurity_ctx_t *) data;
-    
+
     msc_assay_cleanup(ctx->modsec_assay);
 }
 
@@ -539,7 +536,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
                 data = part->elts;
                 i = 0;
             }
-          
+
             /**
              * By using u_char (utf8_t) I believe nginx is hopping to deal
              * with utf8 strings.
@@ -553,7 +550,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
                 (const unsigned char *) data[i].value.data,
                 data[i].value.len);
         }
-        
+
         /**
          * Since ModSecurity already knew about all headers, i guess it is safe
          * to process this information.
@@ -566,7 +563,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             return ret;
         }
     }
-    
+
     return NGX_DECLINED;
 }
 
@@ -596,7 +593,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
         dd("ctx is null; Nothing we can do, returning an error.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
-    
+
     if (ctx->waiting_more_body == 1)
     {
         dd("waiting for more data before proceed. / count: %d",
@@ -613,7 +610,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
         ctx->body_requested = 1;
         /**
          * TODO: Check if there is any benefit to use request_body_in_single_buf set to 1.
-         *       
+         *
          *       saw some module using this request_body_in_single_buf
          *       but not sure what exactly it does.
          *
@@ -636,7 +633,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
             return NGX_DONE;
         }
     }
-    
+
     if (ctx->waiting_more_body == 0)
     {
         ModSecurityIntervention *intervention = NULL;
@@ -679,8 +676,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
                 return ret;
             }
         }
-        
-        
+
         /**
          * At this point, all the request body was sent to ModSecurity 
          * and we want to make sure that all the request body inspection
@@ -707,7 +703,7 @@ void ngx_http_modsecurity_request_read(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t *ctx;
 
     r->read_event_handler = ngx_http_request_empty_handler;
-    
+
     dd("Requested more request body?");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
@@ -739,8 +735,8 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     {
         dd("ModSecurity not enabled... returning");
         return ngx_http_next_header_filter(r);
-    }    
-    
+    }
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
     dd("header filter, recovering ctx: %p", ctx);
@@ -757,7 +753,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 
     ctx->processed = 1;
-       
+
     for (i = 0 ;; i++)
     {
         if (i >= part->nelts)
@@ -804,7 +800,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      * make the proxy servers happy.
      */
     r->headers_out.content_length_n = -1;
-    
+
     return ngx_http_next_header_filter(r);
 }
 

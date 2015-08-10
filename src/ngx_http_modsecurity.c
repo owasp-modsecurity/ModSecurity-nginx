@@ -159,6 +159,11 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     }
 
     conf->enable = NGX_CONF_UNSET;
+    conf->rules_remote.len = 0;
+    conf->rules_file.len = 0;
+    conf->rules.len = 0;
+    conf->id = 0;
+    conf->rules_set = msc_create_rules_set();
 
     return conf;
 }
@@ -166,10 +171,16 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
 
 ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 {
-    char *str = ngx_pcalloc(p, a.len+1);
+    char *str = NULL;
+
+    if (a.len == 0) {
+        return NULL;
+    }
+
+    str = ngx_pcalloc(p, a.len+1);
 
     ngx_memcpy(str, a.data, a.len);
-    str[a.len+1] = '\0';
+    str[a.len] = '\0';
 
     return str;
 }
@@ -186,8 +197,6 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
     c = child;
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
-
-    c->rules_set = msc_create_rules_set();
 
     dd("Rules set: '%p'\n", c->rules_set);
     //dd("Parent ModSecurityRuleSet is: '%p' current is: '%p'", p->rules_set);
@@ -278,13 +287,14 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
      * TODO: check if hook into separated phases is the best thing to do.
      *
      */
+    if (1 == 1) {
     h_preaccess = ngx_array_push(&cmcf->phases[NGX_HTTP_PREACCESS_PHASE].handlers);
     if (h_preaccess == NULL) {
         dd("Not able to create a new NGX_HTTP_PREACCESS_PHASE handle");
         return NGX_ERROR;
     }
     *h_preaccess = ngx_http_modsecurity_preaccess_handler;
-
+    }
     /**
      * Process the log phase.
      *
@@ -298,7 +308,6 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
         return NGX_ERROR;
     }
     *h_log = ngx_http_modsecurity_log_handler;
-
 
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_modsecurity_header_filter;
@@ -393,13 +402,19 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
+    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
+        dd("ModSecurity is not ready to deal with anything different from " \
+            "POST or GET");
+        return NGX_OK;
+    }
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
     dd("recovering ctx: %p", ctx);
 
     if (ctx == NULL)
     {
-        dd("somenthing really bad happend here. returning NGX_ERROR");
+        dd("something really bad happened here. returning NGX_ERROR");
         return NGX_ERROR;
     }
 
@@ -465,6 +480,12 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
+    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
+        dd("ModSecurity is not ready to deal with anything different from " \
+            "POST or GET");
+        return NGX_DECLINED;
+    }
+
     dd("catching a new _rewrite_ pahase handler");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
@@ -502,10 +523,13 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * erliest phase that nginx allow us to attach those kind of hooks.
          *
          */
-
+        int client_port = 0; /* htons(((struct sockaddr_in *) sockaddr).sin_port); */
+        int server_port = 0;
+        const char *client_addr = ngx_str_to_char(addr_text, r->pool);
+        const char *server_addr = ngx_str_to_char(server_addr_text, r->pool);
         msc_process_connection(ctx->modsec_assay,
-            ngx_str_to_char(addr_text, r->pool), 0,
-            ngx_str_to_char(server_addr_text, r->pool), 0);
+            client_addr, client_port,
+            server_addr, server_port);
         /**
          *
          * FIXME: Check how we can finalize a request without crash nginx.
@@ -588,6 +612,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 static ngx_int_t
 ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
 {
+#if 1
     ngx_int_t rc = NGX_OK;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
@@ -598,6 +623,11 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
     if (cf == NULL || cf->enable != 1)
     {
         dd("ModSecurity not enabled... returning");
+        return NGX_DECLINED;
+    }
+    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
+        dd("ModSecurity is not ready to deal with anything different from " \
+            "POST or GET");
         return NGX_DECLINED;
     }
 
@@ -633,7 +663,6 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
          *
          * r->request_body_in_single_buf = 1;
          */
-
         rc = ngx_http_read_client_request_body(r,
             ngx_http_modsecurity_request_read);
 
@@ -708,7 +737,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
     }
 
     dd("Nothing to add on the body inspection, reclaiming a NGX_DECLINED");
-
+#endif
     return NGX_DECLINED;
 }
 
@@ -750,11 +779,21 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         dd("ModSecurity not enabled... returning");
         return ngx_http_next_header_filter(r);
     }
+    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
+        dd("ModSecurity is not ready to deal with anything different from " \
+            "POST or GET");
+        return ngx_http_next_header_filter(r);
+    }
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
     dd("header filter, recovering ctx: %p", ctx);
 
+    if (ctx == NULL)
+    {
+        dd("something really bad happened here. going to the next filter.");
+        return ngx_http_next_header_filter(r);;
+    }
 
     if (ctx && ctx->processed)
     {
@@ -801,19 +840,20 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 
     /**
-     * Proxys will not like this... but it is necessary to unset
-     * the content length in order to manipulate the content of 
-     * reponse body in modsecurity. 
-     * 
+     * Proxies will not like this... but it is necessary to unset
+     * the content length in order to manipulate the content of
+     * response body in ModSecurity.
+     *
      * This header may arrive at the client before ModSecurity had
-     * a change to make any modification. That is why I am seeting
-     * it to -1 here. 
-     * 
+     * a change to make any modification. That is why it is necessary
+     * to set this to -1 here.
+     *
      * We need to have some kind of flag the decide if ModSecurity
-     * will make a modificaiton or not. If not, keep the content and
+     * will make a modification or not. If not, keep the content and
      * make the proxy servers happy.
+     *
      */
-    r->headers_out.content_length_n = -1;
+     r->headers_out.content_length_n = -1;
 
     return ngx_http_next_header_filter(r);
 }
@@ -831,6 +871,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (cf == NULL || cf->enable != 1)
     {
         dd("ModSecurity not enabled... returning");
+        return ngx_http_next_body_filter(r, in);
+    }
+    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
+        dd("ModSecurity is not ready to deal with anything different from " \
+            "POST or GET");
         return ngx_http_next_body_filter(r, in);
     }
 
@@ -872,7 +917,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         }
         else if (ret < 0)
         {
-            return ngx_http_filter_finalize_request(r, 
+            return ngx_http_filter_finalize_request(r,
                 &ngx_http_modsecurity, NGX_HTTP_INTERNAL_SERVER_ERROR);
         }
     }

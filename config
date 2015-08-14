@@ -20,7 +20,7 @@ if [ -n "$MODSECURITY_INC" -o -n "$MODSECURITY_LIB" ]; then
     ngx_modsecurity_opt_I="-I$MODSECURITY_INC"
     ngx_modsecurity_opt_L="-L$MODSECURITY_LIB"
     if [ $NGX_RPATH = YES ]; then
-        ngx_feature_libs="-R$MODSECURITY_LIB $ngx_modsecurity_opt_L -lmodsecurity"
+        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB $ngx_modsecurity_opt_L -lmodsecurity"
     else
         ngx_feature_libs="$ngx_modsecurity_opt_L -lmodsecurity"
     fi

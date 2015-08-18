@@ -23,16 +23,28 @@
 #include "ddebug.h"
 #include "ngx_http_modsecurity.h"
 
+// #define DISABLE_BODY_FILTER 1
+// #define DISABLE_HEADER_FILTER 1
 
+#ifndef DISABLE_HEADER_FILTER
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
+#endif
+
+#ifndef DISABLE_BODY_FILTER
 static ngx_http_output_body_filter_pt ngx_http_next_body_filter;
+#endif
 
 static ngx_int_t ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r);
 static void ngx_http_modsecurity_request_read(ngx_http_request_t *r);
 
+#ifndef DISABLE_HEADER_FILTER
 static ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r);
+#endif
+
+#ifndef DISABLE_BODY_FILTER
 static ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r,
         ngx_chain_t *in);
+#endif
 
 static ngx_int_t ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf);
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
@@ -287,14 +299,13 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
      * TODO: check if hook into separated phases is the best thing to do.
      *
      */
-    if (1 == 1) {
     h_preaccess = ngx_array_push(&cmcf->phases[NGX_HTTP_PREACCESS_PHASE].handlers);
     if (h_preaccess == NULL) {
         dd("Not able to create a new NGX_HTTP_PREACCESS_PHASE handle");
         return NGX_ERROR;
     }
     *h_preaccess = ngx_http_modsecurity_preaccess_handler;
-    }
+
     /**
      * Process the log phase.
      *
@@ -309,12 +320,15 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
     }
     *h_log = ngx_http_modsecurity_log_handler;
 
+#ifndef DISABLE_HEADER_FILTER
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_modsecurity_header_filter;
+#endif
 
-
+#ifndef DISABLE_BODY_FILTER
     ngx_http_next_body_filter = ngx_http_top_body_filter;
     ngx_http_top_body_filter = ngx_http_modsecurity_body_filter;
+#endif
 
     return NGX_OK;
 }
@@ -339,7 +353,7 @@ int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t 
     }
     if (intervention.url != NULL)
     {
-        dd("intervention -- redirecting to: %s with status code: %d", intervention->url, intervention->status);
+        dd("intervention -- redirecting to: %s with status code: %d", intervention.url, intervention.status);
 
         if (r->header_sent)
         {
@@ -605,6 +619,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         }
     }
 
+
     return NGX_DECLINED;
 }
 
@@ -613,7 +628,6 @@ static ngx_int_t
 ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
 {
 #if 1
-    ngx_int_t rc = NGX_OK;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
 
@@ -651,29 +665,37 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
 
     if (ctx->body_requested == 0)
     {
-        dd("asking for the request body, if any. Count: %d",
-            r->main->count);
+        ngx_int_t rc = NGX_OK;
 
         ctx->body_requested = 1;
+
+        dd("asking for the request body, if any. Count: %d",
+            r->main->count);
         /**
          * TODO: Check if there is any benefit to use request_body_in_single_buf set to 1.
          *
          *       saw some module using this request_body_in_single_buf
-         *       but not sure what exactly it does.
+         *       but not sure what exactly it does, same for the others options below.
          *
          * r->request_body_in_single_buf = 1;
          */
+        r->request_body_in_single_buf = 1;
+        r->request_body_in_persistent_file = 1;
+        r->request_body_in_clean_file = 1;
+
         rc = ngx_http_read_client_request_body(r,
             ngx_http_modsecurity_request_read);
+        if (rc == NGX_ERROR || rc >= NGX_HTTP_SPECIAL_RESPONSE) {
+#if (nginx_version < 1002006) ||                                             \
+    (nginx_version >= 1003000 && nginx_version < 1003009)
+            r->main->count--;
+#endif
 
-        if (rc == NGX_ERROR || rc >= NGX_HTTP_SPECIAL_RESPONSE)
-        {
-           return rc;
+            return rc;
         }
-
         if (rc == NGX_AGAIN)
         {
-            dd("nginx is aksing us to wait for more data.");
+            dd("nginx is asking us to wait for more data.");
 
             ctx->waiting_more_body = 1;
             return NGX_DONE;
@@ -746,23 +768,24 @@ void ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
 
-    r->read_event_handler = ngx_http_request_empty_handler;
 
     dd("Requested more request body?");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
+#if defined(nginx_version) && nginx_version >= 8011
     r->main->count--;
+#endif
 
     if (ctx->waiting_more_body)
     {
         ctx->waiting_more_body = 0;
         ngx_http_core_run_phases(r);
     }
-
 }
 
 
+#ifndef DISABLE_HEADER_FILTER
 static ngx_int_t
 ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 {
@@ -853,12 +876,17 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      * make the proxy servers happy.
      *
      */
-     r->headers_out.content_length_n = -1;
+    /**
+     * The line below is commented to make the spdy test to work
+     *
+     */
+     //r->headers_out.content_length_n = -1;
 
     return ngx_http_next_header_filter(r);
 }
+#endif
 
-
+#ifndef DISABLE_BODY_FILTER
 static ngx_int_t
 ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
@@ -928,5 +956,6 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     return ngx_http_next_body_filter(r, in);
 }
+#endif
 
 /* vi:set ft=c ts=4 sw=4 et fdm=marker: */

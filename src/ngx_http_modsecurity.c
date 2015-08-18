@@ -63,6 +63,30 @@ static ngx_int_t
 ngx_http_modsecurity_log_handler(ngx_http_request_t *r);
 
 
+static char*
+ngx_http_modsecurity_set_remote_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    char *p = conf;
+    ngx_str_t *field, *field2, *value;
+
+    dd("Setting the remote server variables.");
+
+    field = (ngx_str_t *) (p + cmd->offset);
+    field2 = (ngx_str_t *) (p + cmd->offset + sizeof(ngx_str_t));
+
+    if (field->data) {
+        return "is duplicate";
+    }
+
+    value = cf->args->elts;
+
+    *field = value[2];
+    *field2 = value[1];
+
+    return NGX_CONF_OK;
+
+}
+
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
@@ -82,10 +106,10 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules_remote"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-    ngx_conf_set_str_slot,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+    ngx_http_modsecurity_set_remote_server,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_modsecurity_loc_conf_t, rules_remote),
+    offsetof(ngx_http_modsecurity_loc_conf_t, rules_remote_server),
     NULL
   },
   {
@@ -163,7 +187,7 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     conf = (ngx_http_modsecurity_loc_conf_t  *)
         ngx_palloc(cf->pool, sizeof(ngx_http_modsecurity_loc_conf_t));
 
-    dd("creaing a loc conf");
+    dd("creating a loc conf");
 
     if (conf == NULL)
     {
@@ -171,7 +195,8 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     }
 
     conf->enable = NGX_CONF_UNSET;
-    conf->rules_remote.len = 0;
+    conf->rules_remote_server.len = 0;
+    conf->rules_remote_key.len = 0;
     conf->rules_file.len = 0;
     conf->rules.len = 0;
     conf->id = 0;
@@ -227,26 +252,43 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
      * we should; It is not hard to do. Maybe for further
      * versions.
      */
-    if (c->rules_remote.len != 0)
+    if (c->rules_remote_server.len != 0)
     {
+        int res;
         const char *error;
-        const char *rules_remote = ngx_str_to_char(c->rules_remote, cf->pool);
-        msc_rules_add_remote(c->rules_set, rules_remote, rules_remote, &error);
-        dd("Loading rules from: '%s'", rules_remote);
+        const char *rules_remote_server = ngx_str_to_char(c->rules_remote_server, cf->pool);
+        const char *rules_remote_key = ngx_str_to_char(c->rules_remote_key, cf->pool);
+        res = msc_rules_add_remote(c->rules_set, rules_remote_key, rules_remote_server, &error);
+        dd("Loading rules from: '%s'", rules_remote_server);
+        if (res == 0) {
+            dd("Failed to load the rules from: '%s'", rules_remote_server);
+            return strdup(error);
+        }
+
     }
     else if (c->rules_file.len != 0)
     {
+        int res;
         const char *error;
         char *rules_set = ngx_str_to_char(c->rules_file, cf->pool);
-        msc_rules_add_file(c->rules_set, rules_set, &error);
+        res = msc_rules_add_file(c->rules_set, rules_set, &error);
         dd("Loading rules from: '%s'", rules_set);
+        if (res == 0) {
+            dd("Failed to load the rules from: '%s'", rules_set);
+            return strdup(error);
+        }
     }
     else if (c->rules.len != 0)
     {
+        int res;
         const char *error;
         char *rules = ngx_str_to_char(c->rules, cf->pool);
-        msc_rules_add(c->rules_set, rules, &error);
+        res = msc_rules_add(c->rules_set, rules, &error);
         dd("Loading rules: '%s'", rules);
+        if (res == 0) {
+            dd("Failed to load the rules: '%s'", rules);
+            return strdup(error);
+        }
     }
 
     return NGX_CONF_OK;

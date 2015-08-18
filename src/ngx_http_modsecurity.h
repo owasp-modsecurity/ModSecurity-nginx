@@ -37,7 +37,8 @@ typedef struct {
 typedef struct {
     ngx_str_t rules;
     ngx_str_t rules_file;
-    ngx_str_t rules_remote;
+    ngx_str_t rules_remote_server;
+    ngx_str_t rules_remote_key;
 
     ngx_flag_t enable;
     ngx_int_t id;

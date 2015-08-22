@@ -255,37 +255,40 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
     if (c->rules_remote_server.len != 0)
     {
         int res;
-        const char *error;
+        const char *error = NULL;
         const char *rules_remote_server = ngx_str_to_char(c->rules_remote_server, cf->pool);
         const char *rules_remote_key = ngx_str_to_char(c->rules_remote_key, cf->pool);
         res = msc_rules_add_remote(c->rules_set, rules_remote_key, rules_remote_server, &error);
         dd("Loading rules from: '%s'", rules_remote_server);
-        if (res == 0) {
-            dd("Failed to load the rules from: '%s'", rules_remote_server);
+        if (res < 0) {
+            dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
+
             return strdup(error);
         }
-
+        msc_rules_dump(c->rules_set);
+        dd("Loaded '%d' rules.", res);
     }
     else if (c->rules_file.len != 0)
     {
         int res;
-        const char *error;
+        const char *error = NULL;
         char *rules_set = ngx_str_to_char(c->rules_file, cf->pool);
         res = msc_rules_add_file(c->rules_set, rules_set, &error);
         dd("Loading rules from: '%s'", rules_set);
-        if (res == 0) {
-            dd("Failed to load the rules from: '%s'", rules_set);
+        if (res < 0) {
+            dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
             return strdup(error);
         }
+        dd("Loaded '%d' rules.", res);
     }
     else if (c->rules.len != 0)
     {
         int res;
-        const char *error;
+        const char *error = NULL;
         char *rules = ngx_str_to_char(c->rules, cf->pool);
         res = msc_rules_add(c->rules_set, rules, &error);
         dd("Loading rules: '%s'", rules);
-        if (res == 0) {
+        if (res < 0) {
             dd("Failed to load the rules: '%s'", rules);
             return strdup(error);
         }

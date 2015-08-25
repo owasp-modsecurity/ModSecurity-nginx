@@ -236,14 +236,13 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
     ngx_conf_merge_value(c->enable, p->enable, 0);
 
     dd("Rules set: '%p'\n", c->rules_set);
-    //dd("Parent ModSecurityRuleSet is: '%p' current is: '%p'", p->rules_set);
-    /*
+    dd("Parent ModSecurityRuleSet is: '%p' current is: '%p'", p->rules_set);
     if (p->rules_set != NULL)
     {
         dd("Parent is not null, so we have to merge this configurations");
         msc_rules_merge(c->rules_set, p->rules_set);
     }
-    */
+
 
     /**
      * FIXME: Fix the rules inclusion order.
@@ -265,10 +264,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
 
             return strdup(error);
         }
-        msc_rules_dump(c->rules_set);
         dd("Loaded '%d' rules.", res);
     }
-    else if (c->rules_file.len != 0)
+    if (c->rules_file.len != 0)
     {
         int res;
         const char *error = NULL;
@@ -281,7 +279,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
         }
         dd("Loaded '%d' rules.", res);
     }
-    else if (c->rules.len != 0)
+    if (c->rules.len != 0)
     {
         int res;
         const char *error = NULL;
@@ -289,11 +287,11 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
         res = msc_rules_add(c->rules_set, rules, &error);
         dd("Loading rules: '%s'", rules);
         if (res < 0) {
-            dd("Failed to load the rules: '%s'", rules);
+            dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
             return strdup(error);
         }
     }
-
+    msc_rules_dump(c->rules_set);
     return NGX_CONF_OK;
 }
 

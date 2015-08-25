@@ -16,7 +16,7 @@
 #include <ngx_core.h>
 
 
-#define DDEBUG 1
+#define DDEBUG 0
 
 #if defined(DDEBUG) && (DDEBUG)
 

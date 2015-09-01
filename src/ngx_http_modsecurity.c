@@ -54,7 +54,8 @@ static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf,
         void *parent, void *child);
 
-static void ngx_http_modsecurity_terminate(ngx_cycle_t *cycle);
+static void ngx_http_modsecurity_terminate_master(ngx_cycle_t *cycle);
+static void ngx_http_modsecurity_terminate_process(ngx_cycle_t *cycle);
 
 static ngx_int_t
 ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r);
@@ -124,6 +125,14 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
 };
 
 
+static void
+ngx_http_modsecurity_main_conf_cleanup(void *data)
+{
+    ngx_http_modsecurity_main_conf_t *cf = data;
+    msc_cleanup(cf->modsec);
+    cf->modsec = NULL;
+}
+
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_main_conf_t *conf;
@@ -133,15 +142,29 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     /* ngx_pcalloc already set all the scructure to zero. */
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_modsecurity_main_conf_t));
 
-    conf->modsec = msc_init();
+    if (conf == NULL) {
+        return NULL;
+    }
 
+    conf->modsec = msc_init();
     if (conf->modsec == NULL)
     {
         dd("failed to create ModSecurity local configuration");
+        return NULL;
     }
     else
     {
+        ngx_pool_cleanup_t *cln = NULL;
         msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.1-alpha");
+
+        cln = ngx_pool_cleanup_add(cf->pool, 0);
+        if (cln == NULL)
+        {
+            dd("failed to create ModSecurity main configuration cleanup");
+            return NULL;
+        }
+        cln->handler = ngx_http_modsecurity_main_conf_cleanup;
+        cln->data = conf;
     }
 
     return conf;
@@ -173,16 +196,27 @@ ngx_module_t ngx_http_modsecurity = {
     NULL, /* init process */
     NULL, /* init thread */
     NULL, /* exit thread */
-    ngx_http_modsecurity_terminate, /* exit process */
-    ngx_http_modsecurity_terminate, /* exit master */
+    ngx_http_modsecurity_terminate_process, /* exit process */
+    ngx_http_modsecurity_terminate_master, /* exit master */
     NGX_MODULE_V1_PADDING
 };
+
+
+static ngx_inline void
+ngx_http_modsecurity_config_cleanup(void *data)
+{
+    ngx_http_modsecurity_loc_conf_t *t = (ngx_http_modsecurity_loc_conf_t *) data;
+    dd("deleting a loc conf -- RuleSet is: \"%p\"", t->rules_set);
+    msc_rules_cleanup(t->rules_set);
+    t->rules_set = NULL;
+}
 
 
 static void *
 ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_loc_conf_t  *conf;
+    ngx_pool_cleanup_t *cln = NULL;
 
     conf = (ngx_http_modsecurity_loc_conf_t  *)
         ngx_palloc(cf->pool, sizeof(ngx_http_modsecurity_loc_conf_t));
@@ -201,6 +235,13 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     conf->rules.len = 0;
     conf->id = 0;
     conf->rules_set = msc_create_rules_set();
+
+    dd("creating a loc conf -- RuleSet is: \"%p\"", conf->rules_set);
+
+    msc_rules_dump(conf->rules_set);
+    cln = ngx_pool_cleanup_add(cf->pool, 0);
+    cln->handler = ngx_http_modsecurity_config_cleanup;
+    cln->data = conf;
 
     return conf;
 }
@@ -236,7 +277,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
     ngx_conf_merge_value(c->enable, p->enable, 0);
 
     dd("Rules set: '%p'\n", c->rules_set);
-    dd("Parent ModSecurityRuleSet is: '%p' current is: '%p'", p->rules_set);
+    dd("Parent ModSecurityRuleSet is: '%p' current is: '%p'", p->rules_set, c->rules_set);
     if (p->rules_set != NULL)
     {
         dd("Parent is not null, so we have to merge this configurations");
@@ -304,8 +345,16 @@ ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
 
 
 static void
-ngx_http_modsecurity_terminate(ngx_cycle_t *cycle)
+ngx_http_modsecurity_terminate_process(ngx_cycle_t *cycle)
 {
+    dd("Terminating process...\n");
+}
+
+
+static void
+ngx_http_modsecurity_terminate_master(ngx_cycle_t *cycle)
+{
+    dd("Terminating master...\n");
 }
 
 

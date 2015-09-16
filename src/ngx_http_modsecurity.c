@@ -340,6 +340,15 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
 static ngx_int_t
 ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
 {
+    /*
+     *
+     * FIXME: Ops. Nginx hooks those two guys, we have to figure out a better
+     * way to deal with it.
+     *
+     */
+    pcre_malloc = malloc;
+    pcre_free = free;
+
     return NGX_OK;
 }
 
@@ -430,6 +439,7 @@ int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t 
 {
     ModSecurityIntervention intervention;
     intervention.status = 200;
+    intervention.url = NULL;
 
     dd("processing intervention.");
 
@@ -797,6 +807,7 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
     if (ctx->waiting_more_body == 0)
     {
         int ret = 0;
+        int already_inspected = 0;
 
         dd("request body is ready to be processed");
 
@@ -810,7 +821,25 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
          * the chunks to ModSecurity while nginx keep calling this
          * function.
          */
-        while (chain)
+
+
+        if (r->request_body->temp_file != NULL) {
+            ngx_str_t file_path = r->request_body->temp_file->file.name;
+            const char *file_name = ngx_str_to_char(file_path, r->pool);
+            /*
+             * Request body was saved to a file, probably we don't have a
+             * copy of it in memory.
+             */
+            dd("request body inspection: file -- %s", file_name);
+
+            msc_request_body_from_file(ctx->modsec_assay, file_name);
+
+            already_inspected = 1;
+        } else {
+            dd("inspection request body in memory.");
+        }
+
+        while (chain && !already_inspected)
         {
             u_char *data = chain->buf->start;
 
@@ -859,9 +888,6 @@ ngx_http_modsecurity_preaccess_handler(ngx_http_request_t *r)
 void ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
-
-
-    dd("Requested more request body?");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 

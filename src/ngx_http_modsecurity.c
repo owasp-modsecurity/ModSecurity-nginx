@@ -133,6 +133,16 @@ ngx_http_modsecurity_main_conf_cleanup(void *data)
     cf->modsec = NULL;
 }
 
+
+static void ngx_http_modsecurity_log(void *log, const char* msg) {
+    if (log == NULL) {
+        return;
+    }
+
+    ngx_log_error(NGX_LOG_INFO, (ngx_log_t *)log, 0, msg);
+}
+
+
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_main_conf_t *conf;
@@ -156,6 +166,7 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     {
         ngx_pool_cleanup_t *cln = NULL;
         msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.1-alpha");
+        msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
         cln = ngx_pool_cleanup_add(cf->pool, 0);
         if (cln == NULL)
@@ -570,7 +581,8 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     dd("creating assay with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
 
-    ctx->modsec_assay = msc_new_assay(cf->modsec, loc_cf->rules_set);
+    ctx->modsec_assay = msc_new_assay(cf->modsec, loc_cf->rules_set, r->connection->log);
+
     dd("assay created");
 
     ngx_http_set_ctx(r, ctx, ngx_http_modsecurity);

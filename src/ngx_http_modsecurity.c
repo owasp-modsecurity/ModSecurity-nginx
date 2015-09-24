@@ -91,7 +91,7 @@ ngx_http_modsecurity_set_remote_server(ngx_conf_t *cf, ngx_command_t *cmd, void 
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
+    NGX_ANY_CONF|NGX_CONF_FLAG,
     ngx_conf_set_flag_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, enable),
@@ -99,7 +99,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules_file"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    NGX_ANY_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, rules_file),
@@ -107,7 +107,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules_remote"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE2,
+    NGX_ANY_CONF|NGX_CONF_TAKE2,
     ngx_http_modsecurity_set_remote_server,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, rules_remote_server),
@@ -115,7 +115,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules"),
-    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
+    NGX_ANY_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, rules),

@@ -76,7 +76,7 @@ ngx_http_modsecurity_set_remote_server(ngx_conf_t *cf, ngx_command_t *cmd, void 
     field2 = (ngx_str_t *) (p + cmd->offset + sizeof(ngx_str_t));
 
     if (field->data) {
-        return "is duplicate";
+        return "occurs multiple times";
     }
 
     value = cf->args->elts;
@@ -91,7 +91,7 @@ ngx_http_modsecurity_set_remote_server(ngx_conf_t *cf, ngx_command_t *cmd, void 
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
-    NGX_ANY_CONF|NGX_CONF_FLAG,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_FLAG,
     ngx_conf_set_flag_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, enable),
@@ -99,7 +99,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules_file"),
-    NGX_ANY_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, rules_file),
@@ -107,7 +107,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules_remote"),
-    NGX_ANY_CONF|NGX_CONF_TAKE2,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE2,
     ngx_http_modsecurity_set_remote_server,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, rules_remote_server),
@@ -115,7 +115,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_rules"),
-    NGX_ANY_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LOC_CONF|NGX_HTTP_LIF_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_str_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_loc_conf_t, rules),
@@ -147,36 +147,37 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_main_conf_t *conf;
 
-    dd("crating ModSecurity main configuration");
+    dd("creating the ModSecurity main configuration");
 
-    /* ngx_pcalloc already set all the scructure to zero. */
+    /* ngx_pcalloc already sets all of this scructure to zeros. */
     conf = ngx_pcalloc(cf->pool, sizeof(ngx_http_modsecurity_main_conf_t));
 
     if (conf == NULL) {
-        return NULL;
+        dd("failed to allocate space for the ModSecurity configuration");
+        return NGX_CONF_ERROR;
     }
-
+    /* Create our ModSecurity instace */
     conf->modsec = msc_init();
     if (conf->modsec == NULL)
     {
-        dd("failed to create ModSecurity local configuration");
-        return NULL;
+        dd("failed to create the ModSecurity instance");
+        return NGX_CONF_ERROR;
     }
-    else
-    {
-        ngx_pool_cleanup_t *cln = NULL;
-        msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.1-alpha");
-        msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
-        cln = ngx_pool_cleanup_add(cf->pool, 0);
-        if (cln == NULL)
-        {
-            dd("failed to create ModSecurity main configuration cleanup");
-            return NULL;
-        }
-        cln->handler = ngx_http_modsecurity_main_conf_cleanup;
-        cln->data = conf;
+    ngx_pool_cleanup_t *cln = NULL;
+    /* Provide our connector information to LibModSecurity*/
+    msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.2-alpha");
+    msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
+
+    cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (cln == NULL)
+    {
+        dd("failed to create the ModSecurity main configuration cleanup");
+        return NGX_CONF_ERROR;
     }
+    cln->handler = ngx_http_modsecurity_main_conf_cleanup;
+    cln->data = conf;
+
 
     return conf;
 }
@@ -229,14 +230,14 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     ngx_http_modsecurity_loc_conf_t  *conf;
     ngx_pool_cleanup_t *cln = NULL;
 
-    conf = (ngx_http_modsecurity_loc_conf_t  *)
+    conf = (ngx_http_modsecurity_loc_conf_t  *) 
         ngx_palloc(cf->pool, sizeof(ngx_http_modsecurity_loc_conf_t));
-
-    dd("creating a loc conf");
+    dd("creating a location specific conf");
 
     if (conf == NULL)
     {
-        return NULL;
+        dd("Failed to allocate space for a location specific conf");
+        return NGX_CONF_ERROR;
     }
 
     conf->enable = NGX_CONF_UNSET;
@@ -245,12 +246,17 @@ ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     conf->rules_file.len = 0;
     conf->rules.len = 0;
     conf->id = 0;
+    /* Create a new rules instance */
     conf->rules_set = msc_create_rules_set();
 
-    dd("creating a loc conf -- RuleSet is: \"%p\"", conf->rules_set);
+    dd("created a location specific conf -- RuleSet is at: \"%p\"", conf->rules_set);
 
-    msc_rules_dump(conf->rules_set);
+    //msc_rules_dump(conf->rules_set); // This was for debug
     cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (cln == NULL) {
+            dd("failed to create the ModSecurity location specific configuration cleanup");
+            return NGX_CONF_ERROR;     
+    }
     cln->handler = ngx_http_modsecurity_config_cleanup;
     cln->data = conf;
 
@@ -267,7 +273,11 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
     }
 
     str = ngx_pcalloc(p, a.len+1);
-
+    if (str == NULL) {
+            dd("failed to allocate space to convert space ngx_string to C string");
+            /* We already return null for an empty string, so we return -1 here */
+            return (char *)-1;     
+    }
     ngx_memcpy(str, a.data, a.len);
     str[a.len] = '\0';
 
@@ -291,7 +301,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
     dd("Parent ModSecurityRuleSet is: '%p' current is: '%p'", p->rules_set, c->rules_set);
     if (p->rules_set != NULL)
     {
-        dd("Parent is not null, so we have to merge this configurations");
+        dd("Parent is not null, so we have to merge these configurations");
         msc_rules_merge(c->rules_set, p->rules_set);
     }
 
@@ -303,26 +313,34 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
      * we should; It is not hard to do. Maybe for further
      * versions.
      */
-    if (c->rules_remote_server.len != 0)
+    if (c->rules_remote_server.len > 0)
     {
         int res;
         const char *error = NULL;
         const char *rules_remote_server = ngx_str_to_char(c->rules_remote_server, cf->pool);
+        if(rules_remote_server==(char *)-1){
+            return NGX_CONF_ERROR;
+        }
         const char *rules_remote_key = ngx_str_to_char(c->rules_remote_key, cf->pool);
+        if(rules_remote_key==(char *)-1){
+            return NGX_CONF_ERROR;
+        }
         res = msc_rules_add_remote(c->rules_set, rules_remote_key, rules_remote_server, &error);
         dd("Loading rules from: '%s'", rules_remote_server);
         if (res < 0) {
             dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
-
             return strdup(error);
         }
         dd("Loaded '%d' rules.", res);
     }
-    if (c->rules_file.len != 0)
+    if (c->rules_file.len > 0)
     {
         int res;
         const char *error = NULL;
         char *rules_set = ngx_str_to_char(c->rules_file, cf->pool);
+        if(rules_set==(char *)-1){
+            return NGX_CONF_ERROR;
+        }
         res = msc_rules_add_file(c->rules_set, rules_set, &error);
         dd("Loading rules from: '%s'", rules_set);
         if (res < 0) {
@@ -331,11 +349,14 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
         }
         dd("Loaded '%d' rules.", res);
     }
-    if (c->rules.len != 0)
+    if (c->rules.len > 0)
     {
         int res;
         const char *error = NULL;
         char *rules = ngx_str_to_char(c->rules, cf->pool);
+        if(rules==(char *)-1){
+            return NGX_CONF_ERROR;
+        }
         res = msc_rules_add(c->rules_set, rules, &error);
         dd("Loading rules: '%s'", rules);
         if (res < 0) {
@@ -387,7 +408,11 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
     ngx_http_core_main_conf_t *cmcf;
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
-
+    if (cmcf == NULL) 
+    {
+        dd("We are not sure how this returns, NGINX doesn't seem to think it will ever be null");
+        return NGX_ERROR;
+    }
     /**
      * 
      * Semms like we cannot do this very same thing with
@@ -398,7 +423,8 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
      *
      */
     h_rewrite = ngx_array_push(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers);
-    if (h_rewrite == NULL) {
+    if (h_rewrite == NULL) 
+    {
         dd("Not able to create a new NGX_HTTP_REWRITE_PHASE handle");
         return NGX_ERROR;
     }
@@ -412,7 +438,8 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
      *
      */
     h_preaccess = ngx_array_push(&cmcf->phases[NGX_HTTP_PREACCESS_PHASE].handlers);
-    if (h_preaccess == NULL) {
+    if (h_preaccess == NULL) 
+    {
         dd("Not able to create a new NGX_HTTP_PREACCESS_PHASE handle");
         return NGX_ERROR;
     }
@@ -426,7 +453,8 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
      *
      */
     h_log = ngx_array_push(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers);
-    if (h_log == NULL) {
+    if (h_log == NULL) 
+    {
         dd("Not able to create a new NGX_HTTP_LOG_PHASE handle");
         return NGX_ERROR;
     }
@@ -464,6 +492,7 @@ int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t 
     {
         intervention.log = "(no log message was specified)";
     }
+
     if (intervention.url != NULL)
     {
         dd("intervention -- redirecting to: %s with status code: %d", intervention.url, intervention.status);
@@ -588,6 +617,11 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_set_ctx(r, ctx, ngx_http_modsecurity);
 
     cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
+    if (cln == NULL)
+    {
+        dd("failed to create the ModSecurity context cleanup");
+        return NGX_CONF_ERROR;
+    }
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
 
@@ -655,9 +689,12 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         int server_port = 0;
         const char *client_addr = ngx_str_to_char(addr_text, r->pool);
         const char *server_addr = ngx_str_to_char(server_addr_text, r->pool);
-        msc_process_connection(ctx->modsec_assay,
+        ret = msc_process_connection(ctx->modsec_assay,
             client_addr, client_port,
             server_addr, server_port);
+        if (ret != 1){
+            dd("Was not able to exract connection information.");
+        }
         /**
          *
          * FIXME: Check how we can finalize a request without crash nginx.
@@ -706,7 +743,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             }
 
             /**
-             * By using u_char (utf8_t) I believe nginx is hopping to deal
+             * By using u_char (utf8_t) I believe nginx is hoping to deal
              * with utf8 strings.
              * Casting those into to unsigned char * in order to pass
              * it to ModSecurity, it will handle with those later.

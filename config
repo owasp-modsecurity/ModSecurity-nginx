@@ -77,13 +77,21 @@ ngx_addon_name=ngx_http_modsecurity
 HTTP_AUX_FILTER_MODULES="$HTTP_AUX_FILTER_MODULES ngx_http_modsecurity"
 NGX_ADDON_SRCS="\
     $NGX_ADDON_SRCS \
-    $ngx_addon_dir/src/ngx_http_modsecurity.c \
+    $ngx_addon_dir/src/ngx_http_modsecurity_module.c \
+    $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.c \
+    $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.c \
+    $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.c \
+    $ngx_addon_dir/src/ngx_http_modsecurity_log.c \
+    $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.c \
     "
 
 NGX_ADDON_DEPS="\
     $NGX_ADDON_DEPS \
     $ngx_addon_dir/src/ddebug.h \
-    $ngx_addon_dir/src/ngx_http_modsecurity.h \
+    $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.h \
+    $ngx_addon_dir/src/ngx_http_modsecurity_common.h \
+    $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.h \
+    $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.h \
+    $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.h \
+    $ngx_addon_dir/src/ngx_http_modsecurity_log.h \
     "
-
-

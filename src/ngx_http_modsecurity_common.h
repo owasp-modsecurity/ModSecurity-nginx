@@ -13,15 +13,17 @@
  *
  */
 
+
+#ifndef _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
+#define _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
+
+#include <nginx.h>
+#include <ngx_core.h>
 #include <ngx_http.h>
 
 #include <modsecurity/modsecurity.h>
 #include <modsecurity/assay.h>
 #include <modsecurity/rules.h>
-
-#ifndef __NGX_HTTP_MODSECURITY_H__
-#define __NGX_HTTP_MODSECURITY_H__
-
 
 typedef struct {
     ngx_http_request_t *r;
@@ -53,6 +55,14 @@ typedef struct {
 } ngx_http_modsecurity_main_conf_t;
 
 
-#endif
+extern ngx_module_t ngx_http_modsecurity;
+extern ngx_http_output_header_filter_pt ngx_http_modsecurity_next_header_filter;
+extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
 
-/* vi:set ft=c ts=4 sw=4 et fdm=marker: */
+
+ngx_inline int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t *r);
+ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
+ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
+
+
+#endif

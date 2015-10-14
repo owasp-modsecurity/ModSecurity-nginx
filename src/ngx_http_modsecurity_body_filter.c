@@ -38,20 +38,11 @@ ngx_int_t ngx_http_modsecurity_body_filter_init(void)
 
 ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    ngx_chain_t *chain = in;
     int buffer_fully_loadead = 0;
+    ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_loc_conf_t *cf;
 
-    cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
-    if (cf == NULL || cf->enable != 1)
-    {
-        dd("ModSecurity not enabled... returning");
-        return ngx_http_next_body_filter(r, in);
-    }
-    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
-        dd("ModSecurity is not ready to deal with anything different from " \
-            "POST or GET");
+    if (in == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
 
@@ -59,11 +50,11 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
 
     dd("body filter, recovering ctx: %p", ctx);
 
-    if (r != r->main || ctx == NULL) {
+    if (ctx == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
 
-    for (chain = in; chain != NULL; chain = chain->next)
+    for (; chain != NULL; chain = chain->next)
     {
         if (chain->buf->last_buf)
         {
@@ -80,9 +71,12 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
             u_char *data = chain->buf->start;
 
             msc_append_response_body(ctx->modsec_assay, data, chain->buf->end - data);
-            /**
-             * FIXME: Body size also matters. check for intervention.
-             */
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+            if (ret > 0)
+            {
+                return ngx_http_filter_finalize_request(r,
+                    &ngx_http_modsecurity, ret);
+            }
         }
 
         msc_process_response_body(ctx->modsec_assay);

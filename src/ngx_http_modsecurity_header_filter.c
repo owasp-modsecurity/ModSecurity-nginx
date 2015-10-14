@@ -44,19 +44,6 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
     int ret = 0;
-    ngx_http_modsecurity_loc_conf_t *cf;
-
-    cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
-    if (cf == NULL || cf->enable != 1)
-    {
-        dd("ModSecurity not enabled... returning");
-        return ngx_http_next_header_filter(r);
-    }
-    if (r->method != NGX_HTTP_GET && r->method != NGX_HTTP_POST) {
-        dd("ModSecurity is not ready to deal with anything different from " \
-            "POST or GET");
-        return ngx_http_next_header_filter(r);
-    }
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
@@ -64,7 +51,7 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
     if (ctx == NULL)
     {
-        dd("something really bad happened here. going to the next filter.");
+        dd("something really bad happened or ModSecurity is disabled. going to the next filter.");
         return ngx_http_next_header_filter(r);;
     }
 

@@ -60,9 +60,9 @@ extern ngx_http_output_header_filter_pt ngx_http_modsecurity_next_header_filter;
 extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
 
 
-ngx_inline int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t *r);
-ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
-ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
+extern int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t *r);
+extern ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
+extern char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 
 
 #endif

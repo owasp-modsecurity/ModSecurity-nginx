@@ -127,7 +127,7 @@ ngx_inline int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http
 }
 
 
-static ngx_inline void ngx_http_modsecurity_cleanup(void *data)
+void ngx_http_modsecurity_cleanup(void *data)
 {
     ngx_http_modsecurity_ctx_t *ctx;
 

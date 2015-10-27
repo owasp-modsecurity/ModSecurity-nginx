@@ -19,10 +19,13 @@ if [ -n "$MODSECURITY_INC" -o -n "$MODSECURITY_LIB" ]; then
     ngx_feature_path="$MODSECURITY_INC"
     ngx_modsecurity_opt_I="-I$MODSECURITY_INC"
     ngx_modsecurity_opt_L="-L$MODSECURITY_LIB"
+
     if [ $NGX_RPATH = YES ]; then
-        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB $ngx_modsecurity_opt_L -lmodsecurity"
+        ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity"
+    elif [ $NGX_SYSTEM = "Linux" ]; then
+        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity"
     else
-        ngx_feature_libs="$ngx_modsecurity_opt_L -lmodsecurity"
+        ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity"
     fi
 
     . auto/feature
@@ -45,6 +48,8 @@ else
         ngx_feature_path="/usr/local/modsecurity/include"
         if [ $NGX_RPATH = YES ]; then
             ngx_feature_libs="-R/usr/local/modsecurity/lib -L/usr/local/modsecurity/lib -lmodsecurity"
+        elif [ $NGX_SYSTEM = "Linux" ]; then
+            ngx_feature_libs="-Wl,-rpath,/usr/local/modsecurity/lib -L/usr/local/modsecurity/lib -lmodsecurity"
         else
             ngx_feature_libs="-L/usr/local/modsecurity/lib -lmodsecurity"
         fi

@@ -65,39 +65,39 @@ http {
             modsecurity_rules '
                 SecRuleEngine On
                 SecRule ARGS "@streq redirect301" "id:1,phase:1,status:301,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq redirect302" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq block401" "id:11,phase:1,status:401,block"
-                SecRule ARGS "@streq block403" "id:11,phase:1,status:403,block"
+                SecRule ARGS "@streq redirect302" "id:2,phase:1,status:302,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq block401" "id:3,phase:1,status:401,block"
+                SecRule ARGS "@streq block403" "id:4,phase:1,status:403,block"
             ';
         }
         location /phase2 {
             modsecurity on;
             modsecurity_rules '
                 SecRuleEngine On
-                SecRule ARGS "@streq redirect301" "id:2,phase:2,status:301,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq redirect301" "id:1,phase:2,status:301,redirect:http://www.modsecurity.org"
                 SecRule ARGS "@streq redirect302" "id:2,phase:2,status:302,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq block401" "id:12,phase:2,status:401,block"
-                SecRule ARGS "@streq block403" "id:12,phase:2,status:403,block"
+                SecRule ARGS "@streq block401" "id:3,phase:2,status:401,block"
+                SecRule ARGS "@streq block403" "id:4,phase:2,status:403,block"
             ';
         }
         location /phase3 {
             modsecurity on;
             modsecurity_rules '
                 SecRuleEngine On
-                SecRule ARGS "@streq redirect301" "id:3,phase:3,status:301,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq redirect302" "id:3,phase:3,status:302,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq block401" "id:13,phase:3,status:401,block"
-                SecRule ARGS "@streq block403" "id:13,phase:3,status:403,block"
+                SecRule ARGS "@streq redirect301" "id:1,phase:3,status:301,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq redirect302" "id:2,phase:3,status:302,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq block401" "id:3,phase:3,status:401,block"
+                SecRule ARGS "@streq block403" "id:4,phase:3,status:403,block"
             ';
         }
         location /phase4 {
             modsecurity on;
             modsecurity_rules '
                 SecRuleEngine On
-                SecRule ARGS "@streq redirect301" "id:3,phase:3,status:301,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq redirect302" "id:4,phase:4,status:302,redirect:http://www.modsecurity.org"
-                SecRule ARGS "@streq block401" "id:14,phase:4,status:401,block"
-                SecRule ARGS "@streq block403" "id:14,phase:4,status:403,block"
+                SecRule ARGS "@streq redirect301" "id:1,phase:4,status:301,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq redirect302" "id:2,phase:4,status:302,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq block401" "id:3,phase:4,status:401,block"
+                SecRule ARGS "@streq block403" "id:4,phase:4,status:403,block"
             ';
         }
     }
@@ -125,12 +125,12 @@ is(http_get('/phase4?what=redirect302'), '', 'redirect 302 - phase 4');
 like(http_get('/phase1?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 1');
 like(http_get('/phase2?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 2');
 like(http_get('/phase3?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 3');
-like(http_get('/phase4?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 4');
+is(http_get('/phase4?what=redirect301'), '', 'redirect 301 - phase 4');
 
 # Block (401)
-like(http_get('/phase1?what=block401'), qr/403 Forbidden/, 'block 401 - phase 1');
-like(http_get('/phase2?what=block401'), qr/403 Forbidden/, 'block 401 -  phase 2');
-like(http_get('/phase3?what=block401'), qr/403 Forbidden/, 'block 401 -  phase 3');
+like(http_get('/phase1?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 1');
+like(http_get('/phase2?what=block401'), qr/401 Unauthorized/, 'block 401 -  phase 2');
+like(http_get('/phase3?what=block401'), qr/401 Unauthorized/, 'block 401 -  phase 3');
 is(http_get('/phase4?what=block401'), '', 'block 401 -  phase 4');
 
 # Block (403)

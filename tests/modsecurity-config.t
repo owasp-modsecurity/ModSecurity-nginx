@@ -61,16 +61,19 @@ http {
 
         location / {
             modsecurity_rules '
+                SecRuleEngine On
                 SecRule ARGS "@streq root" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
             ';
         }
 
         location /subfolder1 {
             modsecurity_rules '
+                SecRuleEngine On
                 SecRule ARGS "@streq subfolder1" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
             ';
             location /subfolder1/subfolder2 {
                 modsecurity_rules '
+                    SecRuleEngine On
                     SecRule ARGS "@streq subfolder2" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
                 ';
             }

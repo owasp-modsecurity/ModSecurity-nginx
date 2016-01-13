@@ -85,15 +85,15 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
          * 
          */
 
-        msc_add_n_response_header(ctx->modsec_assay,
+        msc_add_n_response_header(ctx->modsec_transaction,
             (const unsigned char *) data[i].key.data,
             data[i].key.len,
             (const unsigned char *) data[i].value.data,
             data[i].value.len);
     }
 
-    msc_process_response_headers(ctx->modsec_assay);
-    ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+    msc_process_response_headers(ctx->modsec_transaction);
+    ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
     if (ret > 0)
     {
         return ret;

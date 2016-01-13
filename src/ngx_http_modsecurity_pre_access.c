@@ -147,7 +147,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
              */
             dd("request body inspection: file -- %s", file_name);
 
-            msc_request_body_from_file(ctx->modsec_assay, file_name);
+            msc_request_body_from_file(ctx->modsec_transaction, file_name);
 
             already_inspected = 1;
         } else {
@@ -158,7 +158,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         {
             u_char *data = chain->buf->start;
 
-            msc_append_request_body(ctx->modsec_assay, data,
+            msc_append_request_body(ctx->modsec_transaction, data,
                 chain->buf->end - data);
 
             if (chain->buf->last_buf)
@@ -172,7 +172,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
              * it may ask for a intervention in consequence of that.
              * 
              */
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
             if (ret > 0)
             {
                 return ret;
@@ -186,8 +186,8 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
          * returned any kind of intervention.
          */
 
-        msc_process_request_body(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+        msc_process_request_body(ctx->modsec_transaction);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
             return ret;

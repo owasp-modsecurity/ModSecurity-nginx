@@ -22,12 +22,12 @@
 #include <ngx_http.h>
 
 #include <modsecurity/modsecurity.h>
-#include <modsecurity/assay.h>
+#include <modsecurity/transaction.h>
 #include <modsecurity/rules.h>
 
 typedef struct {
     ngx_http_request_t *r;
-    Assay *modsec_assay;
+    Transaction *modsec_transaction;
     ModSecurityIntervention *delayed_intervention;
 
     unsigned waiting_more_body:1;
@@ -60,7 +60,7 @@ extern ngx_http_output_header_filter_pt ngx_http_modsecurity_next_header_filter;
 extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
 
 
-extern int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t *r);
+extern int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);
 extern ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
 extern char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 

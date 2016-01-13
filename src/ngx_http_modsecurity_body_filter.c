@@ -70,8 +70,8 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
         {
             u_char *data = chain->buf->start;
 
-            msc_append_response_body(ctx->modsec_assay, data, chain->buf->end - data);
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+            msc_append_response_body(ctx->modsec_transaction, data, chain->buf->end - data);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
             if (ret > 0)
             {
                 return ngx_http_filter_finalize_request(r,
@@ -79,8 +79,8 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
             }
         }
 
-        msc_process_response_body(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+        msc_process_response_body(ctx->modsec_transaction);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
             return ret;

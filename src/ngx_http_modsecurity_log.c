@@ -65,7 +65,7 @@ ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_ERROR;
     }
 
-    msc_process_logging(ctx->modsec_assay, r->access_code);
+    msc_process_logging(ctx->modsec_transaction, r->access_code);
 
     return NGX_OK;
 }

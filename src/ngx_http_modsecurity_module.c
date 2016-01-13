@@ -58,7 +58,7 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 }
 
 
-ngx_inline int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http_request_t *r)
+ngx_inline int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r)
 {
     ModSecurityIntervention intervention;
     intervention.status = 200;
@@ -66,7 +66,7 @@ ngx_inline int ngx_http_modsecurity_process_intervention (Assay *assay, ngx_http
 
     dd("processing intervention.");
 
-    if (msc_intervention(assay, &intervention) == 0)
+    if (msc_intervention(transaction, &intervention) == 0)
     {
         dd("nothing to do.");
         return 0;
@@ -133,7 +133,7 @@ void ngx_http_modsecurity_cleanup(void *data)
 
     ctx = (ngx_http_modsecurity_ctx_t *) data;
 
-    msc_assay_cleanup(ctx->modsec_assay);
+    msc_transaction_cleanup(ctx->modsec_transaction);
 }
 
 
@@ -153,11 +153,11 @@ ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_
     cf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity);
     loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
 
-    dd("creating assay with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
 
-    ctx->modsec_assay = msc_new_assay(cf->modsec, loc_cf->rules_set, r->connection->log);
+    ctx->modsec_transaction = msc_new_transaction(cf->modsec, loc_cf->rules_set, r->connection->log);
 
-    dd("assay created");
+    dd("transaction created");
 
     ngx_http_set_ctx(r, ctx, ngx_http_modsecurity);
 

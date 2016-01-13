@@ -84,7 +84,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         int server_port = 0;
         const char *client_addr = ngx_str_to_char(addr_text, r->pool);
         const char *server_addr = ngx_str_to_char(server_addr_text, r->pool);
-        ret = msc_process_connection(ctx->modsec_assay,
+        ret = msc_process_connection(ctx->modsec_transaction,
             client_addr, client_port,
             server_addr, server_port);
         if (ret != 1){
@@ -99,7 +99,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * and try to use it later. 
          *
          */
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
             return ret;
@@ -110,10 +110,10 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          *
          */
 
-        msc_process_uri(ctx->modsec_assay, ngx_str_to_char(r->unparsed_uri, r->pool),
+        msc_process_uri(ctx->modsec_transaction, ngx_str_to_char(r->unparsed_uri, r->pool),
             ngx_str_to_char(r->method_name, r->pool), "1.0"
         );
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
             return ret;
@@ -145,7 +145,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
              * 
              */
 
-            msc_add_n_request_header(ctx->modsec_assay,
+            msc_add_n_request_header(ctx->modsec_transaction,
                 (const unsigned char *) data[i].key.data,
                 data[i].key.len,
                 (const unsigned char *) data[i].value.data,
@@ -157,8 +157,8 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * to process this information.
          */
 
-        msc_process_request_headers(ctx->modsec_assay);
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_assay, r);
+        msc_process_request_headers(ctx->modsec_transaction);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
             return ret;

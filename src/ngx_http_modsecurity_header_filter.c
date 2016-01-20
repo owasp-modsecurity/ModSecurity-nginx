@@ -14,10 +14,10 @@
  */
 
 
+#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
-#include "ddebug.h"
 
 
 #include <nginx.h>

@@ -59,7 +59,6 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          *
          */
         ngx_str_t addr_text = connection->addr_text;
-        ngx_str_t server_addr_text = connection->listening->addr_text;
 
         ctx = ngx_http_modsecurity_create_ctx(r);
 
@@ -80,10 +79,10 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * erliest phase that nginx allow us to attach those kind of hooks.
          *
          */
-        int client_port = 0; /* htons(((struct sockaddr_in *) sockaddr).sin_port); */
-        int server_port = 0;
+        int client_port = htons(((struct sockaddr_in *) connection->sockaddr)->sin_port);
+        int server_port = htons(((struct sockaddr_in *) connection->listening->sockaddr)->sin_port);
         const char *client_addr = ngx_str_to_char(addr_text, r->pool);
-        const char *server_addr = ngx_str_to_char(server_addr_text, r->pool);
+        const char *server_addr = inet_ntoa(((struct sockaddr_in *) connection->sockaddr)->sin_addr);
         ret = msc_process_connection(ctx->modsec_transaction,
             client_addr, client_port,
             server_addr, server_port);

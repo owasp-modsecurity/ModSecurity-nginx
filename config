@@ -61,16 +61,7 @@ fi
 
 
 
-if [ $ngx_found = yes ]; then
-    # from: https://github.com/openresty/lua-nginx-module/blob/master/config#L56
-    # this is a hack to persuade nginx's build system to favor
-    # the paths set by our user environments:
-    CFLAGS="$ngx_modsecurity_opt_I $CFLAGS"
-    NGX_LD_OPT="$ngx_modsecurity_opt_L $NGX_LD_OPT"
-
-    CORE_INCS="$CORE_INCS $ngx_feature_path"
-    CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
-else
+if [ $ngx_found = no ]; then
  cat << END
  $0: error: ngx_http_modsecurity requires the ModSecurity library.
 END
@@ -98,8 +89,17 @@ if test -n "$ngx_module_link"; then
             $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.h \
             $ngx_addon_dir/src/ngx_http_modsecurity_log.h \
             "
+        ngx_module_libs="$ngx_feature_libs"
+        ngx_module_incs="$ngx_feature_path"
+
 	. auto/module
 else
+	CFLAGS="$ngx_modsecurity_opt_I $CFLAGS"
+	NGX_LD_OPT="$ngx_modsecurity_opt_L $NGX_LD_OPT"
+
+	CORE_INCS="$CORE_INCS $ngx_feature_path"
+	CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
+
 	HTTP_AUX_FILTER_MODULES="$HTTP_AUX_FILTER_MODULES ngx_http_modsecurity"
 	NGX_ADDON_SRCS="\
 	    $NGX_ADDON_SRCS \

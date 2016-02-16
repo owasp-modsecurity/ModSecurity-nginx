@@ -415,9 +415,13 @@ static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
 
     conf->enable = NGX_CONF_UNSET;
     conf->rules_remote_server.len = 0;
+    conf->rules_remote_server.data = NULL;
     conf->rules_remote_key.len = 0;
+    conf->rules_remote_key.data = NULL;
     conf->rules_file.len = 0;
+    conf->rules_file.data = NULL;
     conf->rules.len = 0;
+    conf->rules.data = NULL;
     conf->id = 0;
     /* Create a new rules instance */
     conf->rules_set = msc_create_rules_set();

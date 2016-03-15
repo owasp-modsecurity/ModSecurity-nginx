@@ -17,6 +17,16 @@
 
 
 #define DDEBUG 0
+/*
+ * Setting MODSECURITY_SANITY_CHECKS will help you in the debug process. By
+ * defining MODSECURITY_SANITY_CHECKS a set of functions will be executed in
+ * order to make sure the well behavior of ModSecurity, letting you know (via
+ * debug_logs) if something unexpected happens.
+ *
+ * If performance is not a concern, it is safe to keep it set.
+ *
+ */
+#define MODSECURITY_SANITY_CHECKS 1
 
 #if defined(DDEBUG) && (DDEBUG)
 

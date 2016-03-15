@@ -41,6 +41,9 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
     int buffer_fully_loadead = 0;
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_list_part_t *part = &r->headers_out.headers.part;
+    ngx_table_elt_t *data = part->elts;
+    ngx_uint_t i = 0;
 
     if (in == NULL) {
         return ngx_http_next_body_filter(r, in);
@@ -53,6 +56,63 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
     if (ctx == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    /*
+     * Identify if there is a header that was not inspected by ModSecurity.
+     *
+     */
+    for (i = 0; ; i++) {
+        int found = 0;
+        ngx_uint_t j = 0;
+        ngx_table_elt_t *s1;
+        ngx_http_modsecurity_header_t *vals;
+
+        if (i >= part->nelts)
+        {
+            if (part->next == NULL)
+            {
+                break;
+            }
+
+            part = part->next;
+            data = part->elts;
+            i = 0;
+        }
+
+        vals = ctx->headers_out->elts;
+        s1 = &data[i];
+        /*
+         * Headers that were inspected by ModSecurity.
+         *
+         */
+        while (j < ctx->headers_out->nelts)
+        {
+            ngx_str_t *s2 = &vals[j].name;
+            ngx_str_t *s3 = &vals[j].value;
+
+            if (s1->key.len == s2->len && ngx_strncmp(s1->key.data, s2->data, s1->key.len) == 0)
+            {
+                if (s1->value.len == s3->len && ngx_strncmp(s1->value.data, s3->data, s1->value.len) == 0)
+                {
+                    found = 1;
+                    break;
+                }
+            }
+            j++;
+        }
+        if (!found) {
+            dd("header: `%.*s' with value: `%.*s' was not inpected by ModSecurity",
+                (int) s1->key.len,
+                (const char *) s1->key.data,
+                (int) s1->value.len,
+                (const char *) s1->value.data);
+
+            return ngx_http_filter_finalize_request(r,
+                &ngx_http_modsecurity, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        }
+    }
+#endif
 
     for (; chain != NULL; chain = chain->next)
     {

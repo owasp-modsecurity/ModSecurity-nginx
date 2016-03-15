@@ -26,9 +26,27 @@
 #include <modsecurity/rules.h>
 
 typedef struct {
+    ngx_str_t name;
+    ngx_str_t value;
+} ngx_http_modsecurity_header_t;
+
+
+typedef struct {
     ngx_http_request_t *r;
     Transaction *modsec_transaction;
     ModSecurityIntervention *delayed_intervention;
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    /*
+     * Should be filled with the headers that were sent to ModSecurity.
+     *
+     * The idea is to compare this set of headers with the headers that were
+     * sent to the client. This check was placed because we don't have control
+     * over other modules, thus, we may partially inspect the headers.
+     *
+     */
+    ngx_array_t *headers_out;
+#endif
 
     unsigned waiting_more_body:1;
     unsigned body_requested:1;
@@ -55,6 +73,16 @@ typedef struct {
 } ngx_http_modsecurity_main_conf_t;
 
 
+typedef ngx_int_t (*ngx_http_modsecurity_resolv_header_pt)(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+
+
+typedef struct {
+    ngx_str_t name;
+    ngx_uint_t offset;
+    ngx_http_modsecurity_resolv_header_pt resolver;
+} ngx_http_modsecurity_header_out_t;
+
+
 extern ngx_module_t ngx_http_modsecurity;
 extern ngx_http_output_header_filter_pt ngx_http_modsecurity_next_header_filter;
 extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
@@ -63,6 +91,8 @@ extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
 extern int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);
 extern ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
 extern char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
+
+typedef ngx_str_t (*ngx_http_modsecurity_get_header_pt)(ngx_http_request_t *r, void *value);
 
 
 #endif

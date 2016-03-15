@@ -25,7 +25,312 @@
 #include "ngx_http_modsecurity_common.h"
 
 
+#if 0
+extern const char *ngx_http_server_string;
+extern char *ngx_http_server_full_string;
+#else
+static char ngx_http_server_string[] = "Server: nginx" CRLF;
+static char ngx_http_server_full_string[] = "Server: " NGINX_VER CRLF;
+#endif
+
+
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
+
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+static ngx_int_t ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+static ngx_int_t ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+static ngx_int_t ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+static ngx_int_t ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+static ngx_int_t ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t name, off_t offset);
+
+
+ngx_http_modsecurity_header_out_t ngx_http_modsecurity_headers_out[] = {
+
+    { ngx_string("Server"),
+            offsetof(ngx_http_headers_out_t, server),
+            ngx_http_modsecurity_resolv_header_server },
+
+    { ngx_string("Date"),
+            offsetof(ngx_http_headers_out_t, date),
+            ngx_http_modsecurity_resolv_header_date },
+
+    { ngx_string("Content-Length"),
+            offsetof(ngx_http_headers_out_t, content_length_n),
+            ngx_http_modsecurity_resolv_header_content_length },
+
+    { ngx_string("Content-Type"),
+            offsetof(ngx_http_headers_out_t, content_type),
+            ngx_http_modsecurity_resolv_header_content_type },
+
+    { ngx_string("Last-Modified"),
+            offsetof(ngx_http_headers_out_t, last_modified),
+            ngx_http_modsecurity_resolv_header_last_modified },
+
+    { ngx_string("Connection"),
+            offsetof(ngx_http_headers_out_t, last_modified),
+            ngx_http_modsecurity_resolv_header_connection },
+
+#if 0
+    { ngx_string("Content-Encoding"),
+            offsetof(ngx_http_headers_out_t, content_encoding),
+            NGX_TABLE },
+
+    { ngx_string("Cache-Control"),
+            offsetof(ngx_http_headers_out_t, cache_control),
+            NGX_ARRAY },
+
+    { ngx_string("Location"),
+            offsetof(ngx_http_headers_out_t, location),
+            NGX_TABLE },
+
+    { ngx_string("Content-Range"),
+            offsetof(ngx_http_headers_out_t, content_range),
+            NGX_TABLE },
+
+    { ngx_string("Accept-Ranges"),
+            offsetof(ngx_http_headers_out_t, accept_ranges),
+            NGX_TABLE },
+
+    returiders_out[i].name 1;
+    { ngx_string("WWW-Authenticate"),
+            offsetof(ngx_http_headers_out_t, www_authenticate),
+            NGX_TABLE },
+
+    { ngx_string("Expires"),
+            offsetof(ngx_http_headers_out_t, expires),
+            NGX_TABLE },
+#endif
+    { ngx_null_string, 0, 0 }
+};
+
+
+#ifdef MODSECURITY_SANITY_CHECKS
+static int ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value) {
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+    ngx_http_modsecurity_header_t *hdr = NULL;
+
+    hdr = ngx_array_push(ctx->headers_out);
+    if (hdr == NULL)
+    {
+        return NGX_ERROR;
+    }
+
+    hdr->name.data = ngx_pnalloc(r->connection->pool, name->len);
+    hdr->value.data = ngx_pnalloc(r->connection->pool, value->len);
+
+    ngx_memcpy(hdr->name.data, name->data, name->len);
+    hdr->name.len = name->len;
+    ngx_memcpy(hdr->value.data, value->data, value->len);
+    hdr->value.len = value->len;
+
+    return NGX_OK;
+}
+#endif
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+    ngx_http_core_loc_conf_t *clcf = NULL;
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_str_t value;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+
+    if (r->headers_out.server == NULL)
+    {
+        if (clcf->server_tokens)
+        {
+            value.data = (u_char *) ngx_http_server_full_string;
+            value.len = sizeof(value.data);
+        }
+        else
+        {
+            value.data = (u_char *) ngx_http_server_string;
+            value.len = sizeof(value.data);
+        }
+    }
+    else
+    {
+        ngx_table_elt_t *h = r->headers_out.server;
+        value.data = h->value.data;
+        value.len =  h->value.len;
+    }
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    ngx_http_modescurity_store_ctx_header(r, &name, &value);
+#endif
+
+    return msc_add_n_response_header(ctx->modsec_transaction,
+        (const unsigned char *) name.data,
+        name.len,
+        (const unsigned char *) value.data,
+        value.len);
+}
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_str_t date;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+
+    if (r->headers_out.date == NULL)
+    {
+        date.data = ngx_cached_http_time.data;
+        date.len = ngx_cached_http_time.len;
+    }
+    else
+    {
+        ngx_table_elt_t *h = r->headers_out.server;
+        date.data = h->value.data;
+        date.len = h->value.len;
+    }
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    ngx_http_modescurity_store_ctx_header(r, &name, &date);
+#endif
+
+    return msc_add_n_response_header(ctx->modsec_transaction,
+        (const unsigned char *) name.data,
+        name.len,
+        (const unsigned char *) date.data,
+        date.len);
+}
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+{
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+    char buf[48];
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+
+    snprintf (buf, sizeof(buf), "%d", (int) r->headers_out.content_length_n);
+
+    if (r->headers_out.content_length_n > 0)
+    {
+#ifdef MODSECURITY_SANITY_CHECKS
+        ngx_str_t value;
+        value.data = (unsigned char *)buf;
+        value.len = strlen(buf);
+        ngx_http_modescurity_store_ctx_header(r, &name, &value);
+#endif
+
+        return msc_add_n_response_header(ctx->modsec_transaction,
+            name.data,
+            name.len,
+            (const unsigned char *) buf,
+            strlen(buf));
+    }
+
+    return 1;
+}
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+
+    if (r->headers_out.content_type.len > 0) {
+
+#ifdef MODSECURITY_SANITY_CHECKS
+        ngx_http_modescurity_store_ctx_header(r, &name, &r->headers_out.content_type);
+#endif
+
+        return msc_add_n_response_header(ctx->modsec_transaction,
+            name.data,
+            name.len,
+            (const unsigned char *) r->headers_out.content_type.data,
+            r->headers_out.content_type.len);
+    }
+
+    return 1;
+}
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+    u_char buf[1024];
+    ngx_str_t value;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+
+    ngx_http_time(buf, r->headers_out.last_modified_time);
+
+    value.data = buf;
+    value.len = strlen((char *)buf);
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    ngx_http_modescurity_store_ctx_header(r, &name, &value);
+#endif
+
+    return msc_add_n_response_header(ctx->modsec_transaction,
+        (const unsigned char *) name.data,
+        name.len,
+        (const unsigned char *) value.data,
+        value.len);
+}
+
+
+static ngx_int_t ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+{
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
+    char *connection = NULL;
+    ngx_http_core_loc_conf_t *clcf = NULL;
+    ngx_str_t value;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+
+    if (r->headers_out.status == NGX_HTTP_SWITCHING_PROTOCOLS)
+    {
+        connection = "upgrade";
+    }
+    else if (r->keepalive)
+    {
+        connection = "keep-alive";
+        if (clcf->keepalive_header)
+        {
+            u_char buf[1024];
+            ngx_sprintf(buf, "timeout=%T" CRLF, clcf->keepalive_header);
+            ngx_str_t value2;
+
+            value2.data = buf;
+            value2.len = strlen((char *)buf);
+
+#ifdef MODSECURITY_SANITY_CHECKS
+            ngx_http_modescurity_store_ctx_header(r, &name, &value2);
+#endif
+
+            msc_add_n_response_header(ctx->modsec_transaction,
+                (const unsigned char *) name.data,
+                name.len,
+                (const unsigned char *) value2.data,
+                value2.len);
+        }
+    }
+    else
+    {
+        connection = "close";
+    }
+
+    value.data = (u_char *) connection;
+    value.len = strlen(connection);
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    ngx_http_modescurity_store_ctx_header(r, &name, &value);
+#endif
+
+    return msc_add_n_response_header(ctx->modsec_transaction,
+        (const unsigned char *) name.data,
+        name.len,
+        (const unsigned char *) value.data,
+        value.len);
+}
 
 
 ngx_int_t ngx_http_modsecurity_header_filter_init(void)
@@ -52,7 +357,7 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     if (ctx == NULL)
     {
         dd("something really bad happened or ModSecurity is disabled. going to the next filter.");
-        return ngx_http_next_header_filter(r);;
+        return ngx_http_next_header_filter(r);
     }
 
     if (ctx && ctx->processed)
@@ -66,6 +371,28 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 
     ctx->processed = 1;
+    /*
+     *
+     * Assuming ModSecurity module is running immediately before the
+     * ngx_http_header_filter, we will be able to populate ModSecurity with
+     * headers from the headers_out structure.
+     *
+     * As ngx_http_header_filter place a direct call to the
+     * ngx_http_write_filter_module, we cannot hook between those two. In order
+     * to enumerate all headers, we first look at the headers_out structure,
+     * and later we look into the ngx_list_part_t. The ngx_list_part_t must be
+     * checked. Other module(s) in the chain may added some content to it.
+     *
+     */
+    for (i = 0; ngx_http_modsecurity_headers_out[i].name.len; i++)
+    {
+        dd(" Sending header to ModSecurity - header: `%.*s'.",
+            (int) ngx_http_modsecurity_headers_out[i].name.len,
+            ngx_http_modsecurity_headers_out[i].name.data);
+            ngx_http_modsecurity_headers_out[i].resolver(r,
+                    ngx_http_modsecurity_headers_out[i].name,
+                    ngx_http_modsecurity_headers_out[i].offset);
+    }
 
     for (i = 0 ;; i++)
     {
@@ -80,11 +407,15 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             data = part->elts;
             i = 0;
         }
+
+#ifdef MODSECURITY_SANITY_CHECKS
+        ngx_http_modescurity_store_ctx_header(r, &data[i].key, &data[i].value);
+#endif
+
         /**
          * Doing this ugly cast here, explanation on the request_header
          * 
          */
-
         msc_add_n_response_header(ctx->modsec_transaction,
             (const unsigned char *) data[i].key.data,
             data[i].key.len,

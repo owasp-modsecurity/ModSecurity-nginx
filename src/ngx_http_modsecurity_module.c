@@ -134,6 +134,10 @@ void ngx_http_modsecurity_cleanup(void *data)
     ctx = (ngx_http_modsecurity_ctx_t *) data;
 
     msc_transaction_cleanup(ctx->modsec_transaction);
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    ngx_array_destroy(ctx->headers_out);
+#endif
 }
 
 
@@ -143,6 +147,9 @@ ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_
     ngx_http_modsecurity_loc_conf_t *loc_cf = NULL;
     ngx_http_modsecurity_main_conf_t *cf = NULL;
     ngx_pool_cleanup_t *cln = NULL;
+#ifdef MODSECURITY_SANITY_CHECKS
+    int ret = 0;
+#endif
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -169,6 +176,15 @@ ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_
     }
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
+
+#ifdef MODSECURITY_SANITY_CHECKS
+    ctx->headers_out = ngx_palloc(r->pool, sizeof(ngx_array_t));
+    ret = ngx_array_init(ctx->headers_out, r->pool, 2, sizeof(ngx_http_modsecurity_header_t));
+    if (ret != NGX_OK)
+    {
+        return NGX_CONF_ERROR;
+    }
+#endif
 
     return ctx;
 }
@@ -354,7 +370,6 @@ static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
     }
 
     return NGX_OK;
-
 }
 
 

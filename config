@@ -92,6 +92,8 @@ if test -n "$ngx_module_link"; then
         ngx_module_libs="$ngx_feature_libs"
         ngx_module_incs="$ngx_feature_path"
 
+    ngx_module_order="$ngx_module_name ngx_http_chunked_filter_module"
+
 	. auto/module
 else
 	CFLAGS="$ngx_modsecurity_opt_I $CFLAGS"

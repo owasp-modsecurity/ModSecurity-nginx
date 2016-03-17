@@ -370,6 +370,13 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
 
+    /**
+     * Lets ask nginx to keep the response body in memory
+     *
+     * FIXME: I don't see a reason to keep it `1' when SecResponseBody is disabled.
+     */
+    r->filter_need_in_memory = 1;
+
     ctx->processed = 1;
     /*
      *

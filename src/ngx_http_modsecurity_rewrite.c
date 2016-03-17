@@ -98,6 +98,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * and try to use it later. 
          *
          */
+        dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
@@ -112,6 +113,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         msc_process_uri(ctx->modsec_transaction, ngx_str_to_char(r->unparsed_uri, r->pool),
             ngx_str_to_char(r->method_name, r->pool), "1.0"
         );
+        dd("Processing intervention with the transaction information filled in (uri, mothod and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {
@@ -157,6 +159,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          */
 
         msc_process_request_headers(ctx->modsec_transaction);
+        dd("Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0)
         {

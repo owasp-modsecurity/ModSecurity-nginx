@@ -105,13 +105,27 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             return ret;
         }
 
-        /**
-         * TODO: Fix http_version
-         *
-         */
+        const char *http_version;
+        switch (r->http_version) {
+            case NGX_HTTP_VERSION_9 :
+                http_version = "0.9";
+                break;
+            case NGX_HTTP_VERSION_10 :
+                http_version = "1.0";
+                break;
+            case NGX_HTTP_VERSION_11 :
+                http_version = "1.1";
+                break;
+            case NGX_HTTP_VERSION_20 :
+                http_version = "2.0";
+                break;
+            default :
+                http_version = "1.0";
+                break;
+        }
 
         msc_process_uri(ctx->modsec_transaction, ngx_str_to_char(r->unparsed_uri, r->pool),
-            ngx_str_to_char(r->method_name, r->pool), "1.0"
+            ngx_str_to_char(r->method_name, r->pool), http_version
         );
         dd("Processing intervention with the transaction information filled in (uri, mothod and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);

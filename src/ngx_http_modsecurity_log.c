@@ -21,7 +21,7 @@
 
 
 #include <nginx.h>
-#include "ngx_http_modsecurity_log.h"
+#include "ngx_http_modsecurity_common.h"
 
 
 void ngx_http_modsecurity_log(void *log, const char* msg)

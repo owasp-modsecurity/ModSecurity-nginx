@@ -21,7 +21,7 @@
 
 
 #include <nginx.h>
-#include "ngx_http_modsecurity_pre_access.h"
+#include "ngx_http_modsecurity_common.h"
 
 
 void ngx_http_modsecurity_request_read(ngx_http_request_t *r)

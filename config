@@ -82,12 +82,7 @@ if test -n "$ngx_module_link"; then
             $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.c \
             "
 	ngx_module_deps="$ngx_addon_dir/src/ddebug.h \
-            $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.h \
             $ngx_addon_dir/src/ngx_http_modsecurity_common.h \
-            $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.h \
-            $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.h \
-            $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.h \
-            $ngx_addon_dir/src/ngx_http_modsecurity_log.h \
             "
         ngx_module_libs="$ngx_feature_libs"
         ngx_module_incs="$ngx_feature_path"
@@ -116,11 +111,6 @@ else
 	NGX_ADDON_DEPS="\
 	    $NGX_ADDON_DEPS \
 	    $ngx_addon_dir/src/ddebug.h \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.h \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_common.h \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.h \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.h \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.h \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_log.h \
 	    "
 fi

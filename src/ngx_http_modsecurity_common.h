@@ -17,7 +17,6 @@
 #ifndef _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
 #define _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
 
-#include <nginx.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
@@ -83,16 +82,34 @@ typedef struct {
 } ngx_http_modsecurity_header_out_t;
 
 
+typedef ngx_str_t (*ngx_http_modsecurity_get_header_pt)(ngx_http_request_t *r, void *value);
+
 extern ngx_module_t ngx_http_modsecurity;
 extern ngx_http_output_header_filter_pt ngx_http_modsecurity_next_header_filter;
 extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
 
+/* ngx_http_modsecurity_module.c */
+int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);
+ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
+char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 
-extern int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);
-extern ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
-extern char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
+/* ngx_http_modsecurity_body_filter.c */
+ngx_int_t ngx_http_modsecurity_body_filter_init(void);
+ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in);
 
-typedef ngx_str_t (*ngx_http_modsecurity_get_header_pt)(ngx_http_request_t *r, void *value);
+/* ngx_http_modsecurity_header_filter.c */
+ngx_int_t ngx_http_modsecurity_header_filter_init(void);
+ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r);
+
+/* ngx_http_modsecurity_log.c */
+void ngx_http_modsecurity_log(void *log, const char* msg);
+ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r);
+
+/* ngx_http_modsecurity_pre_access.c */
+ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r);
+
+/* ngx_http_modsecurity_rewrite.c */
+ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r);
 
 
-#endif
+#endif	/* _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_ */

@@ -22,7 +22,6 @@
 
 #include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
-#include "ngx_http_modsecurity_rewrite.h"
 
 
 ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)

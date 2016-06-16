@@ -20,12 +20,8 @@
 #endif
 
 
+#include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
-#include "ngx_http_modsecurity_rewrite.h"
-#include "ngx_http_modsecurity_pre_access.h"
-#include "ngx_http_modsecurity_log.h"
-#include "ngx_http_modsecurity_body_filter.h"
-#include "ngx_http_modsecurity_header_filter.h"
 
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);

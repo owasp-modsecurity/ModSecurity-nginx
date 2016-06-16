@@ -21,7 +21,7 @@
 
 
 #include <nginx.h>
-#include "ngx_http_modsecurity_body_filter.h"
+#include "ngx_http_modsecurity_common.h"
 
 
 static ngx_http_output_body_filter_pt ngx_http_next_body_filter;

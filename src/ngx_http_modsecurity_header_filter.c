@@ -21,7 +21,6 @@
 
 
 #include <nginx.h>
-#include "ngx_http_modsecurity_header_filter.h"
 #include "ngx_http_modsecurity_common.h"
 
 

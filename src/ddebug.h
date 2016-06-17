@@ -16,7 +16,13 @@
 #include <ngx_core.h>
 
 
-#define DDEBUG 0
+/*
+ * Enable debugging (enforced)
+ *
+ * #undef DDEBUG
+ * #define DDEBUG 0
+ */
+
 /*
  * Setting MODSECURITY_SANITY_CHECKS will help you in the debug process. By
  * defining MODSECURITY_SANITY_CHECKS a set of functions will be executed in

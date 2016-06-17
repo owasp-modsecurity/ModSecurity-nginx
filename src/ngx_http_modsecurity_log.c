@@ -13,21 +13,17 @@
  *
  */
 
-
 #include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
 
-
-#include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
 
-
-void ngx_http_modsecurity_log(void *log, const char* msg)
+void
+ngx_http_modsecurity_log(void *log, const char* msg)
 {
-    if (log == NULL)
-    {
+    if (log == NULL) {
         return;
     }
 
@@ -35,7 +31,8 @@ void ngx_http_modsecurity_log(void *log, const char* msg)
 }
 
 
-ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
+ngx_int_t
+ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
@@ -60,8 +57,7 @@ ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 
     dd("recovering ctx: %p", ctx);
 
-    if (ctx == NULL)
-    {
+    if (ctx == NULL) {
         dd("something really bad happened here. returning NGX_ERROR");
         return NGX_ERROR;
     }

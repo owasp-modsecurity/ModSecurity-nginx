@@ -13,16 +13,12 @@
  *
  */
 
-
 #include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
 
-
-#include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
-
 
 #if 0
 extern const char *ngx_http_server_string;
@@ -32,10 +28,7 @@ static char ngx_http_server_string[] = "Server: nginx" CRLF;
 static char ngx_http_server_full_string[] = "Server: " NGINX_VER CRLF;
 #endif
 
-
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
-
-
 
 static ngx_int_t ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset);
 static ngx_int_t ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, off_t offset);
@@ -106,14 +99,15 @@ ngx_http_modsecurity_header_out_t ngx_http_modsecurity_headers_out[] = {
 
 
 #ifdef MODSECURITY_SANITY_CHECKS
-static int ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value) {
+static int
+ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value)
+{
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
     ngx_http_modsecurity_header_t *hdr = NULL;
 
     hdr = ngx_array_push(ctx->headers_out);
-    if (hdr == NULL)
-    {
+    if (hdr == NULL) {
         return NGX_ERROR;
     }
 
@@ -130,7 +124,9 @@ static int ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_
 #endif
 
 
-static ngx_int_t ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+static ngx_int_t
+ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+{
     ngx_http_core_loc_conf_t *clcf = NULL;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_str_t value;
@@ -170,7 +166,9 @@ static ngx_int_t ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r
 }
 
 
-static ngx_int_t ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+static ngx_int_t
+ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+{
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_str_t date;
 
@@ -200,7 +198,8 @@ static ngx_int_t ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, 
 }
 
 
-static ngx_int_t ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+static ngx_int_t
+ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str_t name, off_t offset)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     char buf[48];
@@ -229,12 +228,15 @@ static ngx_int_t ngx_http_modsecurity_resolv_header_content_length(ngx_http_requ
 }
 
 
-static ngx_int_t ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+static ngx_int_t
+ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+{
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
-    if (r->headers_out.content_type.len > 0) {
+    if (r->headers_out.content_type.len > 0)
+    {
 
 #ifdef MODSECURITY_SANITY_CHECKS
         ngx_http_modescurity_store_ctx_header(r, &name, &r->headers_out.content_type);
@@ -251,7 +253,9 @@ static ngx_int_t ngx_http_modsecurity_resolv_header_content_type(ngx_http_reques
 }
 
 
-static ngx_int_t ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_t name, off_t offset) {
+static ngx_int_t
+ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+{
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     u_char buf[1024];
     ngx_str_t value;
@@ -275,7 +279,8 @@ static ngx_int_t ngx_http_modsecurity_resolv_header_last_modified(ngx_http_reque
 }
 
 
-static ngx_int_t ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t name, off_t offset)
+static ngx_int_t
+ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t name, off_t offset)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     char *connection = NULL;
@@ -332,7 +337,8 @@ static ngx_int_t ngx_http_modsecurity_resolv_header_connection(ngx_http_request_
 }
 
 
-ngx_int_t ngx_http_modsecurity_header_filter_init(void)
+ngx_int_t
+ngx_http_modsecurity_header_filter_init(void)
 {
     ngx_http_next_header_filter = ngx_http_top_header_filter;
     ngx_http_top_header_filter = ngx_http_modsecurity_header_filter;
@@ -341,7 +347,8 @@ ngx_int_t ngx_http_modsecurity_header_filter_init(void)
 }
 
 
-ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
+ngx_int_t
+ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
     ngx_list_part_t *part = &r->headers_out.headers.part;
@@ -361,15 +368,14 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
     if (ctx && ctx->processed)
     {
-        /**
-         *FIXME: verify if this request is already processed.
-         *
+        /*
+         * FIXME: verify if this request is already processed.
          */
         dd("Already processed... going to the next header...");
         return ngx_http_next_header_filter(r);
     }
 
-    /**
+    /*
      * Lets ask nginx to keep the response body in memory
      *
      * FIXME: I don't see a reason to keep it `1' when SecResponseBody is disabled.
@@ -404,8 +410,7 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     {
         if (i >= part->nelts)
         {
-            if (part->next == NULL)
-            {
+            if (part->next == NULL) {
                 break;
             }
 
@@ -418,9 +423,8 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         ngx_http_modescurity_store_ctx_header(r, &data[i].key, &data[i].value);
 #endif
 
-        /**
+        /*
          * Doing this ugly cast here, explanation on the request_header
-         * 
          */
         msc_add_n_response_header(ctx->modsec_transaction,
             (const unsigned char *) data[i].key.data,
@@ -431,12 +435,11 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
     msc_process_response_headers(ctx->modsec_transaction);
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-    if (ret > 0)
-    {
+    if (ret > 0) {
         return ret;
     }
 
-    /**
+    /*
      * Proxies will not like this... but it is necessary to unset
      * the content length in order to manipulate the content of
      * response body in ModSecurity.
@@ -450,9 +453,9 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      * make the proxy servers happy.
      *
      */
-    /**
+
+    /*
      * The line below is commented to make the spdy test to work
-     *
      */
      //r->headers_out.content_length_n = -1;
 

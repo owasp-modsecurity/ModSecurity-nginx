@@ -17,8 +17,10 @@
 #ifndef _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
 #define _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
 
+#include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+#include <nginx.h>
 
 #include <modsecurity/modsecurity.h>
 #include <modsecurity/transaction.h>
@@ -112,4 +114,4 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r);
 ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r);
 
 
-#endif	/* _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_ */
+#endif /* _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_ */

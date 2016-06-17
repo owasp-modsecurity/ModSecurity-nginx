@@ -13,25 +13,21 @@
  *
  */
 
-
 #include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
 
-
-#include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
 
-
-ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
+ngx_int_t
+ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
-    if (cf == NULL || cf->enable != 1)
-    {
+    if (cf == NULL || cf->enable != 1) {
         dd("ModSecurity not enabled... returning");
         return NGX_DECLINED;
     }
@@ -42,7 +38,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
-    dd("catching a new _rewrite_ pahase handler");
+    dd("catching a new _rewrite_ phase handler");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
@@ -53,7 +49,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         int ret = 0;
 
         ngx_connection_t *connection = r->connection;
-        /** 
+        /**
          * FIXME: We may want to use struct sockaddr instead of addr_text.
          *
          */
@@ -63,10 +59,8 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 
         dd("ctx was NULL, creating new context: %p", ctx);
 
-        if (ctx == NULL)
-        {
+        if (ctx == NULL) {
             dd("ctx still null; Nothing we can do, returning an error.");
-
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
@@ -94,13 +88,12 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          *
          * I don't think nginx is expecting to finalize a request at that
          * point as it seems that it clean the ngx_http_request_t information
-         * and try to use it later. 
+         * and try to use it later.
          *
          */
         dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (ret > 0)
-        {
+        if (ret > 0) {
             return ret;
         }
 
@@ -128,14 +121,13 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         );
         dd("Processing intervention with the transaction information filled in (uri, mothod and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (ret > 0)
-        {
+        if (ret > 0) {
             return ret;
         }
 
         /**
          * Since headers are already in place, lets send it to ModSecurity
-         * 
+         *
          */
         ngx_list_part_t *part = &r->headers_in.headers.part;
         ngx_table_elt_t *data = part->elts;
@@ -156,7 +148,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
              * with utf8 strings.
              * Casting those into to unsigned char * in order to pass
              * it to ModSecurity, it will handle with those later.
-             * 
+             *
              */
 
             msc_add_n_request_header(ctx->modsec_transaction,
@@ -174,8 +166,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         msc_process_request_headers(ctx->modsec_transaction);
         dd("Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (ret > 0)
-        {
+        if (ret > 0) {
             return ret;
         }
     }

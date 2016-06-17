@@ -13,16 +13,12 @@
  *
  */
 
-
 #include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
 
-
-#include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
-
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
 static ngx_int_t ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf);
@@ -33,7 +29,8 @@ static void ngx_http_modsecurity_main_config_cleanup(void *data);
 static ngx_inline void ngx_http_modsecurity_config_cleanup(void *data);
 
 
-ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
+ngx_inline char *
+ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 {
     char *str = NULL;
 
@@ -54,7 +51,8 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 }
 
 
-ngx_inline int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r)
+ngx_inline int
+ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r)
 {
     ModSecurityIntervention intervention;
     intervention.status = 200;
@@ -62,14 +60,12 @@ ngx_inline int ngx_http_modsecurity_process_intervention (Transaction *transacti
 
     dd("processing intervention.");
 
-    if (msc_intervention(transaction, &intervention) == 0)
-    {
+    if (msc_intervention(transaction, &intervention) == 0) {
         dd("nothing to do.");
         return 0;
     }
 
-    if (intervention.log == NULL)
-    {
+    if (intervention.log == NULL) {
         intervention.log = "(no log message was specified)";
     }
 
@@ -85,13 +81,13 @@ ngx_inline int ngx_http_modsecurity_process_intervention (Transaction *transacti
         /**
          * Not sure if it sane to do this indepent of the phase
          * but, here we go...
-         * 
+         *
          * This code cames from: http/ngx_http_special_response.c
          * function: ngx_http_send_error_page
          * src/http/ngx_http_core_module.c
          * From src/http/ngx_http_core_module.c (line 1910) i learnt
          * that location->hash should be set to 1.
-         * 
+         *
          */
         ngx_http_clear_location(r);
         ngx_str_t a = ngx_string("");
@@ -123,7 +119,8 @@ ngx_inline int ngx_http_modsecurity_process_intervention (Transaction *transacti
 }
 
 
-void ngx_http_modsecurity_cleanup(void *data)
+void
+ngx_http_modsecurity_cleanup(void *data)
 {
     ngx_http_modsecurity_ctx_t *ctx;
 
@@ -137,7 +134,8 @@ void ngx_http_modsecurity_cleanup(void *data)
 }
 
 
-ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
+ngx_inline ngx_http_modsecurity_ctx_t *
+ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
     ngx_http_modsecurity_loc_conf_t *loc_cf = NULL;
@@ -185,7 +183,7 @@ ngx_inline ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_
     return ctx;
 }
 
-static char*
+static char *
 ngx_http_modsecurity_set_remote_server(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     char *p = conf;
@@ -248,17 +246,17 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
 
 
 static ngx_http_module_t ngx_http_modsecurity_ctx = {
-    ngx_http_modsecurity_preconfiguration, /* preconfiguration */
-    ngx_http_modsecurity_init, /* postconfiguration */
+    ngx_http_modsecurity_preconfiguration,	/* preconfiguration */
+    ngx_http_modsecurity_init,			/* postconfiguration */
 
-    ngx_http_modsecurity_create_main_conf, /* create main configuration */
-    NULL, /* init main configuration */
+    ngx_http_modsecurity_create_main_conf,	/* create main configuration */
+    NULL,					/* init main configuration */
 
-    NULL, /* create server configuration */
-    NULL, /* merge server configuration */
+    NULL,					/* create server configuration */
+    NULL,					/* merge server configuration */
 
-    ngx_http_modsecurity_create_loc_conf, /* create location configuration */
-    ngx_http_modsecurity_merge_loc_conf /* merge location configuration */
+    ngx_http_modsecurity_create_loc_conf,	/* create location configuration */
+    ngx_http_modsecurity_merge_loc_conf		/* merge location configuration */
 };
 
 
@@ -278,7 +276,8 @@ ngx_module_t ngx_http_modsecurity = {
 };
 
 
-static ngx_int_t ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
+static ngx_int_t
+ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
 {
     /*
      *
@@ -293,7 +292,8 @@ static ngx_int_t ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
 }
 
 
-static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
+static ngx_int_t
+ngx_http_modsecurity_init(ngx_conf_t *cf)
 {
     ngx_http_handler_pt *h_rewrite;
     ngx_http_handler_pt *h_preaccess;
@@ -302,14 +302,14 @@ static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
     int rc = 0;
 
     cmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_core_module);
-    if (cmcf == NULL) 
+    if (cmcf == NULL)
     {
         dd("We are not sure how this returns, NGINX doesn't seem to think it will ever be null");
         return NGX_ERROR;
     }
     /**
-     * 
-     * Semms like we cannot do this very same thing with
+     *
+     * Seems like we cannot do this very same thing with
      * NGX_HTTP_FIND_CONFIG_PHASE. it does not seems to
      * be an array. Our next option is the REWRITE.
      *
@@ -317,7 +317,7 @@ static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
      *
      */
     h_rewrite = ngx_array_push(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers);
-    if (h_rewrite == NULL) 
+    if (h_rewrite == NULL)
     {
         dd("Not able to create a new NGX_HTTP_REWRITE_PHASE handle");
         return NGX_ERROR;
@@ -332,7 +332,7 @@ static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
      *
      */
     h_preaccess = ngx_array_push(&cmcf->phases[NGX_HTTP_PREACCESS_PHASE].handlers);
-    if (h_preaccess == NULL) 
+    if (h_preaccess == NULL)
     {
         dd("Not able to create a new NGX_HTTP_PREACCESS_PHASE handle");
         return NGX_ERROR;
@@ -347,7 +347,7 @@ static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
      *
      */
     h_log = ngx_array_push(&cmcf->phases[NGX_HTTP_LOG_PHASE].handlers);
-    if (h_log == NULL) 
+    if (h_log == NULL)
     {
         dd("Not able to create a new NGX_HTTP_LOG_PHASE handle");
         return NGX_ERROR;
@@ -369,7 +369,8 @@ static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf)
 }
 
 
-static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
+static void *
+ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_main_conf_t *conf;
 
@@ -382,6 +383,7 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
         dd("failed to allocate space for the ModSecurity configuration");
         return NGX_CONF_ERROR;
     }
+
     /* Create our ModSecurity instace */
     conf->modsec = msc_init();
     if (conf->modsec == NULL)
@@ -391,7 +393,8 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     }
 
     ngx_pool_cleanup_t *cln = NULL;
-    /* Provide our connector information to LibModSecurity*/
+
+    /* Provide our connector information to LibModSecurity */
     msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.2-alpha");
     msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
@@ -409,12 +412,13 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 }
 
 
-static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
+static void *
+ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_loc_conf_t  *conf;
     ngx_pool_cleanup_t *cln = NULL;
 
-    conf = (ngx_http_modsecurity_loc_conf_t  *) 
+    conf = (ngx_http_modsecurity_loc_conf_t  *)
         ngx_palloc(cf->pool, sizeof(ngx_http_modsecurity_loc_conf_t));
     dd("creating a location specific conf");
 
@@ -434,6 +438,7 @@ static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     conf->rules.len = 0;
     conf->rules.data = NULL;
     conf->id = 0;
+
     /* Create a new rules instance */
     conf->rules_set = msc_create_rules_set();
 
@@ -442,8 +447,8 @@ static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
     //msc_rules_dump(conf->rules_set); // This was for debug
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {
-            dd("failed to create the ModSecurity location specific configuration cleanup");
-            return NGX_CONF_ERROR;     
+        dd("failed to create the ModSecurity location specific configuration cleanup");
+        return NGX_CONF_ERROR;
     }
     cln->handler = ngx_http_modsecurity_config_cleanup;
     cln->data = conf;
@@ -452,8 +457,8 @@ static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf)
 }
 
 
-static char *ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
-    void *child)
+static char *
+ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
     ngx_http_modsecurity_loc_conf_t *p = NULL;
     ngx_http_modsecurity_loc_conf_t *c = NULL;
@@ -535,7 +540,8 @@ static char *ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent,
 }
 
 
-static void ngx_http_modsecurity_main_config_cleanup(void *data)
+static void
+ngx_http_modsecurity_main_config_cleanup(void *data)
 {
     ngx_http_modsecurity_main_conf_t *cf = data;
     msc_cleanup(cf->modsec);
@@ -543,7 +549,8 @@ static void ngx_http_modsecurity_main_config_cleanup(void *data)
 }
 
 
-static ngx_inline void ngx_http_modsecurity_config_cleanup(void *data)
+static ngx_inline void
+ngx_http_modsecurity_config_cleanup(void *data)
 {
     ngx_http_modsecurity_loc_conf_t *t = (ngx_http_modsecurity_loc_conf_t *) data;
     dd("deleting a loc conf -- RuleSet is: \"%p\"", t->rules_set);

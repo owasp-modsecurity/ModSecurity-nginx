@@ -13,18 +13,15 @@
  *
  */
 
-
 #include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
 
-
-#include <nginx.h>
 #include "ngx_http_modsecurity_common.h"
 
-
-void ngx_http_modsecurity_request_read(ngx_http_request_t *r)
+void
+ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
 
@@ -42,7 +39,8 @@ void ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 }
 
 
-ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
+ngx_int_t
+ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 {
 #if 1
     ngx_http_modsecurity_ctx_t *ctx = NULL;
@@ -131,12 +129,11 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         /**
          * TODO: Speed up the analysis by sending chunk while they arrive.
          *
-         * Notice that we are waiting for the full request body to 
+         * Notice that we are waiting for the full request body to
          * start to process it, it may not be necessary. We may send
          * the chunks to ModSecurity while nginx keep calling this
          * function.
          */
-
 
         if (r->request_body->temp_file != NULL) {
             ngx_str_t file_path = r->request_body->temp_file->file.name;
@@ -161,8 +158,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
             msc_append_request_body(ctx->modsec_transaction, data,
                 chain->buf->end - data);
 
-            if (chain->buf->last_buf)
-            {
+            if (chain->buf->last_buf) {
                 break;
             }
             chain = chain->next;
@@ -170,17 +166,16 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
             /**
              * ModSecurity may perform stream inspection on this buffer,
              * it may ask for a intervention in consequence of that.
-             * 
+             *
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-            if (ret > 0)
-            {
+            if (ret > 0) {
                 return ret;
             }
         }
 
         /**
-         * At this point, all the request body was sent to ModSecurity 
+         * At this point, all the request body was sent to ModSecurity
          * and we want to make sure that all the request body inspection
          * happened; consequently we have to check if ModSecurity have
          * returned any kind of intervention.
@@ -188,8 +183,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
         msc_process_request_body(ctx->modsec_transaction);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (ret > 0)
-        {
+        if (ret > 0) {
             return ret;
         }
     }

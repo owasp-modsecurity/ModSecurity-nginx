@@ -29,6 +29,10 @@ static void ngx_http_modsecurity_main_config_cleanup(void *data);
 static ngx_inline void ngx_http_modsecurity_config_cleanup(void *data);
 
 
+/*
+ * NGINX strings are not null-terminated, so we need to convert them into
+ * null-terminated ones before passing to ModSecurity.
+ */
 ngx_inline char *
 ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 {
@@ -38,10 +42,10 @@ ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
         return NULL;
     }
 
-    str = ngx_pcalloc(p, a.len+1);
+    str = ngx_pnalloc(p, a.len+1);
     if (str == NULL) {
             dd("failed to allocate space to convert space ngx_string to C string");
-            /* We already return null for an empty string, so we return -1 here */
+            /* We already returned NULL for an empty string, so return -1 here to indicate allocation error */
             return (char *)-1;
     }
     ngx_memcpy(str, a.data, a.len);

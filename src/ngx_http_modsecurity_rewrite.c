@@ -119,7 +119,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         msc_process_uri(ctx->modsec_transaction, ngx_str_to_char(r->unparsed_uri, r->pool),
             ngx_str_to_char(r->method_name, r->pool), http_version
         );
-        dd("Processing intervention with the transaction information filled in (uri, mothod and version)");
+        dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
             return ret;
@@ -132,7 +132,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         ngx_list_part_t *part = &r->headers_in.headers.part;
         ngx_table_elt_t *data = part->elts;
         ngx_uint_t i = 0;
-        for (i = 0 ;; i++) {
+        for (i = 0 ; /* void */ ; i++) {
             if (i >= part->nelts) {
                 if (part->next == NULL) {
                     break;

@@ -13,15 +13,16 @@
  *
  */
 
-#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
+#include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
 
 static ngx_http_output_body_filter_pt ngx_http_next_body_filter;
 
+/* XXX: check behaviour on few body filters installed */
 ngx_int_t
 ngx_http_modsecurity_body_filter_init(void)
 {
@@ -37,9 +38,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     int buffer_fully_loadead = 0;
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
+#ifdef MODSECURITY_SANITY_CHECKS
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
+#endif
 
     if (in == NULL) {
         return ngx_http_next_body_filter(r, in);
@@ -111,6 +114,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     for (; chain != NULL; chain = chain->next)
     {
+/* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
         if (chain->buf->last_buf) {
             buffer_fully_loadead = 1;
         }
@@ -133,6 +137,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         }
 
         msc_process_response_body(ctx->modsec_transaction);
+/* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
+   XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
             return ret;
@@ -147,5 +153,6 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         dd("buffer was not fully loaded! ctx: %p", ctx);
     }
 
+/* XXX: xflt_filter() -- return NGX_OK here */
     return ngx_http_next_body_filter(r, in);
 }

@@ -13,10 +13,10 @@
  *
  */
 
-#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
+#include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
 

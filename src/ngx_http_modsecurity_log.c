@@ -13,10 +13,10 @@
  *
  */
 
-#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
+#include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
 
@@ -38,7 +38,7 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_loc_conf_t *cf;
     ngx_uint_t status = r->headers_out.status;
 
-    dd("catching a new _log_ pahase handler");
+    dd("catching a new _log_ phase handler");
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
     if (cf == NULL || cf->enable != 1)

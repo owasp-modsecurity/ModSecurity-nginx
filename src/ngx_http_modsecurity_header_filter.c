@@ -13,10 +13,10 @@
  *
  */
 
-#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
+#include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
 
@@ -356,6 +356,8 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_uint_t i = 0;
     int ret = 0;
 
+/* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
     dd("header filter, recovering ctx: %p", ctx);
@@ -365,6 +367,9 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         dd("something really bad happened or ModSecurity is disabled. going to the next filter.");
         return ngx_http_next_header_filter(r);
     }
+
+/* XXX: can it happen ?  already processed i mean */
+/* XXX: check behaviour on 'ModSecurity off' */
 
     if (ctx && ctx->processed)
     {

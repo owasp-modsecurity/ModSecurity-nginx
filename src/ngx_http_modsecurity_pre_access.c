@@ -13,10 +13,10 @@
  *
  */
 
-#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
+#include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
 
@@ -46,7 +46,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
 
-    dd("catching a new _preaccess_ pahase handler");
+    dd("catching a new _preaccess_ phase handler");
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
     if (cf == NULL || cf->enable != 1)
@@ -163,6 +163,8 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
             }
             chain = chain->next;
 
+/* XXX: chains are processed one-by-one, maybe worth to pass all chains and then call intervention() ? */
+
             /**
              * ModSecurity may perform stream inspection on this buffer,
              * it may ask for a intervention in consequence of that.
@@ -180,6 +182,8 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
          * happened; consequently we have to check if ModSecurity have
          * returned any kind of intervention.
          */
+
+/* XXX: once more -- is body can be modified ?  content-length need to be adjusted ? */
 
         msc_process_request_body(ctx->modsec_transaction);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);

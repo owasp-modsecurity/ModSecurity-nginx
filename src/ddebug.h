@@ -10,17 +10,9 @@
 #ifndef _DDEBUG_H_INCLUDED_
 #define _DDEBUG_H_INCLUDED_
 
-
-#include <ngx_config.h>
-#include <nginx.h>
-#include <ngx_core.h>
-
-
 /*
- * Enable debugging (enforced)
- *
  * #undef DDEBUG
- * #define DDEBUG 0
+ * #define DDEBUG 1
  */
 
 /*

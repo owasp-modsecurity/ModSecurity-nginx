@@ -17,10 +17,10 @@
 #ifndef _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
 #define _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_
 
+#include <nginx.h>
 #include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#include <nginx.h>
 
 #include <modsecurity/modsecurity.h>
 #include <modsecurity/transaction.h>

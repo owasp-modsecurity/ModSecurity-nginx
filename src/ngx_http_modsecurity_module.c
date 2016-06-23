@@ -13,10 +13,10 @@
  *
  */
 
-#include "ddebug.h"
 #ifndef DDEBUG
 #define DDEBUG 0
 #endif
+#include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
 
@@ -30,8 +30,8 @@ static ngx_inline void ngx_http_modsecurity_config_cleanup(void *data);
 
 
 /*
- * NGINX strings are not null-terminated, so we need to convert them into
- * null-terminated ones before passing to ModSecurity.
+ * ngx_string's are not null-terminated in common case, so we need to convert
+ * them into null-terminated ones before passing to ModSecurity
  */
 ngx_inline char *
 ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
@@ -44,7 +44,7 @@ ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 
     str = ngx_pnalloc(p, a.len+1);
     if (str == NULL) {
-            dd("failed to allocate space to convert space ngx_string to C string");
+            dd("failed to allocate memory to convert space ngx_string to C string");
             /* We already returned NULL for an empty string, so return -1 here to indicate allocation error */
             return (char *)-1;
     }
@@ -62,10 +62,10 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     intervention.status = 200;
     intervention.url = NULL;
 
-    dd("processing intervention.");
+    dd("processing intervention");
 
     if (msc_intervention(transaction, &intervention) == 0) {
-        dd("nothing to do.");
+        dd("nothing to do");
         return 0;
     }
 
@@ -82,6 +82,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
             dd("Headers are already sent. Cannot perform the redirection at this point.");
             return -1;
         }
+
         /**
          * Not sure if it sane to do this indepent of the phase
          * but, here we go...
@@ -289,8 +290,10 @@ ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
      * way to deal with it.
      *
      */
+#if 0 /* XXX: attempt to find out a reason and solution */
     pcre_malloc = malloc;
     pcre_free = free;
+#endif
 
     return NGX_OK;
 }

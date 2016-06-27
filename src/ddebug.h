@@ -10,6 +10,8 @@
 #ifndef _DDEBUG_H_INCLUDED_
 #define _DDEBUG_H_INCLUDED_
 
+#include <ngx_core.h>
+
 /*
  * #undef DDEBUG
  * #define DDEBUG 1

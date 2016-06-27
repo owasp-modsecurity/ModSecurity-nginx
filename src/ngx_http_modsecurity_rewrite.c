@@ -80,7 +80,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             client_addr, client_port,
             server_addr, server_port);
         if (ret != 1){
-            dd("Was not able to exract connection information.");
+            dd("Was not able to extract connection information.");
         }
         /**
          *
@@ -126,7 +126,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         }
 
         /**
-         * Since headers are already in place, lets send it to ModSecurity
+         * Since incoming request headers are already in place, lets send it to ModSecurity
          *
          */
         ngx_list_part_t *part = &r->headers_in.headers.part;

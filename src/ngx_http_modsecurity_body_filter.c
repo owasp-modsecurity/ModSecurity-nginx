@@ -60,6 +60,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     /*
      * Identify if there is a header that was not inspected by ModSecurity.
      */
+    int worth_to_fail = 0;
+
     for (i = 0; ; i++)
     {
         int found = 0;
@@ -100,15 +102,20 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             j++;
         }
         if (!found) {
-            dd("header: `%.*s' with value: `%.*s' was not inpected by ModSecurity",
+            dd("header: `%.*s' with value: `%.*s' was not inspected by ModSecurity",
                 (int) s1->key.len,
                 (const char *) s1->key.data,
                 (int) s1->value.len,
                 (const char *) s1->value.data);
-
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity, NGX_HTTP_INTERNAL_SERVER_ERROR);
+	    worth_to_fail++;
         }
+    }
+
+    if (worth_to_fail)
+    {
+        dd("%d header(s) were not inspected by ModSecurity, so exiting", worth_to_fail);
+        return ngx_http_filter_finalize_request(r,
+            &ngx_http_modsecurity, NGX_HTTP_INTERNAL_SERVER_ERROR);
     }
 #endif
 

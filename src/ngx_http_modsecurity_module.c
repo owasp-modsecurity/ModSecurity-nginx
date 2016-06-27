@@ -107,6 +107,10 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         r->headers_out.location = location;
         r->headers_out.location->hash = 1;
 
+#ifdef MODSECURITY_SANITY_CHECKS
+        ngx_http_modescurity_store_ctx_header(r, &location->key, &location->value);
+#endif
+
         return intervention.status;
     }
 

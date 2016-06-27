@@ -99,7 +99,7 @@ ngx_http_modsecurity_header_out_t ngx_http_modsecurity_headers_out[] = {
 
 
 #ifdef MODSECURITY_SANITY_CHECKS
-static int
+int
 ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;

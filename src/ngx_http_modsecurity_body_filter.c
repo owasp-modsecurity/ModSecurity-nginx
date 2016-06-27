@@ -57,6 +57,17 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
 #ifdef MODSECURITY_SANITY_CHECKS
+#if 1
+    dd("dumping stored ctx headers");
+    for (i = 0; i < ctx->headers_out->nelts; i++)
+    {
+	ngx_http_modsecurity_header_t *vals = ctx->headers_out->elts;
+	ngx_str_t *s2 = &vals[i].name, *s3 = &vals[i].value;
+	dd(" dump[%d]: name = '%.*s', value = '%.*s'", (int)i,
+		(int)s2->len, (char*)s2->data,
+		(int)s3->len, (char*)s3->data);
+    }
+#endif
     /*
      * Identify if there is a header that was not inspected by ModSecurity.
      */

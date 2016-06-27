@@ -72,8 +72,8 @@ fi
 ngx_addon_name=ngx_http_modsecurity
 
 if test -n "$ngx_module_link"; then
-	ngx_module_type=HTTP_AUX_FILTER
-	ngx_module_name=ngx_http_modsecurity
+	ngx_module_type=HTTP_FILTER
+	ngx_module_name="$ngx_addon_name"
 	ngx_module_srcs="$ngx_addon_dir/src/ngx_http_modsecurity_module.c \
             $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.c \
             $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.c \
@@ -87,7 +87,7 @@ if test -n "$ngx_module_link"; then
         ngx_module_libs="$ngx_feature_libs"
         ngx_module_incs="$ngx_feature_path"
 
-    ngx_module_order="$ngx_module_name ngx_http_chunked_filter_module"
+        ngx_module_order="$ngx_module_name ngx_http_chunked_filter_module"
 
 	. auto/module
 else
@@ -97,7 +97,7 @@ else
 	CORE_INCS="$CORE_INCS $ngx_feature_path"
 	CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
 
-	HTTP_AUX_FILTER_MODULES="$HTTP_AUX_FILTER_MODULES ngx_http_modsecurity"
+	HTTP_FILTER_MODULES="$HTTP_FILTER_MODULES ngx_http_modsecurity"
 	NGX_ADDON_SRCS="\
 	    $NGX_ADDON_SRCS \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_module.c \
@@ -114,3 +114,13 @@ else
 	    $ngx_addon_dir/src/ngx_http_modsecurity_common.h \
 	    "
 fi
+
+#
+# Nginx does not provide reliable way to introduce our module into required
+# place in static ($ngx_module_link=ADDON) compilation mode, so we should
+# explicitly update module "ordering rules"
+#
+HTTP_FILTER_MODULES=`echo $HTTP_FILTER_MODULES | \
+        sed -E "s/$ngx_addon_name/ /g" | \
+        sed -E "s/ngx_http_header_filter_module/ngx_http_header_filter_module $ngx_addon_name/g"`
+

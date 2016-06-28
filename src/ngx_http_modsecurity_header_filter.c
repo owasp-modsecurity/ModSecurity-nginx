@@ -111,8 +111,8 @@ ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ng
         return NGX_ERROR;
     }
 
-    hdr->name.data = ngx_pnalloc(r->connection->pool, name->len);
-    hdr->value.data = ngx_pnalloc(r->connection->pool, value->len);
+    hdr->name.data = ngx_pnalloc(r->pool, name->len);
+    hdr->value.data = ngx_pnalloc(r->pool, value->len);
     if (hdr->name.data == NULL || hdr->value.data == NULL) {
 	return NGX_ERROR;
     }

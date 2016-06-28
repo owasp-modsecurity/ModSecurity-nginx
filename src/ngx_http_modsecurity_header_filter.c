@@ -103,10 +103,14 @@ int
 ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
     ngx_http_modsecurity_header_t *hdr = NULL;
 
-    hdr = ngx_array_push(ctx->headers_out);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+    if (ctx == NULL || ctx->sanity_headers_out == NULL) {
+        return NGX_ERROR;
+    }
+
+    hdr = ngx_array_push(ctx->sanity_headers_out);
     if (hdr == NULL) {
         return NGX_ERROR;
     }
@@ -409,7 +413,8 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         dd(" Sending header to ModSecurity - header: `%.*s'.",
             (int) ngx_http_modsecurity_headers_out[i].name.len,
             ngx_http_modsecurity_headers_out[i].name.data);
-            ngx_http_modsecurity_headers_out[i].resolver(r,
+
+                ngx_http_modsecurity_headers_out[i].resolver(r,
                     ngx_http_modsecurity_headers_out[i].name,
                     ngx_http_modsecurity_headers_out[i].offset);
     }

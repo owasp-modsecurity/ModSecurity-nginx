@@ -46,7 +46,7 @@ typedef struct {
      * over other modules, thus, we may partially inspect the headers.
      *
      */
-    ngx_array_t *headers_out;
+    ngx_array_t *sanity_headers_out;
 #endif
 
     unsigned waiting_more_body:1;

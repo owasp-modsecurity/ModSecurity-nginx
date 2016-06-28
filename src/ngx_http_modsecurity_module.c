@@ -142,7 +142,7 @@ ngx_http_modsecurity_cleanup(void *data)
      * Purge stored context headers.  Memory allocated for individual stored header
      * name/value pair will be freed automatically when r->pool is destroyed.
      */
-    ngx_array_destroy(ctx->headers_out);
+    ngx_array_destroy(ctx->sanity_headers_out);
 #endif
 }
 
@@ -182,8 +182,8 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     cln->data = ctx;
 
 #ifdef MODSECURITY_SANITY_CHECKS
-    ctx->headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
-    if (ctx->headers_out == NULL) {
+    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
+    if (ctx->sanity_headers_out == NULL) {
         return NGX_CONF_ERROR;
     }
 #endif

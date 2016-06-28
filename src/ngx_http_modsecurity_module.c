@@ -138,6 +138,10 @@ ngx_http_modsecurity_cleanup(void *data)
     msc_transaction_cleanup(ctx->modsec_transaction);
 
 #ifdef MODSECURITY_SANITY_CHECKS
+    /*
+     * Purge stored context headers.  Memory allocated for individual stored header
+     * name/value pair will be freed automatically when r->pool is destroyed.
+     */
     ngx_array_destroy(ctx->headers_out);
 #endif
 }
@@ -150,9 +154,6 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_modsecurity_loc_conf_t *loc_cf = NULL;
     ngx_http_modsecurity_main_conf_t *cf = NULL;
     ngx_pool_cleanup_t *cln = NULL;
-#ifdef MODSECURITY_SANITY_CHECKS
-    int ret = 0;
-#endif
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -181,10 +182,8 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     cln->data = ctx;
 
 #ifdef MODSECURITY_SANITY_CHECKS
-    ctx->headers_out = ngx_palloc(r->pool, sizeof(ngx_array_t));
-    ret = ngx_array_init(ctx->headers_out, r->pool, 2, sizeof(ngx_http_modsecurity_header_t));
-    if (ret != NGX_OK)
-    {
+    ctx->headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
+    if (ctx->headers_out == NULL) {
         return NGX_CONF_ERROR;
     }
 #endif

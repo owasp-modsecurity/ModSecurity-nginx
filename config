@@ -120,7 +120,8 @@ fi
 # place in static ($ngx_module_link=ADDON) compilation mode, so we should
 # explicitly update module "ordering rules"
 #
-HTTP_FILTER_MODULES=`echo $HTTP_FILTER_MODULES | \
+if [ "$ngx_module_link" != DYNAMIC ] ; then
+    HTTP_FILTER_MODULES=`echo $HTTP_FILTER_MODULES | \
         sed -E "s/$ngx_addon_name/ /g" | \
         sed -E "s/ngx_http_header_filter_module/ngx_http_header_filter_module $ngx_addon_name/g"`
-
+fi

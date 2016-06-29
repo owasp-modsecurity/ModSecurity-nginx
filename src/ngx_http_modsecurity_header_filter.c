@@ -20,14 +20,6 @@
 
 #include "ngx_http_modsecurity_common.h"
 
-#if 0
-extern const char *ngx_http_server_string;
-extern char *ngx_http_server_full_string;
-#else
-static char ngx_http_server_string[] = "Server: nginx" CRLF;
-static char ngx_http_server_full_string[] = "Server: " NGINX_VER CRLF;
-#endif
-
 static ngx_http_output_header_filter_pt ngx_http_next_header_filter;
 
 static ngx_int_t ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset);
@@ -134,6 +126,9 @@ ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ng
 static ngx_int_t
 ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset)
 {
+    static char ngx_http_server_full_string[] = NGINX_VER CRLF;
+    static char ngx_http_server_string[] = "nginx" CRLF;
+
     ngx_http_core_loc_conf_t *clcf = NULL;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_str_t value;
@@ -141,21 +136,15 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
-    if (r->headers_out.server == NULL)
-    {
-        if (clcf->server_tokens)
-        {
-            value.data = (u_char *) ngx_http_server_full_string;
-            value.len = sizeof(value.data);
+    if (r->headers_out.server == NULL) {
+        if (clcf->server_tokens) {
+            value.data = (u_char *)ngx_http_server_full_string;
+            value.len = sizeof(ngx_http_server_full_string);
+        } else {
+            value.data = (u_char *)ngx_http_server_string;
+            value.len = sizeof(ngx_http_server_string);
         }
-        else
-        {
-            value.data = (u_char *) ngx_http_server_string;
-            value.len = sizeof(value.data);
-        }
-    }
-    else
-    {
+    } else {
         ngx_table_elt_t *h = r->headers_out.server;
         value.data = h->value.data;
         value.len =  h->value.len;

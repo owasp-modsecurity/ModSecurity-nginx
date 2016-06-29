@@ -76,7 +76,6 @@ typedef struct {
 
 typedef ngx_int_t (*ngx_http_modsecurity_resolv_header_pt)(ngx_http_request_t *r, ngx_str_t name, off_t offset);
 
-
 typedef struct {
     ngx_str_t name;
     ngx_uint_t offset;
@@ -84,11 +83,7 @@ typedef struct {
 } ngx_http_modsecurity_header_out_t;
 
 
-typedef ngx_str_t (*ngx_http_modsecurity_get_header_pt)(ngx_http_request_t *r, void *value);
-
 extern ngx_module_t ngx_http_modsecurity;
-extern ngx_http_output_header_filter_pt ngx_http_modsecurity_next_header_filter;
-extern ngx_http_output_body_filter_pt ngx_http_modsecurity_next_body_filter;
 
 /* ngx_http_modsecurity_module.c */
 int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);

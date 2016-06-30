@@ -1,5 +1,12 @@
 # vim: filetype=sh
 
+# If $NGX_IGNORE_RPATH is set to "YES", we will ignore explicit
+# library path specification on resulting binary, allowing libmodsecurity.so
+# to be relocated across configured library pathes (adjust /etc/ld.so.conf
+# or set $LD_LIBRARY_PATH environment variable to manage them)
+#
+# $YAJL_LIB variable may need to be populated in case of non-standard
+# path of libyajl.so's installation
 
 ngx_feature_name=
 ngx_feature_run=no
@@ -9,10 +16,10 @@ ngx_feature_test='printf("hello");'
 ngx_modsecurity_opt_I=
 ngx_modsecurity_opt_L=
 
-# If $NGX_IGNORE_RPATH is set to "YES", we will ignore explicit
-# library path specification on resulting binary, allowing libmodsecurity.so
-# to be relocated across configured library pathes (adjust /etc/ld.so.conf
-# or set $LD_LIBRARY_PATH environment variable to manage them)
+YAJL_EXTRA=
+if test -n "$YAJL_LIB"; then
+    YAJL_EXTRA="-L$YAJL_LIB -lyajl"
+fi
 
 # If $MODSECURITY_INC is specified, lets use it. Otherwise lets try
 # the default paths
@@ -22,14 +29,14 @@ if [ -n "$MODSECURITY_INC" -o -n "$MODSECURITY_LIB" ]; then
     ngx_feature="ModSecurity library in \"$MODSECURITY_LIB\" and \"$MODSECURITY_INC\" (specified by the MODSECURITY_LIB and MODSECURITY_INC env)"
     ngx_feature_path="$MODSECURITY_INC"
     ngx_modsecurity_opt_I="-I$MODSECURITY_INC"
-    ngx_modsecurity_opt_L="-L$MODSECURITY_LIB"
+    ngx_modsecurity_opt_L="-L$MODSECURITY_LIB $YAJL_EXTRA"
 
     if [ $NGX_RPATH = YES ]; then
-        ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity"
+        ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
     elif [ "$NGX_IGNORE_RPATH" != "YES" -a $NGX_SYSTEM = "Linux" ]; then
-        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity"
+        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
     else
-        ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity"
+        ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
     fi
 
     . auto/feature

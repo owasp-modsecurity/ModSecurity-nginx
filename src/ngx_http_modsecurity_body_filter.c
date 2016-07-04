@@ -57,7 +57,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
 #ifdef MODSECURITY_SANITY_CHECKS
-#if 0
+#if 1
     dd("dumping stored ctx headers");
     for (i = 0; i < ctx->sanity_headers_out->nelts; i++)
     {

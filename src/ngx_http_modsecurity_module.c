@@ -26,7 +26,7 @@ static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_main_config_cleanup(void *data);
-static ngx_inline void ngx_http_modsecurity_config_cleanup(void *data);
+static void ngx_http_modsecurity_config_cleanup(void *data);
 
 
 /*
@@ -559,7 +559,7 @@ ngx_http_modsecurity_main_config_cleanup(void *data)
 }
 
 
-static ngx_inline void
+static void
 ngx_http_modsecurity_config_cleanup(void *data)
 {
     ngx_http_modsecurity_loc_conf_t *t = (ngx_http_modsecurity_loc_conf_t *) data;

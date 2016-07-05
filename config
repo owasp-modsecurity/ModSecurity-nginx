@@ -98,7 +98,7 @@ if test -n "$ngx_module_link"; then
         ngx_module_libs="$ngx_feature_libs"
         ngx_module_incs="$ngx_feature_path"
 
-        ngx_module_order="$ngx_module_name ngx_http_chunked_filter_module"
+        ngx_module_order="ngx_http_chunked_filter ngx_http_v2_filter_module $ngx_module_name"
 
 	. auto/module
 else
@@ -129,10 +129,19 @@ fi
 #
 # Nginx does not provide reliable way to introduce our module into required
 # place in static ($ngx_module_link=ADDON) compilation mode, so we should
-# explicitly update module "ordering rules"
+# explicitly update module "ordering rules".
+#
+# Default runtime location of ngx_http_modsecurity_module is right before
+# ngx_http_chunked_filter module, but in case if ngx_http_v2_filter_module is
+# compiled in, we should put our module before ngx_http_v2_filter_module in
+# order to support SecRules processing for HTTP/2.0 requests.
 #
 if [ "$ngx_module_link" != DYNAMIC ] ; then
+    pre_module='ngx_http_chunked_filter'
+    if [ "$HTTP_V2" = "YES" ]; then
+        pre_module='ngx_http_v2_filter_module'
+    fi
     HTTP_FILTER_MODULES=`echo $HTTP_FILTER_MODULES | \
         sed -E "s/$ngx_addon_name/ /g" | \
-        sed -E "s/ngx_http_header_filter_module/ngx_http_header_filter_module $ngx_addon_name/g"`
+        sed -E "s/$pre_module/$pre_module $ngx_addon_name/g"`
 fi

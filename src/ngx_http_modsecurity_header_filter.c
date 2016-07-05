@@ -406,6 +406,9 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
     int ret = 0;
+    ngx_uint_t status;
+    char *http_response_ver;
+
 
 /* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
 
@@ -490,7 +493,25 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             data[i].value.len);
     }
 
-    msc_process_response_headers(ctx->modsec_transaction);
+    /* prepare extra paramters for msc_process_response_headers() */
+    if (r->err_status) {
+        status = r->err_status;
+    } else {
+        status = r->headers_out.status;
+    }
+
+    /*
+     * NGINX always sends HTTP response with HTTP/1.1, except cases when
+     * HTTP V2 module is enabled, and request has been posted with HTTP/2.0.
+     */
+    http_response_ver = "HTTP 1.1";
+#if (NGX_HTTP_V2)
+    if (r->stream) {
+        http_response_ver = "HTTP 2.0";
+    }
+#endif
+
+    msc_process_response_headers(ctx->modsec_transaction, status, http_response_ver);
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
     if (ret > 0) {
         return ret;

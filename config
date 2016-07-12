@@ -137,7 +137,7 @@ fi
 # order to support SecRules processing for HTTP/2.0 requests.
 #
 if [ "$ngx_module_link" != DYNAMIC ] ; then
-    pre_module='ngx_http_chunked_filter'
+    pre_module='ngx_http_chunked_filter_module'
     if [ "$HTTP_V2" = "YES" ]; then
         pre_module='ngx_http_v2_filter_module'
     fi

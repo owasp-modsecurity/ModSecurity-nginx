@@ -39,7 +39,6 @@ ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
-    ngx_uint_t status = r->headers_out.status;
 
     dd("catching a new _log_ pahase handler");
 
@@ -67,7 +66,7 @@ ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     }
 
     dd("calling msc_process_logging for %p", ctx);
-    msc_process_logging(ctx->modsec_transaction, status);
+    msc_process_logging(ctx->modsec_transaction);
 
     return NGX_OK;
 }

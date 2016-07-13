@@ -44,6 +44,8 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
     int ret = 0;
+    ngx_uint_t status;
+    const char *response_proto;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
@@ -92,7 +94,20 @@ ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             data[i].value.len);
     }
 
-    msc_process_response_headers(ctx->modsec_transaction);
+    if (r->err_status) {
+        status = r->err_status;
+    } else {
+        status = r->headers_out.status;
+    }
+
+    response_proto = "HTTP 1.1";
+#if (NGX_HTTP_V2)
+    if (r->stream) {
+        response_proto = "HTTP 2.0";
+    }
+#endif
+
+    msc_process_response_headers(ctx->modsec_transaction, status, response_proto);
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
     if (ret > 0)
     {

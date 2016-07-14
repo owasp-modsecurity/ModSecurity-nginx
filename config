@@ -4,7 +4,7 @@
 ngx_feature_name=
 ngx_feature_run=no
 ngx_feature_incs="#include <modsecurity/modsecurity.h>"
-ngx_feature_libs="-lmodsecurity"
+ngx_feature_libs="-lmodsecurity -llmdb"
 ngx_feature_test='printf("hello");'
 ngx_modsecurity_opt_I=
 ngx_modsecurity_opt_L=
@@ -21,11 +21,11 @@ if [ -n "$MODSECURITY_INC" -o -n "$MODSECURITY_LIB" ]; then
     ngx_modsecurity_opt_L="-L$MODSECURITY_LIB"
 
     if [ $NGX_RPATH = YES ]; then
-        ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity"
+        ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity -llmdb"
     elif [ $NGX_SYSTEM = "Linux" ]; then
-        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity"
+        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity -llmdb"
     else
-        ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity"
+        ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity -llmdb"
     fi
 
     . auto/feature
@@ -39,7 +39,7 @@ END
 else
     # auto-discovery
     ngx_feature="ModSecurity library"
-    ngx_feature_libs="-lmodsecurity"
+    ngx_feature_libs="-lmodsecurity -llmdb"
 
     . auto/feature
 
@@ -47,11 +47,11 @@ else
         ngx_feature="ModSecurity library in /usr/local/modsecurity"
         ngx_feature_path="/usr/local/modsecurity/include"
         if [ $NGX_RPATH = YES ]; then
-            ngx_feature_libs="-R/usr/local/modsecurity/lib -L/usr/local/modsecurity/lib -lmodsecurity"
+            ngx_feature_libs="-R/usr/local/modsecurity/lib -L/usr/local/modsecurity/lib -lmodsecurity -llmdb"
         elif [ $NGX_SYSTEM = "Linux" ]; then
-            ngx_feature_libs="-Wl,-rpath,/usr/local/modsecurity/lib -L/usr/local/modsecurity/lib -lmodsecurity"
+            ngx_feature_libs="-Wl,-rpath,/usr/local/modsecurity/lib -L/usr/local/modsecurity/lib -lmodsecurity -llmdb"
         else
-            ngx_feature_libs="-L/usr/local/modsecurity/lib -lmodsecurity"
+            ngx_feature_libs="-L/usr/local/modsecurity/lib -lmodsecurity -llmdb"
         fi
 
         . auto/feature

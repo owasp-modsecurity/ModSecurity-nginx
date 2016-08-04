@@ -98,7 +98,7 @@ EOF
 
 $t->todo_alerts();
 $t->run_daemon(\&http_daemon);
-$t->run()->waitforsocket('127.0.0.1:8081');
+$t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
 ###############################################################################
 
@@ -144,7 +144,7 @@ like(http_get('/phase4?what=nothing'), qr/phase4\?what=nothing\' not found/, 'no
 sub http_daemon {
 	my $server = IO::Socket::INET->new(
 		Proto => 'tcp',
-		LocalHost => '127.0.0.1:8081',
+		LocalHost => '127.0.0.1:' . port(8081),
 		Listen => 5,
 		Reuse => 1
 	)

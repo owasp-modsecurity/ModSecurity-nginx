@@ -105,10 +105,17 @@ ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ng
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_header_t *hdr = NULL;
+    ngx_http_modsecurity_loc_conf_t *loc_cf = NULL;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
     if (ctx == NULL || ctx->sanity_headers_out == NULL) {
         return NGX_ERROR;
+    }
+
+    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
+    if (loc_cf == NULL || loc_cf->sanity_checks_enabled == NGX_CONF_UNSET)
+    {
+        return NGX_OK;
     }
 
     hdr = ngx_array_push(ctx->sanity_headers_out);
@@ -119,7 +126,7 @@ ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ng
     hdr->name.data = ngx_pnalloc(r->pool, name->len);
     hdr->value.data = ngx_pnalloc(r->pool, value->len);
     if (hdr->name.data == NULL || hdr->value.data == NULL) {
-	return NGX_ERROR;
+        return NGX_ERROR;
     }
 
     ngx_memcpy(hdr->name.data, name->data, name->len);

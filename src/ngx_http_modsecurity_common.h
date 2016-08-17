@@ -62,6 +62,7 @@ typedef struct {
     ngx_str_t rules_remote_key;
 
     ngx_flag_t enable;
+    ngx_flag_t sanity_checks_enabled;
     ngx_int_t id;
 
     Rules *rules_set;

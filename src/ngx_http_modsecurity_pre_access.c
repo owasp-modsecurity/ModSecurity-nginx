@@ -139,6 +139,9 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         if (r->request_body->temp_file != NULL) {
             ngx_str_t file_path = r->request_body->temp_file->file.name;
             const char *file_name = ngx_str_to_char(file_path, r->pool);
+            if (file_name == (char*)-1) {
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
             /*
              * Request body was saved to a file, probably we don't have a
              * copy of it in memory.

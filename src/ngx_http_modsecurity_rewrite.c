@@ -76,6 +76,9 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         int client_port = htons(((struct sockaddr_in *) connection->sockaddr)->sin_port);
         int server_port = htons(((struct sockaddr_in *) connection->listening->sockaddr)->sin_port);
         const char *client_addr = ngx_str_to_char(addr_text, r->pool);
+        if (client_addr == (char*)-1) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
         const char *server_addr = inet_ntoa(((struct sockaddr_in *) connection->sockaddr)->sin_addr);
         ret = msc_process_connection(ctx->modsec_transaction,
             client_addr, client_port,
@@ -117,9 +120,13 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
                 break;
         }
 
-        msc_process_uri(ctx->modsec_transaction, ngx_str_to_char(r->unparsed_uri, r->pool),
-            ngx_str_to_char(r->method_name, r->pool), http_version
-        );
+        const char *n_uri = ngx_str_to_char(r->unparsed_uri, r->pool);
+        const char *n_method = ngx_str_to_char(r->method_name, r->pool);
+        if (n_uri == (char*)-1 || n_method == (char*)-1) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
+
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {

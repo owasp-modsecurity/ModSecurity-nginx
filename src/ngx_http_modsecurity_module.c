@@ -499,11 +499,11 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         int res;
         const char *error = NULL;
         const char *rules_remote_server = ngx_str_to_char(c->rules_remote_server, cf->pool);
-        if(rules_remote_server==(char *)-1){
+        if (rules_remote_server == (char *)-1) {
             return NGX_CONF_ERROR;
         }
         const char *rules_remote_key = ngx_str_to_char(c->rules_remote_key, cf->pool);
-        if(rules_remote_key==(char *)-1){
+        if (rules_remote_key == (char *)-1) {
             return NGX_CONF_ERROR;
         }
         res = msc_rules_add_remote(c->rules_set, rules_remote_key, rules_remote_server, &error);
@@ -519,7 +519,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         int res;
         const char *error = NULL;
         char *rules_set = ngx_str_to_char(c->rules_file, cf->pool);
-        if(rules_set==(char *)-1){
+        if (rules_set == (char *)-1) {
             return NGX_CONF_ERROR;
         }
         res = msc_rules_add_file(c->rules_set, rules_set, &error);
@@ -535,7 +535,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         int res;
         const char *error = NULL;
         char *rules = ngx_str_to_char(c->rules, cf->pool);
-        if(rules==(char *)-1){
+        if (rules == (char *)-1) {
             return NGX_CONF_ERROR;
         }
         res = msc_rules_add(c->rules_set, rules, &error);

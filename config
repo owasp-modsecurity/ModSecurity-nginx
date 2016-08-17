@@ -43,7 +43,7 @@ if [ -n "$MODSECURITY_INC" -o -n "$MODSECURITY_LIB" ]; then
 
     if [ $ngx_found = no ]; then
         cat << END
-        $0: error: ngx_http_modsecurity requires the ModSecurity library and MODSECURITY_LIB is defined as "$MODSECURITY_LIB" and MODSECURITY_INC (path for modsecurity.h) "$MODSECURITY_INC", but we cannot find ModSecurity there.
+        $0: error: ngx_http_modsecurity_module requires the ModSecurity library and MODSECURITY_LIB is defined as "$MODSECURITY_LIB" and MODSECURITY_INC (path for modsecurity.h) "$MODSECURITY_INC", but we cannot find ModSecurity there.
 END
         exit 1
     fi
@@ -74,13 +74,13 @@ fi
 
 if [ $ngx_found = no ]; then
  cat << END
- $0: error: ngx_http_modsecurity requires the ModSecurity library.
+ $0: error: ngx_http_modsecurity_module requires the ModSecurity library.
 END
  exit 1
 fi
 
 
-ngx_addon_name=ngx_http_modsecurity
+ngx_addon_name=ngx_http_modsecurity_module
 
 if test -n "$ngx_module_link"; then
 	ngx_module_type=HTTP_FILTER
@@ -98,7 +98,7 @@ if test -n "$ngx_module_link"; then
         ngx_module_libs="$ngx_feature_libs"
         ngx_module_incs="$ngx_feature_path"
 
-        ngx_module_order="ngx_http_chunked_filter ngx_http_v2_filter_module $ngx_module_name"
+        ngx_module_order="ngx_http_chunked_filter_module ngx_http_v2_filter_module $ngx_module_name"
 
 	. auto/module
 else
@@ -108,7 +108,7 @@ else
 	CORE_INCS="$CORE_INCS $ngx_feature_path"
 	CORE_LIBS="$CORE_LIBS $ngx_feature_libs"
 
-	HTTP_FILTER_MODULES="$HTTP_FILTER_MODULES ngx_http_modsecurity"
+	HTTP_FILTER_MODULES="$HTTP_FILTER_MODULES ngx_http_modsecurity_module"
 	NGX_ADDON_SRCS="\
 	    $NGX_ADDON_SRCS \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_module.c \
@@ -132,7 +132,7 @@ fi
 # explicitly update module "ordering rules".
 #
 # Default runtime location of ngx_http_modsecurity_module is right before
-# ngx_http_chunked_filter module, but in case if ngx_http_v2_filter_module is
+# ngx_http_chunked_filter_module, but in case if ngx_http_v2_filter_module is
 # compiled in, we should put our module before ngx_http_v2_filter_module in
 # order to support SecRules processing for HTTP/2.0 requests.
 #

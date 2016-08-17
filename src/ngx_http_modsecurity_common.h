@@ -84,7 +84,7 @@ typedef struct {
 } ngx_http_modsecurity_header_out_t;
 
 
-extern ngx_module_t ngx_http_modsecurity;
+extern ngx_module_t ngx_http_modsecurity_module;
 
 /* ngx_http_modsecurity_module.c */
 int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);

@@ -161,8 +161,8 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         dd("failed to allocate memory for the context.");
         return NULL;
     }
-    cf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity);
-    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
+    cf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
+    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
 
@@ -170,7 +170,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     dd("transaction created");
 
-    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity);
+    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
     cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (cln == NULL)
@@ -276,7 +276,7 @@ static ngx_http_module_t ngx_http_modsecurity_ctx = {
 };
 
 
-ngx_module_t ngx_http_modsecurity = {
+ngx_module_t ngx_http_modsecurity_module = {
     NGX_MODULE_V1,
     &ngx_http_modsecurity_ctx, /* module context */
     ngx_http_modsecurity_commands, /* module directives */

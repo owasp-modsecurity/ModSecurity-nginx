@@ -26,7 +26,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
 
-    cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
+    cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (cf == NULL || cf->enable != 1) {
         dd("ModSecurity not enabled... returning");
         return NGX_DECLINED;
@@ -41,7 +41,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 
     dd("catching a new _rewrite_ phase handler");
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("recovering ctx: %p", ctx);
 

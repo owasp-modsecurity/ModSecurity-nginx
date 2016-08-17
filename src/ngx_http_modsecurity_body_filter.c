@@ -49,7 +49,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("body filter, recovering ctx: %p", ctx);
 
@@ -58,7 +58,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
+    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (loc_cf != NULL && loc_cf->sanity_checks_enabled != NGX_CONF_UNSET)
     {
 #if 0
@@ -130,7 +130,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         {
             dd("%d header(s) were not inspected by ModSecurity, so exiting", worth_to_fail);
             return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 #endif
@@ -155,7 +155,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
             if (ret > 0) {
                 return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity, ret);
+                    &ngx_http_modsecurity_module, ret);
             }
         }
 
@@ -168,7 +168,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         }
         else if (ret < 0) {
             return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
         }
     }
     else

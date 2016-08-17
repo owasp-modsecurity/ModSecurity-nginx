@@ -39,7 +39,7 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 
     dd("catching a new _log_ phase handler");
 
-    cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
+    cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (cf == NULL || cf->enable != 1)
     {
         dd("ModSecurity not enabled... returning");
@@ -53,7 +53,7 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("recovering ctx: %p", ctx);
 

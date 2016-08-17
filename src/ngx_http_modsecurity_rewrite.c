@@ -13,8 +13,8 @@
  *
  */
 
-#ifndef DDEBUG
-#define DDEBUG 0
+#ifndef MODSECURITY_DDEBUG
+#define MODSECURITY_DDEBUG 0
 #endif
 #include "ddebug.h"
 

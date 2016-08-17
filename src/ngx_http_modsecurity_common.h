@@ -98,7 +98,7 @@ ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *i
 /* ngx_http_modsecurity_header_filter.c */
 ngx_int_t ngx_http_modsecurity_header_filter_init(void);
 ngx_int_t ngx_http_modsecurity_header_filter(ngx_http_request_t *r);
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
 int ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value);
 #endif
 

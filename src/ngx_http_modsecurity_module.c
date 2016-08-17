@@ -13,8 +13,8 @@
  *
  */
 
-#ifndef DDEBUG
-#define DDEBUG 0
+#ifndef MODSECURITY_DDEBUG
+#define MODSECURITY_DDEBUG 0
 #endif
 #include "ddebug.h"
 
@@ -107,7 +107,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         r->headers_out.location = location;
         r->headers_out.location->hash = 1;
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modescurity_store_ctx_header(r, &location->key, &location->value);
 #endif
 
@@ -137,7 +137,7 @@ ngx_http_modsecurity_cleanup(void *data)
 
     msc_transaction_cleanup(ctx->modsec_transaction);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
      * Purge stored context headers.  Memory allocated for individual stored header
      * name/value pair will be freed automatically when r->pool is destroyed.
@@ -181,7 +181,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
     if (ctx->sanity_headers_out == NULL) {
         return NGX_CONF_ERROR;

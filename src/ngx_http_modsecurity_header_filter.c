@@ -13,8 +13,8 @@
  *
  */
 
-#ifndef DDEBUG
-#define DDEBUG 0
+#ifndef MODSECURITY_DDEBUG
+#define MODSECURITY_DDEBUG 0
 #endif
 #include "ddebug.h"
 
@@ -99,7 +99,7 @@ ngx_http_modsecurity_header_out_t ngx_http_modsecurity_headers_out[] = {
 };
 
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
 int
 ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ngx_str_t *value)
 {
@@ -166,7 +166,7 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
         value.len =  h->value.len;
     }
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_http_modescurity_store_ctx_header(r, &name, &value);
 #endif
 
@@ -195,7 +195,7 @@ ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, o
         date.len = h->value.len;
     }
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_http_modescurity_store_ctx_header(r, &name, &date);
 #endif
 
@@ -222,7 +222,7 @@ ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str
         value.data = (unsigned char *)buf;
         value.len = strlen(buf);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modescurity_store_ctx_header(r, &name, &value);
 #endif
         return msc_add_n_response_header(ctx->modsec_transaction,
@@ -246,7 +246,7 @@ ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t
     if (r->headers_out.content_type.len > 0)
     {
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modescurity_store_ctx_header(r, &name, &r->headers_out.content_type);
 #endif
 
@@ -279,7 +279,7 @@ ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_
     value.data = buf;
     value.len = (int)(p-buf);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_http_modescurity_store_ctx_header(r, &name, &value);
 #endif
 
@@ -315,7 +315,7 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
             value.data = buf;
             value.len = strlen((char *)buf);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
             ngx_http_modescurity_store_ctx_header(r, &name2, &value);
 #endif
 
@@ -332,7 +332,7 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
     value.data = (u_char *) connection;
     value.len = strlen(connection);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_http_modescurity_store_ctx_header(r, &name, &value);
 #endif
 
@@ -353,7 +353,7 @@ ngx_http_modsecurity_resolv_header_transfer_encoding(ngx_http_request_t *r, ngx_
 
         ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modescurity_store_ctx_header(r, &name, &value);
 #endif
 
@@ -380,7 +380,7 @@ ngx_http_modsecurity_resolv_header_vary(ngx_http_request_t *r, ngx_str_t name, o
 
         ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity);
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modescurity_store_ctx_header(r, &name, &value);
 #endif
 
@@ -486,7 +486,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             i = 0;
         }
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modescurity_store_ctx_header(r, &data[i].key, &data[i].value);
 #endif
 

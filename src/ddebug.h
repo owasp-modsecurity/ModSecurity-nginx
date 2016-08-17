@@ -13,8 +13,8 @@
 #include <ngx_core.h>
 
 /*
- * #undef DDEBUG
- * #define DDEBUG 1
+ * #undef MODSECURITY_DDEBUG
+ * #define MODSECURITY_DDEBUG 1
  */
 
 /*
@@ -26,9 +26,11 @@
  * If performance is not a concern, it is safe to keep it set.
  *
  */
+#ifndef MODSECURITY_SANITY_CHECKS
 #define MODSECURITY_SANITY_CHECKS 1
+#endif
 
-#if defined(DDEBUG) && (DDEBUG)
+#if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
 
 #   if (NGX_HAVE_VARIADIC_MACROS)
 
@@ -65,7 +67,7 @@ static void dd(const char *fmt, ...) {
 
 #endif
 
-#if defined(DDEBUG) && (DDEBUG)
+#if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
 
 #define dd_check_read_event_handler(r)   \
     dd("r->read_event_handler = %s", \

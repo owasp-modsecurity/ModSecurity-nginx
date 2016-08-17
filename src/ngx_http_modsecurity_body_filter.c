@@ -13,8 +13,8 @@
  *
  */
 
-#ifndef DDEBUG
-#define DDEBUG 0
+#ifndef MODSECURITY_DDEBUG
+#define MODSECURITY_DDEBUG 0
 #endif
 #include "ddebug.h"
 
@@ -38,7 +38,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     int buffer_fully_loadead = 0;
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_http_modsecurity_loc_conf_t *loc_cf = NULL;
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
@@ -57,7 +57,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity);
     if (loc_cf != NULL && loc_cf->sanity_checks_enabled != NGX_CONF_UNSET)
     {

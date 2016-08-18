@@ -413,7 +413,7 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     ngx_pool_cleanup_t *cln = NULL;
 
     /* Provide our connector information to LibModSecurity */
-    msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.0.2-alpha");
+    msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.1.0-beta");
     msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);

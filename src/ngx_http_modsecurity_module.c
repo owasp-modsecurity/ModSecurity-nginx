@@ -21,13 +21,40 @@
 #include "ngx_http_modsecurity_common.h"
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
-static ngx_int_t ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_loc_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_main_config_cleanup(void *data);
 static void ngx_http_modsecurity_config_cleanup(void *data);
 
+/*
+ * pcre malloc/free hack magic
+ */
+static void *(*old_pcre_malloc)(size_t);
+static void (*old_pcre_free)(void *ptr);
+
+void
+ngx_http_modsecurity_pcre_malloc_init(void)
+{
+    old_pcre_malloc = pcre_malloc;
+    old_pcre_free = pcre_free;
+
+    pcre_malloc = malloc;
+    pcre_free = free;
+}
+
+void
+ngx_http_modsecurity_pcre_malloc_done(void)
+{
+    if (old_pcre_malloc == NULL)
+        return;
+
+    pcre_malloc = old_pcre_malloc;
+    pcre_free = old_pcre_free;
+
+    old_pcre_malloc = NULL;
+    old_pcre_free = NULL;
+}
 
 /*
  * ngx_string's are not null-terminated in common case, so we need to convert
@@ -262,25 +289,25 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
 
 
 static ngx_http_module_t ngx_http_modsecurity_ctx = {
-    ngx_http_modsecurity_preconfiguration,	/* preconfiguration */
-    ngx_http_modsecurity_init,			/* postconfiguration */
+    NULL,                                   /* preconfiguration */
+    ngx_http_modsecurity_init,              /* postconfiguration */
 
-    ngx_http_modsecurity_create_main_conf,	/* create main configuration */
-    NULL,					/* init main configuration */
+    ngx_http_modsecurity_create_main_conf,  /* create main configuration */
+    NULL,                                   /* init main configuration */
 
-    NULL,					/* create server configuration */
-    NULL,					/* merge server configuration */
+    NULL,                                   /* create server configuration */
+    NULL,                                   /* merge server configuration */
 
-    ngx_http_modsecurity_create_loc_conf,	/* create location configuration */
-    ngx_http_modsecurity_merge_loc_conf		/* merge location configuration */
+    ngx_http_modsecurity_create_loc_conf,   /* create location configuration */
+    ngx_http_modsecurity_merge_loc_conf     /* merge location configuration */
 };
 
 
 ngx_module_t ngx_http_modsecurity_module = {
     NGX_MODULE_V1,
-    &ngx_http_modsecurity_ctx, /* module context */
-    ngx_http_modsecurity_commands, /* module directives */
-    NGX_HTTP_MODULE, /* module type */
+    &ngx_http_modsecurity_ctx,              /* module context */
+    ngx_http_modsecurity_commands,          /* module directives */
+    NGX_HTTP_MODULE,                        /* module type */
     NULL, /* init master */
     NULL, /* init module */
     NULL, /* init process */
@@ -290,24 +317,6 @@ ngx_module_t ngx_http_modsecurity_module = {
     NULL, /* exit master */
     NGX_MODULE_V1_PADDING
 };
-
-
-static ngx_int_t
-ngx_http_modsecurity_preconfiguration(ngx_conf_t *cf)
-{
-    /*
-     *
-     * FIXME: Ops. Nginx hooks those two guys, we have to figure out a better
-     * way to deal with it.
-     *
-     */
-#if 0 /* XXX: attempt to find out a reason and solution */
-    pcre_malloc = malloc;
-    pcre_free = free;
-#endif
-
-    return NGX_OK;
-}
 
 
 static ngx_int_t
@@ -516,7 +525,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         if (rules_remote_key == (char *)-1) {
             return NGX_CONF_ERROR;
         }
+        ngx_http_modsecurity_pcre_malloc_init();
         res = msc_rules_add_remote(c->rules_set, rules_remote_key, rules_remote_server, &error);
+        ngx_http_modsecurity_pcre_malloc_done();
         dd("Loading rules from: '%s'", rules_remote_server);
         if (res < 0) {
             dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
@@ -532,7 +543,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         if (rules_set == (char *)-1) {
             return NGX_CONF_ERROR;
         }
+        ngx_http_modsecurity_pcre_malloc_init();
         res = msc_rules_add_file(c->rules_set, rules_set, &error);
+        ngx_http_modsecurity_pcre_malloc_done();
         dd("Loading rules from: '%s'", rules_set);
         if (res < 0) {
             dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
@@ -548,7 +561,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         if (rules == (char *)-1) {
             return NGX_CONF_ERROR;
         }
+        ngx_http_modsecurity_pcre_malloc_init();
         res = msc_rules_add(c->rules_set, rules, &error);
+        ngx_http_modsecurity_pcre_malloc_done();
         dd("Loading rules: '%s'", rules);
         if (res < 0) {
             dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
@@ -576,7 +591,9 @@ ngx_http_modsecurity_config_cleanup(void *data)
 {
     ngx_http_modsecurity_loc_conf_t *t = (ngx_http_modsecurity_loc_conf_t *) data;
     dd("deleting a loc conf -- RuleSet is: \"%p\"", t->rules_set);
+    ngx_http_modsecurity_pcre_malloc_init();
     msc_rules_cleanup(t->rules_set);
+    ngx_http_modsecurity_pcre_malloc_done();
     t->rules_set = NULL;
 }
 

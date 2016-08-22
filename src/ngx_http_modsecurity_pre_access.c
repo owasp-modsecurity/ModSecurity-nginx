@@ -189,7 +189,10 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
 /* XXX: once more -- is body can be modified ?  content-length need to be adjusted ? */
 
+        ngx_http_modsecurity_pcre_malloc_init();
         msc_process_request_body(ctx->modsec_transaction);
+        ngx_http_modsecurity_pcre_malloc_done();
+
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
             return ret;

@@ -80,9 +80,11 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         const char *server_addr = inet_ntoa(((struct sockaddr_in *) connection->sockaddr)->sin_addr);
+        ngx_http_modsecurity_pcre_malloc_init();
         ret = msc_process_connection(ctx->modsec_transaction,
             client_addr, client_port,
             server_addr, server_port);
+        ngx_http_modsecurity_pcre_malloc_done();
         if (ret != 1){
             dd("Was not able to extract connection information.");
         }
@@ -125,7 +127,9 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         if (n_uri == (char*)-1 || n_method == (char*)-1) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
+        ngx_http_modsecurity_pcre_malloc_init();
         msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
+        ngx_http_modsecurity_pcre_malloc_done();
 
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
@@ -171,7 +175,9 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * to process this information.
          */
 
+        ngx_http_modsecurity_pcre_malloc_init();
         msc_process_request_headers(ctx->modsec_transaction);
+        ngx_http_modsecurity_pcre_malloc_done();
         dd("Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {

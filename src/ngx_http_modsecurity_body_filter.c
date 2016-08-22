@@ -159,7 +159,10 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             }
         }
 
+        ngx_http_modsecurity_pcre_malloc_init();
         msc_process_response_body(ctx->modsec_transaction);
+        ngx_http_modsecurity_pcre_malloc_done();
+
 /* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
    XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);

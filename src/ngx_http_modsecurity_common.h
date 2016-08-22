@@ -90,6 +90,8 @@ extern ngx_module_t ngx_http_modsecurity_module;
 int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r);
 ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
 char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
+void ngx_http_modsecurity_pcre_malloc_init(void);
+void ngx_http_modsecurity_pcre_malloc_done(void);
 
 /* ngx_http_modsecurity_body_filter.c */
 ngx_int_t ngx_http_modsecurity_body_filter_init(void);

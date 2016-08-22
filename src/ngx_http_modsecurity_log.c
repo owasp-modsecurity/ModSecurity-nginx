@@ -63,7 +63,9 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     }
 
     dd("calling msc_process_logging for %p", ctx);
+    ngx_http_modsecurity_pcre_malloc_init();
     msc_process_logging(ctx->modsec_transaction);
+    ngx_http_modsecurity_pcre_malloc_done();
 
     return NGX_OK;
 }

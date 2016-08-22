@@ -555,7 +555,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
             return strdup(error);
         }
     }
+#if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     msc_rules_dump(c->rules_set);
+#endif
     return NGX_CONF_OK;
 }
 

@@ -160,7 +160,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
             u_char *data = chain->buf->start;
 
             msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->end - data);
+                chain->buf->last - chain->buf->pos);
 
             if (chain->buf->last_buf) {
                 break;

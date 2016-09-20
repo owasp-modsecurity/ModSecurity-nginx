@@ -83,13 +83,14 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
+    /*
     if (r->method != NGX_HTTP_GET &&
         r->method != NGX_HTTP_POST && r->method != NGX_HTTP_HEAD) {
         dd("ModSecurity is not ready to deal with anything different from " \
             "POST, GET or HEAD");
         return NGX_OK;
     }
-
+    */
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("recovering ctx: %p", ctx);

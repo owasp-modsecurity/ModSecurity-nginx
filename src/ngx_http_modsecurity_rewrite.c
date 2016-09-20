@@ -32,12 +32,14 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
+    /*
     if (r->method != NGX_HTTP_GET &&
         r->method != NGX_HTTP_POST && r->method != NGX_HTTP_HEAD) {
         dd("ModSecurity is not ready to deal with anything different from " \
             "POST, GET or HEAD");
         return NGX_DECLINED;
     }
+    */
 
     dd("catching a new _rewrite_ phase handler");
 
@@ -163,6 +165,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
              *
              */
 
+            dd("Adding request header: %.*s with value %.*s", (int)data[i].key.len, data[i].key.data, (int) data[i].value.len, data[i].value.data);
             msc_add_n_request_header(ctx->modsec_transaction,
                 (const unsigned char *) data[i].key.data,
                 data[i].key.len,

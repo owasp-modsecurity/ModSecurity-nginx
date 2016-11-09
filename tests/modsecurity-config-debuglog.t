@@ -62,7 +62,7 @@ http {
 
         location / {
             modsecurity_rules '
-                SecRule ARGS "@streq root" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq root" "id:21,phase:1,status:302,redirect:http://www.modsecurity.org"
                 SecDebugLog %%TESTDIR%%/debuglog-root.txt
                 SecDebugLogLevel 9
             ';
@@ -70,13 +70,13 @@ http {
 
         location /subfolder1 {
             modsecurity_rules '
-                SecRule ARGS "@streq subfolder1" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq subfolder1" "id:31,phase:1,status:302,redirect:http://www.modsecurity.org"
                 SecDebugLog %%TESTDIR%%/debuglog-subfolder1.txt
                 SecDebugLogLevel 9
             ';
             location /subfolder1/subfolder2 {
                 modsecurity_rules '
-                    SecRule ARGS "@streq subfolder2" "id:1,phase:1,status:302,redirect:http://www.modsecurity.org"
+                    SecRule ARGS "@streq subfolder2" "id:41,phase:1,status:302,redirect:http://www.modsecurity.org"
                     SecDebugLog %%TESTDIR%%/debuglog-subfolder2.txt
                     SecDebugLogLevel 9
                 ';

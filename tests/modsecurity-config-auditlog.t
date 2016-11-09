@@ -62,7 +62,7 @@ http {
 
         location / {
             modsecurity_rules '
-                SecRule ARGS "@streq root" "id:1,phase:1,auditlog,status:302,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq root" "id:21,phase:1,auditlog,status:302,redirect:http://www.modsecurity.org"
                 SecDebugLog %%TESTDIR%%/auditlog-debug-root.txt
                 SecDebugLogLevel 9
                 SecAuditLogParts AB
@@ -74,7 +74,7 @@ http {
 
         location /subfolder1 {
             modsecurity_rules '
-                SecRule ARGS "@streq subfolder1" "id:1,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq subfolder1" "id:31,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
                 SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder1.txt
                 SecDebugLogLevel 9
                 SecAuditLogParts AB
@@ -84,7 +84,7 @@ http {
             ';
             location /subfolder1/subfolder2 {
                 modsecurity_rules '
-                    SecRule ARGS "@streq subfolder2" "id:1,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
+                    SecRule ARGS "@streq subfolder2" "id:41,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
                     SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder2.txt
                     SecDebugLogLevel 9
                     SecAuditLogParts AB
@@ -96,7 +96,7 @@ http {
         }
         location /subfolder3 {
             modsecurity_rules '
-                SecRule ARGS "@streq subfolder3" "id:1,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq subfolder3" "id:51,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
                 SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder3.txt
                 SecDebugLogLevel 9
                 SecAuditLogParts AB
@@ -106,7 +106,7 @@ http {
             ';
             location /subfolder3/subfolder4 {
                 modsecurity_rules '
-                    SecRule ARGS "@streq subfolder4" "id:1,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
+                    SecRule ARGS "@streq subfolder4" "id:61,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
                     SecRule ARGS "@streq subfolder4withE" "id:2,phase:1,status:302,ctl:auditLogParts=+E,auditlog,redirect:http://www.modsecurity.org"
                     SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder4.txt
                     SecDebugLogLevel 9

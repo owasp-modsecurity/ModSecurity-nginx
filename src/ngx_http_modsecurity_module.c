@@ -88,6 +88,8 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     ModSecurityIntervention intervention;
     intervention.status = 200;
     intervention.url = NULL;
+    intervention.log = NULL;
+    intervention.disruptive = 0;
 
     dd("processing intervention");
 
@@ -99,6 +101,8 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     if (intervention.log == NULL) {
         intervention.log = "(no log message was specified)";
     }
+
+    ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", intervention.log);
 
     if (intervention.url != NULL)
     {

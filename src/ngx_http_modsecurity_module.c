@@ -102,7 +102,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         intervention.log = "(no log message was specified)";
     }
 
-    ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", intervention.log);
+    ngx_log_error(NGX_LOG_WARN, (ngx_log_t *)r->connection->log, 0, "%s", intervention.log);
 
     if (intervention.url != NULL)
     {

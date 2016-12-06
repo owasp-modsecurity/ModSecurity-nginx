@@ -37,6 +37,7 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
+    ngx_pool_t *old_pool;
 
     dd("catching a new _log_ phase handler");
 
@@ -65,9 +66,9 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     }
 
     dd("calling msc_process_logging for %p", ctx);
-    ngx_http_modsecurity_pcre_malloc_init();
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_logging(ctx->modsec_transaction);
-    ngx_http_modsecurity_pcre_malloc_done();
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     return NGX_OK;
 }

@@ -45,6 +45,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 #if 1
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_loc_conf_t *cf;
+    ngx_pool_t *old_pool;
 
     dd("catching a new _preaccess_ phase handler");
 
@@ -194,9 +195,9 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
 /* XXX: once more -- is body can be modified ?  content-length need to be adjusted ? */
 
-        ngx_http_modsecurity_pcre_malloc_init();
+        old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_request_body(ctx->modsec_transaction);
-        ngx_http_modsecurity_pcre_malloc_done();
+        ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {

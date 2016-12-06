@@ -19,6 +19,7 @@
 #include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
+#include "stdio.h"
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
@@ -28,32 +29,74 @@ static void ngx_http_modsecurity_main_config_cleanup(void *data);
 static void ngx_http_modsecurity_config_cleanup(void *data);
 
 /*
- * pcre malloc/free hack magic
+ * PCRE malloc/free workaround, based on
+ * https://github.com/openresty/lua-nginx-module/blob/master/src/ngx_http_lua_pcrefix.c
  */
+
 static void *(*old_pcre_malloc)(size_t);
 static void (*old_pcre_free)(void *ptr);
+static ngx_pool_t *ngx_http_modsec_pcre_pool = NULL;
 
-void
-ngx_http_modsecurity_pcre_malloc_init(void)
+static void *
+ngx_http_modsec_pcre_malloc(size_t size)
 {
-    old_pcre_malloc = pcre_malloc;
-    old_pcre_free = pcre_free;
+    if (ngx_http_modsec_pcre_pool) {
+        return ngx_palloc(ngx_http_modsec_pcre_pool, size);
+    }
 
-    pcre_malloc = malloc;
-    pcre_free = free;
+    fprintf(stderr, "error: modsec pcre malloc failed due to empty pcre pool");
+
+    return NULL;
+}
+
+static void
+ngx_http_modsec_pcre_free(void *ptr)
+{
+    if (ngx_http_modsec_pcre_pool) {
+        ngx_pfree(ngx_http_modsec_pcre_pool, ptr);
+        return;
+    }
+
+#if 0
+    /* this may happen when called from cleanup handlers */
+    fprintf(stderr, "error: modsec pcre free failed due to empty pcre pool");
+#endif
+
+    return;
+}
+
+ngx_pool_t *
+ngx_http_modsecurity_pcre_malloc_init(ngx_pool_t *pool)
+{
+    ngx_pool_t  *old_pool;
+
+    if (pcre_malloc != ngx_http_modsec_pcre_malloc) {
+        ngx_http_modsec_pcre_pool = pool;
+
+        old_pcre_malloc = pcre_malloc;
+        old_pcre_free = pcre_free;
+
+        pcre_malloc = ngx_http_modsec_pcre_malloc;
+        pcre_free = ngx_http_modsec_pcre_free;
+
+        return NULL;
+    }
+
+    old_pool = ngx_http_modsec_pcre_pool;
+    ngx_http_modsec_pcre_pool = pool;
+
+    return old_pool;
 }
 
 void
-ngx_http_modsecurity_pcre_malloc_done(void)
+ngx_http_modsecurity_pcre_malloc_done(ngx_pool_t *old_pool)
 {
-    if (old_pcre_malloc == NULL)
-        return;
+    ngx_http_modsec_pcre_pool = old_pool;
 
-    pcre_malloc = old_pcre_malloc;
-    pcre_free = old_pcre_free;
-
-    old_pcre_malloc = NULL;
-    old_pcre_free = NULL;
+    if (old_pool == NULL) {
+        pcre_malloc = old_pcre_malloc;
+        pcre_free = old_pcre_free;
+    }
 }
 
 /*
@@ -494,6 +537,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 {
     ngx_http_modsecurity_loc_conf_t *p = NULL;
     ngx_http_modsecurity_loc_conf_t *c = NULL;
+    ngx_pool_t *old_pool;
 
     p = parent;
     c = child;
@@ -529,9 +573,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         if (rules_remote_key == (char *)-1) {
             return NGX_CONF_ERROR;
         }
-        ngx_http_modsecurity_pcre_malloc_init();
+        old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
         res = msc_rules_add_remote(c->rules_set, rules_remote_key, rules_remote_server, &error);
-        ngx_http_modsecurity_pcre_malloc_done();
+        ngx_http_modsecurity_pcre_malloc_done(old_pool);
         dd("Loading rules from: '%s'", rules_remote_server);
         if (res < 0) {
             dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
@@ -547,9 +591,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         if (rules_set == (char *)-1) {
             return NGX_CONF_ERROR;
         }
-        ngx_http_modsecurity_pcre_malloc_init();
+        old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
         res = msc_rules_add_file(c->rules_set, rules_set, &error);
-        ngx_http_modsecurity_pcre_malloc_done();
+        ngx_http_modsecurity_pcre_malloc_done(old_pool);
         dd("Loading rules from: '%s'", rules_set);
         if (res < 0) {
             dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
@@ -565,9 +609,9 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         if (rules == (char *)-1) {
             return NGX_CONF_ERROR;
         }
-        ngx_http_modsecurity_pcre_malloc_init();
+        old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
         res = msc_rules_add(c->rules_set, rules, &error);
-        ngx_http_modsecurity_pcre_malloc_done();
+        ngx_http_modsecurity_pcre_malloc_done(old_pool);
         dd("Loading rules: '%s'", rules);
         if (res < 0) {
             dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
@@ -584,8 +628,15 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 static void
 ngx_http_modsecurity_main_config_cleanup(void *data)
 {
+    ngx_pool_t *old_pool;
     ngx_http_modsecurity_main_conf_t *cf = data;
+
+    dd("deleting a main conf %p", data);
+
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(NULL);
     msc_cleanup(cf->modsec);
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
     cf->modsec = NULL;
 }
 
@@ -593,11 +644,15 @@ ngx_http_modsecurity_main_config_cleanup(void *data)
 static void
 ngx_http_modsecurity_config_cleanup(void *data)
 {
+    ngx_pool_t *old_pool;
     ngx_http_modsecurity_loc_conf_t *t = (ngx_http_modsecurity_loc_conf_t *) data;
+
     dd("deleting a loc conf -- RuleSet is: \"%p\"", t->rules_set);
-    ngx_http_modsecurity_pcre_malloc_init();
+
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(NULL);
     msc_rules_cleanup(t->rules_set);
-    ngx_http_modsecurity_pcre_malloc_done();
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
     t->rules_set = NULL;
 }
 

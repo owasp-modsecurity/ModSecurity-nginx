@@ -117,9 +117,11 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             case NGX_HTTP_VERSION_11 :
                 http_version = "1.1";
                 break;
+#if defined(nginx_version) && nginx_version >= 1009005
             case NGX_HTTP_VERSION_20 :
                 http_version = "2.0";
                 break;
+#endif
             default :
                 http_version = "1.0";
                 break;

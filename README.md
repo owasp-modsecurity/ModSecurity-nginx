@@ -168,7 +168,7 @@ security@modsecurity.org to report the issue. Once the problem is fixed we will 
 ## Feature Request
 
 We would love to discuss any ideas that you may have for a new feature. Please keep in mind this is a community driven project so be sure to contact the community via the mailing list to get feedback first. Alternativly,
-feel free to open GitHub issues requesting for new features. Before opening a new issue, please check if there is an existing feature request for the desired functionalityt.
+feel free to open GitHub issues requesting for new features. Before opening a new issue, please check if there is an existing feature request for the desired functionality.
 
 ## Packing
 

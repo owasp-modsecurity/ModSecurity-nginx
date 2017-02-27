@@ -22,11 +22,13 @@
 
 
 void
-ngx_http_modsecurity_log(void *log, const char* msg)
+ngx_http_modsecurity_log(void *log, const void* data)
 {
+    const char *msg;
     if (log == NULL) {
         return;
     }
+    msg = (const char *) data;
 
     ngx_log_error(NGX_LOG_INFO, (ngx_log_t *)log, 0, "%s", msg);
 }

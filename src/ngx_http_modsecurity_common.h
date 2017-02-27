@@ -105,7 +105,7 @@ int ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name
 #endif
 
 /* ngx_http_modsecurity_log.c */
-void ngx_http_modsecurity_log(void *log, const char* msg);
+void ngx_http_modsecurity_log(void *log, const void* data);
 ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r);
 
 /* ngx_http_modsecurity_pre_access.c */

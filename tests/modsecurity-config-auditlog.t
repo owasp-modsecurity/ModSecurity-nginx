@@ -56,7 +56,7 @@ http {
         modsecurity on;
         modsecurity_rules '
             SecRuleEngine On
-            SecDebugLogEngine RelevantOnly
+            SecAuditLogEngine On
             SecRule ARGS "@streq whee" "id:10,phase:2"
             SecRule ARGS "@streq whee" "id:11,phase:2"
         ';

@@ -1,4 +1,10 @@
-# Introduction
+
+<img src="https://github.com/SpiderLabs/ModSecurity/raw/v3/master/others/modsec.png" width="50%">
+
+[![Build Status](https://travis-ci.org/SpiderLabs/ModSecurity-nginx.svg?branch=master)](https://travis-ci.org/SpiderLabs/ModSecurity-nginx)
+[![](https://raw.githubusercontent.com/ZenHubIO/support/master/zenhub-badge.png)](https://zenhub.com)
+
+
 
 The ModSecurity-nginx connector is the connection point between Nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between Nginx and libmodsecurity. This connector is required to use LibModSecurity with Nginx. 
 
@@ -14,8 +20,6 @@ Apache internals to link ModSecurity to nginx. This current version is closer
 to nginx, consuming the new libmodsecurity which is no longer dependent on
 Apache. As a result, This current version has less dependencies, fewer bugs, and is faster. In addition, Some new functionality is also provided - such as the possibility of use of global rules configuration with per directory/location customizations (e.g. SecRuleRemoveById).
 
-NOTICE: libmodsecurity is not feature complete and it is not considerable
-stable, so use is undertaken at your own risk.
 
 # Compilation
 

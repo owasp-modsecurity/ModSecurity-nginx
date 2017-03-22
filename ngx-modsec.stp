@@ -14,8 +14,8 @@ probe process("/usr/local/lib/libmodsecurity.so.3").function("evaluate@rule.cc*"
 probe process("/usr/local/lib/libmodsecurity.so.3").function("evaluate@rule.cc*").return
 {
     elapsed_rule = gettimeofday_us() - begin_rule
-    rules[$this->rule_id] <<< elapsed_rule
-    rules_phase[$this->rule_id] = $this->phase
+    rules[$this->m_ruleId] <<< elapsed_rule
+    rules_phase[$this->m_ruleId] = $this->m_phase
 }
 
 

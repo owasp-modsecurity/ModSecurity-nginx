@@ -1,5 +1,12 @@
+sudo: required
 dist: trusty
-sudo: true
+
+os: linux
+
+language: c
+
+compiler:
+  - gcc
 
 addons:
   apt:
@@ -13,8 +20,7 @@ env:
   - VER_NGINX=1.10.3
 
 before_script:
-  - sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-  - sudo apt-get update -qq
+  - cd ..
   - git clone https://github.com/SpiderLabs/ModSecurity.git
   - cd ModSecurity
   - git checkout v3/master
@@ -24,15 +30,13 @@ before_script:
   - ./configure --without-lmdb
   - make
   - sudo make install
-  - cd -
-  - git clone https://github.com/SpiderLabs/ModSecurity-nginx.git
-  - wget "http://nginx.org/download/nginx-${VER_NGINX}.tar.gz" && tar -xf "nginx-${VER_NGINX}.tar.gz"
-  - cd "./nginx-${VER_NGINX}"
+  - cd ..
+  - wget http://nginx.org/download/nginx-${VER_NGINX}.tar.gz && tar -xf nginx-${VER_NGINX}.tar.gz
+  - cd nginx-${VER_NGINX}
   - ./configure --add-module=../ModSecurity-nginx
   - make
   - sudo make install
-  - cd -
-  - export PATH=$PATH:/usr/local/nginx/sbin
+  - cd ..
   - wget http://hg.nginx.org/nginx-tests/archive/tip.tar.gz
   - tar xvzf tip.tar.gz
   - cd nginx-tests-*

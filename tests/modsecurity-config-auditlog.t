@@ -56,7 +56,7 @@ http {
         modsecurity on;
         modsecurity_rules '
             SecRuleEngine On
-            SecAuditLogEngine On
+            SecAuditEngine On
             SecRule ARGS "@streq whee" "id:10,phase:2"
             SecRule ARGS "@streq whee" "id:11,phase:2"
         ';
@@ -66,7 +66,7 @@ http {
                 SecRule ARGS "@streq root" "id:21,phase:1,auditlog,status:302,redirect:http://www.modsecurity.org"
                 SecDebugLog %%TESTDIR%%/auditlog-debug-root.txt
                 SecDebugLogLevel 9
-                SecAuditLogEngine On
+                SecAuditEngine On
                 SecAuditLogParts AB
                 SecAuditLog %%TESTDIR%%/auditlog-root.txt
                 SecAuditLogType Serial
@@ -80,7 +80,7 @@ http {
                 SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder1.txt
                 SecDebugLogLevel 9
                 SecAuditLogParts AB
-                SecAuditLogEngine On
+                SecAuditEngine On
                 SecAuditLog %%TESTDIR%%/auditlog-subfolder1.txt
                 SecAuditLogType Serial
                 SecAuditLogStorageDir %%TESTDIR%%/
@@ -90,7 +90,7 @@ http {
                     SecRule ARGS "@streq subfolder2" "id:41,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
                     SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder2.txt
                     SecDebugLogLevel 9
-                    SecAuditLogEngine On
+                    SecAuditEngine On
                     SecAuditLogParts AB
                     SecAuditLog %%TESTDIR%%/auditlog-subfolder2.txt
                     SecAuditLogType Serial
@@ -104,7 +104,7 @@ http {
                 SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder3.txt
                 SecDebugLogLevel 9
                 SecAuditLogParts AB
-                SecAuditLogEngine On
+                SecAuditEngine On
                 SecAuditLog %%TESTDIR%%/auditlog-subfolder3.txt
                 SecAuditLogType Serial
                 SecAuditLogStorageDir %%TESTDIR%%/
@@ -115,7 +115,7 @@ http {
                     SecRule ARGS "@streq subfolder4withE" "id:2,phase:1,status:302,ctl:auditLogParts=+E,auditlog,redirect:http://www.modsecurity.org"
                     SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder4.txt
                     SecDebugLogLevel 9
-                    SecAuditLogEngine On
+                    SecAuditEngine On
                     SecAuditLogParts AB
                     SecAuditLog %%TESTDIR%%/auditlog-subfolder4.txt
                     SecAuditLogType Serial

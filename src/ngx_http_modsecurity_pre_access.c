@@ -44,7 +44,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 {
 #if 1
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_loc_conf_t *cf;
+    ngx_http_modsecurity_conf_t *cf;
     ngx_pool_t *old_pool;
 
     dd("catching a new _preaccess_ phase handler");

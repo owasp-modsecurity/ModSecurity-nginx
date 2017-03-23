@@ -24,7 +24,7 @@ ngx_int_t
 ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_loc_conf_t *cf;
+    ngx_http_modsecurity_conf_t *cf;
     ngx_pool_t *old_pool;
 
     cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);

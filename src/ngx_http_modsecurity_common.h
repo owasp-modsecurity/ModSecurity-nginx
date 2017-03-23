@@ -56,23 +56,13 @@ typedef struct {
 
 
 typedef struct {
-    ngx_str_t rules;
-    ngx_str_t rules_file;
-    ngx_str_t rules_remote_server;
-    ngx_str_t rules_remote_key;
+    ModSecurity *modsec;
 
     ngx_flag_t enable;
     ngx_flag_t sanity_checks_enabled;
-    ngx_int_t id;
 
     Rules *rules_set;
-} ngx_http_modsecurity_loc_conf_t;
-
-
-typedef struct {
-    ModSecurity *modsec;
-
-} ngx_http_modsecurity_main_conf_t;
+} ngx_http_modsecurity_conf_t;
 
 
 typedef ngx_int_t (*ngx_http_modsecurity_resolv_header_pt)(ngx_http_request_t *r, ngx_str_t name, off_t offset);

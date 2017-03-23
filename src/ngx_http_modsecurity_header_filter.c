@@ -105,7 +105,7 @@ ngx_http_modescurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ng
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_http_modsecurity_header_t *hdr = NULL;
-    ngx_http_modsecurity_loc_conf_t *loc_cf = NULL;
+    ngx_http_modsecurity_conf_t *loc_cf = NULL;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
     if (ctx == NULL || ctx->sanity_headers_out == NULL) {

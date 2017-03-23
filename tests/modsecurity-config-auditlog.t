@@ -74,6 +74,20 @@ http {
             ';
         }
 
+        location /subfolder1/subfolder2 {
+            modsecurity_rules '
+                SecRule ARGS "@streq subfolder2" "id:41,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
+                SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder2.txt
+                SecDebugLogLevel 9
+                SecAuditEngine On
+                SecAuditLogParts AB
+                SecResponseBodyAccess On
+                SecAuditLog %%TESTDIR%%/auditlog-subfolder2.txt
+                SecAuditLogType Serial
+                SecAuditLogStorageDir %%TESTDIR%%/
+            ';
+        }
+
         location /subfolder1 {
             modsecurity_rules '
                 SecRule ARGS "@streq subfolder1" "id:31,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
@@ -85,19 +99,23 @@ http {
                 SecAuditLogType Serial
                 SecAuditLogStorageDir %%TESTDIR%%/
             ';
-            location /subfolder1/subfolder2 {
-                modsecurity_rules '
-                    SecRule ARGS "@streq subfolder2" "id:41,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
-                    SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder2.txt
-                    SecDebugLogLevel 9
-                    SecAuditEngine On
-                    SecAuditLogParts AB
-                    SecAuditLog %%TESTDIR%%/auditlog-subfolder2.txt
-                    SecAuditLogType Serial
-                    SecAuditLogStorageDir %%TESTDIR%%/
-                ';
-            }
         }
+
+        location /subfolder3/subfolder4 {
+            modsecurity_rules '
+                SecResponseBodyAccess On
+                SecRule ARGS "@streq subfolder4" "id:61,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
+                SecRule ARGS "@streq subfolder4withE" "id:2,phase:1,ctl:auditLogParts=+E,auditlog"
+                SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder4.txt
+                SecDebugLogLevel 9
+                SecAuditEngine On
+                SecAuditLogParts AB
+                SecAuditLog %%TESTDIR%%/auditlog-subfolder4.txt
+                SecAuditLogType Serial
+                SecAuditLogStorageDir %%TESTDIR%%/
+            ';
+        }
+
         location /subfolder3 {
             modsecurity_rules '
                 SecRule ARGS "@streq subfolder3" "id:51,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
@@ -109,19 +127,6 @@ http {
                 SecAuditLogType Serial
                 SecAuditLogStorageDir %%TESTDIR%%/
             ';
-            location /subfolder3/subfolder4 {
-                modsecurity_rules '
-                    SecRule ARGS "@streq subfolder4" "id:61,phase:1,status:302,auditlog,redirect:http://www.modsecurity.org"
-                    SecRule ARGS "@streq subfolder4withE" "id:2,phase:1,status:302,ctl:auditLogParts=+E,auditlog,redirect:http://www.modsecurity.org"
-                    SecDebugLog %%TESTDIR%%/auditlog-debug-subfolder4.txt
-                    SecDebugLogLevel 9
-                    SecAuditEngine On
-                    SecAuditLogParts AB
-                    SecAuditLog %%TESTDIR%%/auditlog-subfolder4.txt
-                    SecAuditLogType Serial
-                    SecAuditLogStorageDir %%TESTDIR%%/
-                ';
-            }
         }
 
     }
@@ -134,9 +139,9 @@ $t->write_file("/subfolder1/index.html", "should be moved/blocked before this.")
 mkdir($t->testdir() . '/subfolder1/subfolder2');
 $t->write_file("/subfolder1/subfolder2/index.html", "should be moved/blocked before this.");
 mkdir($t->testdir() . '/subfolder3');
-$t->write_file("/subfolder1/index.html", "should be moved/blocked before this.");
+$t->write_file("/subfolder3/index.html", "should be moved/blocked before this.");
 mkdir($t->testdir() . '/subfolder3/subfolder4');
-$t->write_file("/subfolder1/subfolder2/index.html", "should be moved/blocked before this.");
+$t->write_file("/subfolder3/subfolder4/index.html", "should be moved/blocked before this.");
 
 $t->run();
 $t->todo_alerts();

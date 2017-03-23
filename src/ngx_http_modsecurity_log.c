@@ -38,7 +38,7 @@ ngx_int_t
 ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_loc_conf_t *cf;
+    ngx_http_modsecurity_conf_t *cf;
     ngx_pool_t *old_pool;
 
     dd("catching a new _log_ phase handler");

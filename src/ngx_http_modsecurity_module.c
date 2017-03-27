@@ -573,7 +573,7 @@ ngx_http_modsecurity_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
         ngx_str_to_char(clcf->server_name, cf->pool), parent,
         child);
     dd("                  state - parent: '%d' child: '%d'",
-        p->enable, c->enable);
+        (int) p->enable, (int) c->enable);
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
@@ -591,7 +591,7 @@ ngx_http_modsecurity_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
         return strdup(error);
     }
     dd("                  state - this: '%d'",
-        c->enable);
+        (int) c->enable);
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     dd("NEW CHIELD RULES");
     msc_rules_dump(c->rules_set);
@@ -616,7 +616,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
         child);
 
     dd("                  state - parent: '%d' child: '%d'",
-        c->enable, p->enable);
+        (int) c->enable, (int) p->enable);
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);

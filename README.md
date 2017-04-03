@@ -26,7 +26,7 @@ Apache. As a result, This current version has less dependencies, fewer bugs, and
 Before compile this software make sure that you have libmodsecurity installed.
 You can download it from the ModSecurity git repository. For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
 
-With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow thes Nginx 3rd party module installation procedure:
+With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow the Nginx 3rd party module installation procedure:
 
 ```
 ./configure --add-module=/path/your/modsecurity-for-nginx
@@ -41,9 +41,9 @@ ModSecurity for Nginx extends your Nginx configuration directives. It adds four
 new directives and they are:
 
 modsecurity [On|Off] - This directive turns on or off ModSecurity functionality. Note that
-this configuration directive is no longer related to the SecRule state. Instead, it now serves soley as an Nginx flag to enable or disable the module.
+this configuration directive is no longer related to the SecRule state. Instead, it now serves solely as an Nginx flag to enable or disable the module.
 
-modsecurity_rules_file [<path to rules file>] - This directive indicates the location of the modsecurity configuartion file.
+modsecurity_rules_file [<path to rules file>] - This directive indicates the location of the modsecurity configuration file.
 
 modsecurity_rules_remote [server-key] [<url to rules>] - This directive is used to indicate from where (on the internet) a modsecurity configuration file will be downloaded. It also specifies the key that will be used to authenticate to that server.
 
@@ -104,7 +104,7 @@ are willing to help with. Thank you.
 
 ## Providing Patches
 
-We prefer to have your patch within the GtiHub infrastructure to facilitate our
+We prefer to have your patch within the GitHub infrastructure to facilitate our
 review work, and our QA integration. GitHub provides an excellent
 documentation on how to perform “Pull Requests”. More information available
 here: https://help.github.com/articles/using-pull-requests/
@@ -129,7 +129,7 @@ You may also take a look at recent bug reports and open issues to get an idea of
 ### Testing your patch
 
 Along with the manual testing, we strongly recommend that you to use the nginx test
-utility to make sure that you patch does not adversly affect the behavior or performance of Nginx. 
+utility to make sure that you patch does not adversely affect the behavior or performance of Nginx. 
 
 The nginx tests are available on: http://hg.nginx.org/nginx-tests/ 
 
@@ -171,7 +171,7 @@ security@modsecurity.org to report the issue. Once the problem is fixed we will 
 
 ## Feature Request
 
-We would love to discuss any ideas that you may have for a new feature. Please keep in mind this is a community driven project so be sure to contact the community via the mailing list to get feedback first. Alternativly,
+We would love to discuss any ideas that you may have for a new feature. Please keep in mind this is a community driven project so be sure to contact the community via the mailing list to get feedback first. Alternatively,
 feel free to open GitHub issues requesting for new features. Before opening a new issue, please check if there is an existing feature request for the desired functionality.
 
 ## Packing

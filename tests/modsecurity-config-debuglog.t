@@ -93,7 +93,6 @@ mkdir($t->testdir() . '/subfolder1/subfolder2');
 $t->write_file("/subfolder1/subfolder2/index.html", "should be moved/blocked before this.");
 
 $t->run();
-$t->todo_alerts();
 $t->plan(3);
 
 ###############################################################################

@@ -144,7 +144,6 @@ mkdir($t->testdir() . '/subfolder3/subfolder4');
 $t->write_file("/subfolder3/subfolder4/index.html", "should be moved/blocked before this.");
 
 $t->run();
-$t->todo_alerts();
 $t->plan(9);
 
 ###############################################################################

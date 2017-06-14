@@ -90,17 +90,19 @@ EOF
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
-$t->plan(7);
+$t->plan(28);
 
 ###############################################################################
 
-like(http_get_body('/bodyaccess', 'GOOD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, 'request body access on, pass');
-like(http_get_body('/bodyaccess', 'VERY BAD BODY'), qr/403 Forbidden/, 'request body access on, block');
-like(http_get_body('/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, 'request body access off, pass');
-like(http_get_body('/bodylimitreject', 'BODY' x 32), qr/TEST-OK-IF-YOU-SEE-THIS/, 'request body limit reject, pass');
-like(http_get_body('/bodylimitreject', 'BODY' x 33), qr/403 Forbidden/, 'request body limit reject, block');
-like(http_get_body('/bodylimitprocesspartial', 'BODY' x 32 . 'BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, 'request body limit process partial, pass');
-like(http_get_body('/bodylimitprocesspartial', 'BODY' x 30 . 'BAD BODY' x 32), qr/403 Forbidden/, 'request body limit process partial, block');
+foreach my $method (('GET', 'POST', 'PUT', 'DELETE')) {
+like(http_req_body($method, '/bodyaccess', 'GOOD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access on, pass");
+like(http_req_body($method, '/bodyaccess', 'VERY BAD BODY'), qr/403 Forbidden/, "$method request body access on, block");
+like(http_req_body($method, '/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access off, pass");
+like(http_req_body($method, '/bodylimitreject', 'BODY' x 32), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit reject, pass");
+like(http_req_body($method, '/bodylimitreject', 'BODY' x 33), qr/403 Forbidden/, "$method request body limit reject, block");
+like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 32 . 'BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit process partial, pass");
+like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 30 . 'BAD BODY' x 32), qr/403 Forbidden/, "$method request body limit process partial, block");
+}
 
 ###############################################################################
 
@@ -140,17 +142,18 @@ EOF
 	}
 }
 
-sub http_get_body {
+sub http_req_body {
+	my $method = shift;
 	my $uri = shift;
 	my $last = pop;
 	return http( join '', (map {
 		my $body = $_;
-		"GET $uri HTTP/1.1" . CRLF
+		"$method $uri HTTP/1.1" . CRLF
 		. "Host: localhost" . CRLF
 		. "Content-Length: " . (length $body) . CRLF . CRLF
 		. $body
 	} @_),
-		"GET $uri HTTP/1.1" . CRLF
+		"$method $uri HTTP/1.1" . CRLF
 		. "Host: localhost" . CRLF
 		. "Connection: close" . CRLF
 		. "Content-Length: " . (length $last) . CRLF . CRLF

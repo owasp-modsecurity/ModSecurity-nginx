@@ -24,7 +24,7 @@ Apache. As a result, This current version has less dependencies, fewer bugs, and
 # Compilation
 
 Before compile this software make sure that you have libmodsecurity installed.
-You can download it from the ModSecurity git repository. For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
+You can download it from the [ModSecurity git repository](https://github.com/SpiderLabs/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
 
 With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow the Nginx 3rd party module installation procedure:
 

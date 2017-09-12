@@ -100,12 +100,14 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * and try to use it later.
          *
          */
+          /**
+         * @dennus - I'm think, that we not needed in three call of intervention in one phase
         dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
             return ret;
         }
-
+           */ 
         const char *http_version;
         switch (r->http_version) {
             case NGX_HTTP_VERSION_9 :
@@ -135,13 +137,15 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
+        
+        /**
+         * @dennus - I'm think, that we not needed in three call of intervention in one phase
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
             return ret;
         }
-
+         */
         /**
          * Since incoming request headers are already in place, lets send it to ModSecurity
          *

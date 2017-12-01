@@ -64,7 +64,6 @@ http {
             modsecurity_rules '
                 SecRuleEngine On
                 SecRequestBodyAccess On
-                SecRequestBodyInMemoryLimit 128
                 SecRequestBodyLimit 128
                 SecRequestBodyLimitAction Reject
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:31,phase:request,deny,log,status:403"
@@ -76,7 +75,6 @@ http {
             modsecurity_rules '
                 SecRuleEngine On
                 SecRequestBodyAccess On
-                SecRequestBodyInMemoryLimit 128
                 SecRequestBodyLimit 128
                 SecRequestBodyLimitAction ProcessPartial
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:41,phase:request,deny,log,status:403"

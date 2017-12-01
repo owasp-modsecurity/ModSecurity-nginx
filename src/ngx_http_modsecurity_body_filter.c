@@ -153,17 +153,13 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             u_char *data = chain->buf->start;
 
             msc_append_response_body(ctx->modsec_transaction, data, chain->buf->end - data);
-           
-        }
-        /*@dennus: I'm think, that we not need in checkin all parts of processed body, because in code 
-         * bellow we check all body completely*/
-         /*
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
             if (ret > 0) {
                 return ngx_http_filter_finalize_request(r,
                     &ngx_http_modsecurity_module, ret);
             }
-          * */
+        }
+
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_response_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);

@@ -180,17 +180,12 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
              * it may ask for a intervention in consequence of that.
              *
              */
-          
-        }
-        /** 
-         *  @dennus: I'm move transaction outside cycle, because I'm think that was uselless calls
-         *  
-         *  
-         */
-          ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
             if (ret > 0) {
                 return ret;
             }
+        }
+
         /**
          * At this point, all the request body was sent to ModSecurity
          * and we want to make sure that all the request body inspection

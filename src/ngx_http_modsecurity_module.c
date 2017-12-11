@@ -258,7 +258,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     }
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
-
+    ctx->response_body_proceed = 0;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
     if (ctx->sanity_headers_out == NULL) {

@@ -35,7 +35,6 @@ ngx_http_modsecurity_body_filter_init(void)
 ngx_int_t
 ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    int buffer_fully_loadead = 0;
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
@@ -135,51 +134,52 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 #endif
 
-    for (; chain != NULL; chain = chain->next)
+    int ret;
+    ngx_pool_t *old_pool;
+
+    for (chain = in; chain != NULL; chain = chain->next)
     {
-/* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
-        if (chain->buf->last_buf) {
-            buffer_fully_loadead = 1;
-        }
+      u_char *data = chain->buf->start;
+
+      msc_append_response_body(ctx->modsec_transaction, data, chain->buf->end - data);
+      ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+      if (ret > 0) {
+          ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                          "MDS ret > 0 when read chunk \n");
+        return ngx_http_filter_finalize_request(r,
+            &ngx_http_modsecurity_module, ret);
+      }
     }
 
-    if (buffer_fully_loadead == 1)
-    {
-        int ret;
-        ngx_pool_t *old_pool;
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+    msc_process_response_body(ctx->modsec_transaction);
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
-        for (chain = in; chain != NULL; chain = chain->next)
-        {
-            u_char *data = chain->buf->start;
-
-            msc_append_response_body(ctx->modsec_transaction, data, chain->buf->end - data);
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-            if (ret > 0) {
-                return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, ret);
-            }
-        }
-
-        old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_response_body(ctx->modsec_transaction);
-        ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-/* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
-   XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (ret > 0) {
-            return ret;
-        }
-        else if (ret < 0) {
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
-        }
+    /* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
+XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
+    ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+    if (ret > 0) {
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                        "MDS ret = %d  after intervention\n", ret);
+      ctx->response_body_proceed = 1;
+      ngx_http_filter_finalize_request(r,
+          &ngx_http_modsecurity_module, ret);
+      return ret;
     }
-    else
-    {
-        dd("buffer was not fully loaded! ctx: %p", ctx);
+    else if (ret < 0 && !ctx->response_body_proceed) {
+      ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                        "MDS ret < 0 after intervention\n");
+      
+       ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,ret);
+       return ret;
     }
 
+   ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0,
+                        "MDS ret =  0 after intervention\n");
 /* XXX: xflt_filter() -- return NGX_OK here */
-    return ngx_http_next_body_filter(r, in);
+    ctx->response_body_proceed = 1;
+    ctx->header_pt(r);
+    return ngx_http_next_body_filter(r,in);
+    //ngx_http_filter_finalize_request(r,&ngx_http_modsecurity_module,  rc);
+    //return NGX_OK;
 }

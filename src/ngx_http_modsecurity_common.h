@@ -31,6 +31,11 @@ typedef struct {
     ngx_str_t value;
 } ngx_http_modsecurity_header_t;
 
+typedef struct {
+   ngx_chain_t* chain;
+   u_char*      pos;
+   ngx_chain_t* next;
+} ngx_temp_chain_t;
 
 typedef struct {
     ngx_http_request_t *r;
@@ -52,8 +57,12 @@ typedef struct {
     unsigned waiting_more_body:1;
     unsigned body_requested:1;
     unsigned processed:1;
-    unsigned response_body_proceed:1;
+    ngx_int_t response_body_read_bytes;
     ngx_http_output_header_filter_pt header_pt;
+    u_char* data;
+    ngx_chain_t* temp_chain;
+    ngx_chain_t* current_chain;
+    unsigned response_body_filtered:1;
 } ngx_http_modsecurity_ctx_t;
 
 

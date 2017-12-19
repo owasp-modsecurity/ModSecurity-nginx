@@ -542,10 +542,16 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      *
      */
 
-    /*
-     * The line below is commented to make the spdy test to work
-     */
-     //r->headers_out.content_length_n = -1;
+     /*
+      * The line below is commented to make the spdy test to work
+      */
+      //r->headers_out.content_length_n = -1;
 
-    return ngx_http_next_header_filter(r);
+    if (ctx->response_body_filtered){
+         return ngx_http_next_header_filter(r);
+     }
+    else {
+         ctx->header_pt =  ngx_http_next_header_filter;
+         return NGX_AGAIN;
+      }
 }

@@ -31,13 +31,15 @@ ngx_http_modsecurity_body_filter_init(void)
 
     return NGX_OK;
 }
-
 ngx_int_t
 ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    int buffer_fully_loadead = 0;
-    ngx_chain_t *chain = in;
+
     ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_chain_t *chain = in;
+    ngx_int_t ret;
+    ngx_pool_t *old_pool;
+    ngx_int_t is_request_processed = 0;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_http_modsecurity_conf_t *loc_cf = NULL;
     ngx_list_part_t *part = &r->headers_out.headers.part;
@@ -49,11 +51,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
+    /* get context for request */
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-
     dd("body filter, recovering ctx: %p", ctx);
-
-    if (ctx == NULL) {
+										   
+    if (ctx == NULL || r->filter_finalize) {
         return ngx_http_next_body_filter(r, in);
     }
 
@@ -130,56 +132,84 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         {
             dd("%d header(s) were not inspected by ModSecurity, so exiting", worth_to_fail);
             return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                    &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
         }
     }
 #endif
 
-    for (; chain != NULL; chain = chain->next)
-    {
-/* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
-        if (chain->buf->last_buf) {
-            buffer_fully_loadead = 1;
+    for (chain = in; chain != NULL; chain = chain->next) {
+
+        ngx_buf_t *copy_buf;
+        ngx_chain_t* copy_chain;
+        is_request_processed = chain->buf->last_buf;
+        ngx_int_t data_size = chain->buf->end - chain->buf->start;
+        ngx_int_t data_offset = chain->buf->pos - chain->buf->start;
+        u_char *data = chain->buf->start;
+        msc_append_response_body(ctx->modsec_transaction, data,
+                chain->buf->end - data);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction,
+                r);
+        if (ret > 0) {
+            return ngx_http_filter_finalize_request(r,
+                    &ngx_http_modsecurity_module, ret);
+        }
+        if (data_size > 0){
+            copy_chain = ngx_alloc_chain_link(r->pool);
+            if (copy_chain == NULL) {
+                return NGX_ERROR;
+            }
+
+            copy_buf = ngx_calloc_buf(r->pool);
+            if (copy_buf == NULL) {
+                return NGX_ERROR;
+            }
+            copy_buf->start = ngx_pcalloc(r->pool, data_size);
+            if (copy_buf->start == NULL) {
+                return NGX_ERROR;
+            }
+            ngx_memcpy(copy_buf->start, chain->buf->start, data_size);
+            copy_buf->pos = copy_buf->start + data_offset;
+            copy_buf->end = copy_buf->start + data_size;
+            copy_buf->last = copy_buf->pos + ngx_buf_size(chain->buf);
+            copy_buf->temporary = (chain->buf->temporary == 1) ? 1 : 0;
+            copy_buf->memory = (chain->buf->memory == 1) ? 1 : 0;
+            copy_chain->buf = copy_buf;
+            copy_chain->buf->last_buf = 1;
+            copy_chain->next = NULL;
+            chain->buf->pos = chain->buf->last;
+        }
+        else
+            copy_chain = chain;
+        if (ctx->temp_chain == NULL) {
+            ctx->temp_chain = copy_chain;
+        } else {
+            if (ctx->current_chain == NULL) {
+                ctx->temp_chain->next = copy_chain;
+                ctx->temp_chain->buf->last_buf = 0;
+            } else {
+                ctx->current_chain->next = copy_chain;
+                ctx->current_chain->buf->last_buf = 0;
+            }
+            ctx->current_chain = copy_chain;
         }
     }
 
-    if (buffer_fully_loadead == 1)
-    {
-        int ret;
-        ngx_pool_t *old_pool;
-
-        for (chain = in; chain != NULL; chain = chain->next)
-        {
-            u_char *data = chain->buf->start;
-
-            msc_append_response_body(ctx->modsec_transaction, data, chain->buf->end - data);
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-            if (ret > 0) {
-                return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, ret);
-            }
-        }
-
+    if (is_request_processed) {
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_response_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-/* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
-   XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
-            return ret;
-        }
-        else if (ret < 0) {
             return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
+                    &ngx_http_modsecurity_module, ret);
+        } else if (ret < 0) {
+            return ngx_http_filter_finalize_request(r,
+                    &ngx_http_modsecurity_module, ret);
         }
+        ctx->response_body_filtered = 1;
+        ctx->header_pt(r);
+        return ngx_http_next_body_filter(r, ctx->temp_chain);
+    } else {
+        return NGX_AGAIN;
     }
-    else
-    {
-        dd("buffer was not fully loaded! ctx: %p", ctx);
-    }
-
-/* XXX: xflt_filter() -- return NGX_OK here */
-    return ngx_http_next_body_filter(r, in);
 }

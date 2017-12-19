@@ -651,9 +651,11 @@ ngx_http_modsecurity_config_cleanup(void *data)
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(NULL);
     msc_rules_cleanup(t->rules_set);
+    msc_cleanup(t->modsec);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     t->rules_set = NULL;
+    t->modsec = NULL;
 }
 
 

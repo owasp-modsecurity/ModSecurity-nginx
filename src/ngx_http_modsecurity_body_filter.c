@@ -153,31 +153,33 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             return ngx_http_filter_finalize_request(r,
                     &ngx_http_modsecurity_module, ret);
         }
+        if (data_size > 0){
+            copy_chain = ngx_alloc_chain_link(r->pool);
+            if (copy_chain == NULL) {
+                return NGX_ERROR;
+            }
 
-        copy_chain = ngx_alloc_chain_link(r->pool);
-        if (copy_chain == NULL) {
-            return NGX_ERROR;
+            copy_buf = ngx_calloc_buf(r->pool);
+            if (copy_buf == NULL) {
+                return NGX_ERROR;
+            }
+            copy_buf->start = ngx_pcalloc(r->pool, data_size);
+            if (copy_buf->start == NULL) {
+                return NGX_ERROR;
+            }
+            ngx_memcpy(copy_buf->start, chain->buf->start, data_size);
+            copy_buf->pos = copy_buf->start + data_offset;
+            copy_buf->end = copy_buf->start + data_size;
+            copy_buf->last = copy_buf->pos + ngx_buf_size(chain->buf);
+            copy_buf->temporary = (chain->buf->temporary == 1) ? 1 : 0;
+            copy_buf->memory = (chain->buf->memory == 1) ? 1 : 0;
+            copy_chain->buf = copy_buf;
+            copy_chain->buf->last_buf = 1;
+            copy_chain->next = NULL;
+            chain->buf->pos = chain->buf->last;
         }
-
-        copy_buf = ngx_calloc_buf(r->pool);
-        if (copy_buf == NULL) {
-            return NGX_ERROR;
-        }
-        copy_buf->start = ngx_pcalloc(r->pool, data_size);
-        if (copy_buf->start == NULL) {
-            return NGX_ERROR;
-        }
-        ngx_memcpy(copy_buf->start, chain->buf->start, data_size);
-        copy_buf->pos = copy_buf->start + data_offset;
-        copy_buf->end = copy_buf->start + data_size;
-        copy_buf->last = copy_buf->pos + ngx_buf_size(chain->buf);
-        copy_buf->temporary = (chain->buf->temporary == 1) ? 1 : 0;
-        copy_buf->memory = (chain->buf->memory == 1) ? 1 : 0;
-        copy_chain->buf = copy_buf;
-        copy_chain->buf->last_buf = 1;
-        copy_chain->next = NULL;
-        chain->buf->pos = chain->buf->last;
-
+        else
+            copy_chain = chain;
         if (ctx->temp_chain == NULL) {
             ctx->temp_chain = copy_chain;
         } else {

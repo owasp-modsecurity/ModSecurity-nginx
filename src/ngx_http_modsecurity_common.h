@@ -26,6 +26,34 @@
 #include <modsecurity/transaction.h>
 #include <modsecurity/rules.h>
 
+
+/**
+ * TAG_NUM:
+ *
+ * Alpha  - 001
+ * Beta   - 002
+ * Dev    - 010
+ * Rc1    - 051
+ * Rc2    - 052
+ * ...    - ...
+ * Release- 100
+ *
+ */
+
+#define MODSECURITY_NGINX_MAJOR "1"
+#define MODSECURITY_NGINX_MINOR "0"
+#define MODSECURITY_NGINX_PATCHLEVEL "0"
+#define MODSECURITY_NGINX_TAG ""
+#define MODSECURITY_NGINX_TAG_NUM "100"
+
+#define MODSECURITY_NGINX_VERSION MODSECURITY_NGINX_MAJOR "." \
+    MODSECURITY_NGINX_MINOR "." MODSECURITY_NGINX_PATCHLEVEL \
+    MODSECURITY_NGINX_TAG
+
+#define MODSECURITY_NGINX_VERSION_NUM MODSECURITY_NGINX_MAJOR \
+    MODSECURITY_NGINX_MINOR MODSECURITY_NGINX_PATCHLEVEL \
+    MODSECURITY_NGINX_TAG_NUM
+
 typedef struct {
     ngx_str_t name;
     ngx_str_t value;

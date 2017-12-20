@@ -1,5 +1,6 @@
-DD mmm YYYY  - 1.0.0
+
+v1.0.0 - 2017-Dec-20
 --------------------
 
- * First version of the ModSecurity-nginx 
-   [Felipe Zimmerle]
+ - First version of ModSecurity-nginx connector
+

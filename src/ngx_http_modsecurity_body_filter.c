@@ -59,6 +59,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
+
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (loc_cf != NULL && loc_cf->sanity_checks_enabled != NGX_CONF_UNSET)
@@ -200,14 +201,17 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
+            if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL)
+                ctx->header_pt(r);
             return ngx_http_filter_finalize_request(r,
                     &ngx_http_modsecurity_module, ret);
         } else if (ret < 0) {
             return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, ret);
+                    &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
         }
         ctx->response_body_filtered = 1;
-        ctx->header_pt(r);
+        if (ctx->header_pt != NULL)
+            ctx->header_pt(r);
         return ngx_http_next_body_filter(r, ctx->temp_chain);
     } else {
         return NGX_AGAIN;

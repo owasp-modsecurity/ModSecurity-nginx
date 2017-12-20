@@ -135,13 +135,13 @@ is(http_get('/phase4?what=redirect301'), '', 'redirect 301 - phase 4');
 like(http_get('/phase1?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 1');
 like(http_get('/phase2?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 2');
 like(http_get('/phase3?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 3');
-is(http_get('/phase4?what=block401'), '', 'block 401 - phase 4');
+like(http_get('/phase4?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 4');
 
 # Block (403)
 like(http_get('/phase1?what=block403'), qr/403 Forbidden/, 'block 403 - phase 1');
 like(http_get('/phase2?what=block403'), qr/403 Forbidden/, 'block 403 - phase 2');
 like(http_get('/phase3?what=block403'), qr/403 Forbidden/, 'block 403 - phase 3');
-is(http_get('/phase4?what=block403'), '', 'block 403 - phase 4');
+like(http_get('/phase4?what=block403'), qr/403 Forbidden/, 'block 403 - phase 4');
 
 # Nothing to detect
 like(http_get('/phase1?what=nothing'), qr/should be moved\/blocked before this./, 'nothing phase 1');

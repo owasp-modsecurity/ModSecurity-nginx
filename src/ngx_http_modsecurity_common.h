@@ -93,6 +93,8 @@ typedef struct {
     ngx_flag_t sanity_checks_enabled;
 
     Rules *rules_set;
+
+    void *pool;
 } ngx_http_modsecurity_conf_t;
 
 

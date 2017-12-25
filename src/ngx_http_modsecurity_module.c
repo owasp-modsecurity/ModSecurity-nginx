@@ -545,6 +545,7 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->enable = NGX_CONF_UNSET;
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
     conf->rules_set = msc_create_rules_set();
+    conf->modsec = NULL;
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {

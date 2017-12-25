@@ -496,6 +496,8 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_conf_t *conf;
 
+    ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, MODSECURITY_NGINX_WHOAMI);
+
     /* ngx_pcalloc already sets all of this scructure to zeros. */
     conf = ngx_http_modsecurity_create_conf(cf);
 
@@ -515,7 +517,7 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     }
 
     /* Provide our connector information to LibModSecurity */
-    msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.1.1-beta");
+    msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
     msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
     return conf;

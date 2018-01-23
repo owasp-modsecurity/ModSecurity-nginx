@@ -137,8 +137,15 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     intervention.url = NULL;
     intervention.log = NULL;
     intervention.disruptive = 0;
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
 
     dd("processing intervention");
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    if (ctx == NULL)
+    {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
 
     if (msc_intervention(transaction, &intervention) == 0) {
         dd("nothing to do");
@@ -194,6 +201,9 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     if (intervention.status != 200)
     {
+        ngx_http_modsecurity_log_handler(r);
+        ctx->logged = 1;
+
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");

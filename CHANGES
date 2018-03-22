@@ -1,3 +1,9 @@
+v1.0.x - YYYY-MMM-DD (To be released)
+-------------------------------------
+
+ - Fixed memory leak
+   [Issue #80 - @AirisX, @defanator]
+
 
 v1.0.0 - 2017-Dec-20
 --------------------

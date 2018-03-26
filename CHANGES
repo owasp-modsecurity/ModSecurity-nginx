@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Emit connector version in error log
+   [Isseu #88 - @defanator]
  - Fixed memory leak on config cleanup.
    [Issue #80 - @AirisX, @defanator]
 

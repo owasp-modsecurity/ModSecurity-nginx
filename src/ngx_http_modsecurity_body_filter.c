@@ -201,9 +201,9 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
-            if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL)
+             if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL)
                 ctx->header_pt(r);
-            return ngx_http_filter_finalize_request(r,
+             else return ngx_http_filter_finalize_request(r,
                     &ngx_http_modsecurity_module, ret);
         } else if (ret < 0) {
             return ngx_http_filter_finalize_request(r,

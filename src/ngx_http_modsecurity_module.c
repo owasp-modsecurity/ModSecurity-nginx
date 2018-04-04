@@ -496,6 +496,8 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
 {
     ngx_http_modsecurity_conf_t *conf;
 
+    ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, MODSECURITY_NGINX_WHOAMI);
+
     /* ngx_pcalloc already sets all of this scructure to zeros. */
     conf = ngx_http_modsecurity_create_conf(cf);
 
@@ -515,7 +517,7 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     }
 
     /* Provide our connector information to LibModSecurity */
-    msc_set_connector_info(conf->modsec, "ModSecurity-nginx v0.1.1-beta");
+    msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
     msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
     return conf;
@@ -545,6 +547,7 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->enable = NGX_CONF_UNSET;
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
     conf->rules_set = msc_create_rules_set();
+    conf->modsec = NULL;
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {
@@ -651,9 +654,11 @@ ngx_http_modsecurity_config_cleanup(void *data)
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(NULL);
     msc_rules_cleanup(t->rules_set);
+    msc_cleanup(t->modsec);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     t->rules_set = NULL;
+    t->modsec = NULL;
 }
 
 

@@ -54,6 +54,9 @@
     MODSECURITY_NGINX_MINOR MODSECURITY_NGINX_PATCHLEVEL \
     MODSECURITY_NGINX_TAG_NUM
 
+#define MODSECURITY_NGINX_WHOAMI "ModSecurity-nginx v" \
+    MODSECURITY_NGINX_VERSION
+
 typedef struct {
     ngx_str_t name;
     ngx_str_t value;

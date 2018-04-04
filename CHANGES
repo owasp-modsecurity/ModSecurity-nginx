@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fix memory leak in intervention processing
+   [Issue #100 - @defanator]
  - Emit connector version in error log
    [Issue #88 - @defanator]
  - Fixed memory leak on config cleanup.

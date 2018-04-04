@@ -132,6 +132,7 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 ngx_inline int
 ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r)
 {
+    char *log = NULL;
     ModSecurityIntervention intervention;
     intervention.status = 200;
     intervention.url = NULL;
@@ -145,11 +146,16 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         return 0;
     }
 
+    log = intervention.log;
     if (intervention.log == NULL) {
-        intervention.log = "(no log message was specified)";
+        log = "(no log message was specified)";
     }
 
-    ngx_log_error(NGX_LOG_WARN, (ngx_log_t *)r->connection->log, 0, "%s", intervention.log);
+    ngx_log_error(NGX_LOG_WARN, (ngx_log_t *)r->connection->log, 0, "%s", log);
+
+    if (intervention.log != NULL) {
+        free(intervention.log);
+    }
 
     if (intervention.url != NULL)
     {

@@ -6,9 +6,9 @@
 
 
 
-The ModSecurity-nginx connector is the connection point between Nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between Nginx and libmodsecurity. This connector is required to use LibModSecurity with Nginx. 
+The ModSecurity-nginx connector is the connection point between nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between nginx and libmodsecurity. This connector is required to use LibModSecurity with nginx. 
 
-The ModSecurity-nginx connector takes the form of an Nginx module. The module simply serves as a layer of communication between Nginx and ModSecurity.
+The ModSecurity-nginx connector takes the form of an nginx module. The module simply serves as a layer of communication between nginx and ModSecurity.
 
 Notice that this project depends on libmodsecurity rather than ModSecurity (version 2.9 or less).
 
@@ -25,7 +25,7 @@ Apache. As a result, This current version has less dependencies, fewer bugs, and
 Before compile this software make sure that you have libmodsecurity installed.
 You can download it from the [ModSecurity git repository](https://github.com/SpiderLabs/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
 
-With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow the Nginx 3rd party module installation procedure:
+With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow the nginx 3rd party module installation procedure:
 
 ```
 ./configure --add-module=/path/your/modsecurity-for-nginx
@@ -36,17 +36,17 @@ http://wiki.nginx.org/3rdPartyModules
 
 # Usage
 
-ModSecurity for Nginx extends your Nginx configuration directives. It adds four
+ModSecurity for nginx extends your nginx configuration directives. It adds four
 new directives and they are:
 
 modsecurity [On|Off] - This directive turns on or off ModSecurity functionality. Note that
-this configuration directive is no longer related to the SecRule state. Instead, it now serves solely as an Nginx flag to enable or disable the module.
+this configuration directive is no longer related to the SecRule state. Instead, it now serves solely as an nginx flag to enable or disable the module.
 
 modsecurity_rules_file [<path to rules file>] - This directive indicates the location of the modsecurity configuration file.
 
 modsecurity_rules_remote [server-key] [<url to rules>] - This directive is used to indicate from where (on the internet) a modsecurity configuration file will be downloaded. It also specifies the key that will be used to authenticate to that server.
 
-modsecurity_rules [<modsecurity rule>] - This directive allows for the direct inclusion of a ModSecurity rule into the Nginx configuration.
+modsecurity_rules [<modsecurity rule>] - This directive allows for the direct inclusion of a ModSecurity rule into the nginx configuration.
 
 
 ### Usage example: injecting rules within nginx configuration
@@ -128,7 +128,7 @@ You may also take a look at recent bug reports and open issues to get an idea of
 ### Testing your patch
 
 Along with the manual testing, we strongly recommend that you to use the nginx test
-utility to make sure that you patch does not adversely affect the behavior or performance of Nginx. 
+utility to make sure that you patch does not adversely affect the behavior or performance of nginx. 
 
 The nginx tests are available on: http://hg.nginx.org/nginx-tests/ 
 
@@ -141,14 +141,14 @@ $ cd /path/to/nginx/test/repository
 $ TEST_NGINX_BINARY=/path/to/your/nginx prove .
 ```
 
-If you are facing problems getting your added functionality to pass all the  Nginx tests, feel free to contact us or the nginx mailing list at: http://nginx.org/en/support.html
+If you are facing problems getting your added functionality to pass all the nginx tests, feel free to contact us or the nginx mailing list at: http://nginx.org/en/support.html
 
 ### Debugging 
 
 We respect the nginx debugging schema. By using the configuration option
 “--with-debug”  during the nginx configuration you will also  be enabling the
 connector's debug messages. Core dumps and crashes are expected to be debugged
-in the same fashion that is used to debug Nginx. For further information,
+in the same fashion that is used to debug nginx. For further information,
 please check the nginx debugging information: http://wiki.nginx.org/Debugging
 
 

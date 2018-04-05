@@ -11,7 +11,6 @@ The ModSecurity-nginx connector is the connection point between Nginx and libmod
 The ModSecurity-nginx connector takes the form of an Nginx module. The module simply serves as a layer of communication between Nginx and ModSecurity.
 
 Notice that this project depends on libmodsecurity rather than ModSecurity (version 2.9 or less).
-libmodsecurity has not reached a stable release candidate, thus, use this project with caution.
 
 ### What is the difference between this project and the old ModSecurity add-on for nginx?
 

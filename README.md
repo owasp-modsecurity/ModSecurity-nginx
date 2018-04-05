@@ -39,9 +39,8 @@ http://wiki.nginx.org/3rdPartyModules
 ModSecurity for nginx extends your nginx configuration directives.
 It adds four new directives and they are:
 
-#### modsecurity
-----------------
-
+modsecurity
+-----------
 **syntax:** *modsecurity on | off*
 
 **context:** *http, server, location*
@@ -52,9 +51,8 @@ Turns on or off ModSecurity functionality.
 Note that this configuration directive is no longer related to the SecRule state.
 Instead, it now serves solely as an nginx flag to enable or disable the module.
 
-#### modsecurity_rules_file
----------------------------
-
+modsecurity_rules_file
+----------------------
 **syntax:** *modsecurity_rules_file &lt;path to rules file&gt;*
 
 **context:** *http, server, location*
@@ -73,9 +71,8 @@ server {
 }
 ```
 
-#### modsecurity_rules_remote
------------------------------
-
+modsecurity_rules_remote
+------------------------
 **syntax:** *modsecurity_rules_remote &lt;key&gt; &lt;URL to rules&gt;*
 
 **context:** *http, server, location*
@@ -95,9 +92,8 @@ server {
 }
 ```
 
-#### modsecurity_rules
-----------------------
-
+modsecurity_rules
+-----------------
 **syntax:** *modsecurity_rules &lt;modsecurity rule&gt;*
 
 **context:** *http, server, location*

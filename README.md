@@ -36,62 +36,94 @@ http://wiki.nginx.org/3rdPartyModules
 
 # Usage
 
-ModSecurity for nginx extends your nginx configuration directives. It adds four
-new directives and they are:
+ModSecurity for nginx extends your nginx configuration directives.
+It adds four new directives and they are:
 
-modsecurity [On|Off] - This directive turns on or off ModSecurity functionality. Note that
-this configuration directive is no longer related to the SecRule state. Instead, it now serves solely as an nginx flag to enable or disable the module.
+#### modsecurity
+----------------
 
-modsecurity_rules_file [<path to rules file>] - This directive indicates the location of the modsecurity configuration file.
+**syntax:** *modsecurity on | off*
 
-modsecurity_rules_remote [server-key] [<url to rules>] - This directive is used to indicate from where (on the internet) a modsecurity configuration file will be downloaded. It also specifies the key that will be used to authenticate to that server.
+**context:** *http, server, location*
 
-modsecurity_rules [<modsecurity rule>] - This directive allows for the direct inclusion of a ModSecurity rule into the nginx configuration.
+**default:** *off*
 
-### Usage example: injecting rules within nginx configuration
-```
-...
-modsecurity on;
-location / {
-  modsecurity_rules '
-    SecRuleEngine On
-    SecDebugLog /tmp/modsec_debug.log
-    SecDebugLogLevel 9
-    SecRule ARGS "@contains test" "id:1,phase:2,t:trim,block"
-  ';
+Turns on or off ModSecurity functionality.
+Note that this configuration directive is no longer related to the SecRule state.
+Instead, it now serves solely as an nginx flag to enable or disable the module.
+
+#### modsecurity_rules_file
+---------------------------
+
+**syntax:** *modsecurity_rules_file &lt;path to rules file&gt;*
+
+**context:** *http, server, location*
+
+**default:** *no*
+
+Specifies the location of the modsecurity configuration file, e.g.:
+
+```nginx
+server {
+    modsecurity on;
+    location / {
+        root /var/www/html;
+        modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+    }
 }
-...
 ```
 
-### Usage example: loading rules from a file and injecting specific configurations per directory/alias
-```
-...
-modsecurity on;
-location / {
-  root /var/www/html;
-  modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+#### modsecurity_rules_remote
+-----------------------------
+
+**syntax:** *modsecurity_rules_remote &lt;key&gt; &lt;URL to rules&gt;*
+
+**context:** *http, server, location*
+
+**default:** *no*
+
+Specifies from where (on the internet) a modsecurity configuration file will be downloaded.
+It also specifies the key that will be used to authenticate to that server:
+
+```nginx
+server {
+    modsecurity on;
+    location / {
+        root /var/www/html;
+        modsecurity_rules_remote my-server-key https://my-own-server/rules/download;
+    }
 }
-location /ops {
-  root /var/www/html/opts;
-  modsecurity_rules '
-    SecRuleEngine On
-    SecDebugLog /tmp/modsec_debug.log
-    SecDebugLogLevel 9
-    SecRuleRemoveById 10
-  ';
-}
-...
 ```
 
-### Usage example: loading rules from a remote server
-```
-...
-modsecurity on;
-location / {
-  root /var/www/html;
-  modsecurity_rules_remote my-server-key https://my-own-server/rules/download;
+#### modsecurity_rules
+----------------------
+
+**syntax:** *modsecurity_rules &lt;modsecurity rule&gt;*
+
+**context:** *http, server, location*
+
+**default:** *no*
+
+Allows for the direct inclusion of a ModSecurity rule into the nginx configuration.
+The following example is loading rules from a file and injecting specific configurations per directory/alias:
+
+```nginx
+server {
+    modsecurity on;
+    location / {
+        root /var/www/html;
+        modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+    }
+    location /ops {
+        root /var/www/html/opts;
+        modsecurity_rules '
+          SecRuleEngine On
+          SecDebugLog /tmp/modsec_debug.log
+          SecDebugLogLevel 9
+          SecRuleRemoveById 10
+        ';
+    }
 }
-...
 ```
 
 

@@ -5,7 +5,6 @@
 [![](https://raw.githubusercontent.com/ZenHubIO/support/master/zenhub-badge.png)](https://zenhub.com)
 
 
-
 The ModSecurity-nginx connector is the connection point between nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between nginx and libmodsecurity. This connector is required to use LibModSecurity with nginx. 
 
 The ModSecurity-nginx connector takes the form of an nginx module. The module simply serves as a layer of communication between nginx and ModSecurity.
@@ -17,7 +16,7 @@ Notice that this project depends on libmodsecurity rather than ModSecurity (vers
 The old version uses ModSecurity standalone, which is a wrapper for
 Apache internals to link ModSecurity to nginx. This current version is closer
 to nginx, consuming the new libmodsecurity which is no longer dependent on
-Apache. As a result, This current version has less dependencies, fewer bugs, and is faster. In addition, Some new functionality is also provided - such as the possibility of use of global rules configuration with per directory/location customizations (e.g. SecRuleRemoveById).
+Apache. As a result, this current version has less dependencies, fewer bugs, and is faster. In addition, some new functionality is also provided - such as the possibility of use of global rules configuration with per directory/location customizations (e.g. SecRuleRemoveById).
 
 
 # Compilation
@@ -28,11 +27,12 @@ You can download it from the [ModSecurity git repository](https://github.com/Spi
 With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow the nginx 3rd party module installation procedure:
 
 ```
-./configure --add-module=/path/your/modsecurity-for-nginx
+./configure --add-module=/path/to/ModSecurity-nginx
 ```
 
 Further information about nginx 3rd party add-ons support are available here:
 http://wiki.nginx.org/3rdPartyModules
+
 
 # Usage
 
@@ -47,7 +47,6 @@ modsecurity_rules_file [<path to rules file>] - This directive indicates the loc
 modsecurity_rules_remote [server-key] [<url to rules>] - This directive is used to indicate from where (on the internet) a modsecurity configuration file will be downloaded. It also specifies the key that will be used to authenticate to that server.
 
 modsecurity_rules [<modsecurity rule>] - This directive allows for the direct inclusion of a ModSecurity rule into the nginx configuration.
-
 
 ### Usage example: injecting rules within nginx configuration
 ```
@@ -95,11 +94,13 @@ location / {
 ...
 ```
 
+
 # Contributing
 
 As an open source project we invite (and encourage) anyone from the community to contribute to our project. This may take the form of: new
 functionality, bug fixes, bug reports, beginners user support, and anything else that you
 are willing to help with. Thank you.
+
 
 ## Providing Patches
 
@@ -146,7 +147,7 @@ If you are facing problems getting your added functionality to pass all the ngin
 ### Debugging 
 
 We respect the nginx debugging schema. By using the configuration option
-“--with-debug”  during the nginx configuration you will also  be enabling the
+"--with-debug" during the nginx configuration you will also be enabling the
 connector's debug messages. Core dumps and crashes are expected to be debugged
 in the same fashion that is used to debug nginx. For further information,
 please check the nginx debugging information: http://wiki.nginx.org/Debugging
@@ -168,10 +169,12 @@ version of your libmodsecurity and the version of the nginx connector you are ru
 Please do not publicly report any security issue. Instead, contact us at:
 security@modsecurity.org to report the issue. Once the problem is fixed we will provide you with credit for the discovery.
 
+
 ## Feature Request
 
 We would love to discuss any ideas that you may have for a new feature. Please keep in mind this is a community driven project so be sure to contact the community via the mailing list to get feedback first. Alternatively,
 feel free to open GitHub issues requesting for new features. Before opening a new issue, please check if there is an existing feature request for the desired functionality.
+
 
 ## Packing
 

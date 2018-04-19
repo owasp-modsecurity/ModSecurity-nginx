@@ -35,7 +35,6 @@ ngx_http_modsecurity_body_filter_init(void)
 ngx_int_t
 ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-    int buffer_fully_loadead = 0;
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
@@ -135,47 +134,43 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 #endif
 
+    int is_request_processed = 0;
     for (; chain != NULL; chain = chain->next)
     {
-/* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
-        if (chain->buf->last_buf) {
-            buffer_fully_loadead = 1;
-        }
-    }
-
-    if (buffer_fully_loadead == 1)
-    {
+        u_char *data = chain->buf->pos;
         int ret;
-        ngx_pool_t *old_pool;
 
-        for (chain = in; chain != NULL; chain = chain->next)
-        {
-            u_char *data = chain->buf->pos;
-
-            msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-            if (ret > 0) {
-                return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, ret);
-            }
+        msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+        if (ret > 0) {
+            return ngx_http_filter_finalize_request(r,
+                &ngx_http_modsecurity_module, ret);
         }
 
-        old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_response_body(ctx->modsec_transaction);
-        ngx_http_modsecurity_pcre_malloc_done(old_pool);
+/* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
+        is_request_processed = chain->buf->last_buf;
+
+        if (is_request_processed) {
+            ngx_pool_t *old_pool;
+
+            old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+            msc_process_response_body(ctx->modsec_transaction);
+            ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
 /* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
    XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (ret > 0) {
-            return ret;
-        }
-        else if (ret < 0) {
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+            if (ret > 0) {
+                return ret;
+            }
+            else if (ret < 0) {
+                return ngx_http_filter_finalize_request(r,
+                    &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
+
+            }
         }
     }
-    else
+    if (!is_request_processed)
     {
         dd("buffer was not fully loaded! ctx: %p", ctx);
     }

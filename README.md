@@ -18,8 +18,29 @@ Apache internals to link ModSecurity to nginx. This current version is closer
 to nginx, consuming the new libmodsecurity which is no longer dependent on
 Apache. As a result, this current version has less dependencies, fewer bugs, and is faster. In addition, some new functionality is also provided - such as the possibility of use of global rules configuration with per directory/location customizations (e.g. SecRuleRemoveById).
 
+# Installation
 
-# Compilation
+## Binary releases
+
+### CentOS 7
+
+You may want to use pre-built dynamic module. The following will install latest stable nginx with ModSecurity module (and its libmodsecurity dependency):
+
+```bash
+yum install http://nginx.org/packages/centos/7/noarch/RPMS/nginx-release-centos-7-0.el7.ngx.noarch.rpm
+yum install https://extras.getpagespeed.com/redhat/7/noarch/RPMS/getpagespeed-extras-7-0.el7.gps.noarch.rpm
+yum install nginx-module-security
+```
+
+Follow the installation prompts to accept GPG keys which were used to sign the packages. 
+
+Once installed, make sure the module is loaded by placing the following at the top of your `nginx.conf` file:
+
+    load_module modules/ngx_http_modsecurity_module.so;
+
+Full details [here](https://www.getpagespeed.com/server-setup/nginx/install-modsecurity-nginx-module-on-centos-7).
+
+## Compilation
 
 Before compile this software make sure that you have libmodsecurity installed.
 You can download it from the [ModSecurity git repository](https://github.com/SpiderLabs/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.

@@ -34,7 +34,6 @@ ngx_http_modsecurity_body_filter_init(void)
 ngx_int_t
 ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
-
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_chain_t *chain = in;
     ngx_int_t ret;
@@ -47,15 +46,17 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     ngx_uint_t i = 0;
 #endif
 
-    if (in == NULL) {
+if (in == NULL) {
+         ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "MDS input chain is null");
+        
         return ngx_http_next_body_filter(r, in);
-    }
+  }
 
     /* get context for request */
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
     dd("body filter, recovering ctx: %p", ctx);
 										   
-    if (ctx == NULL || r->filter_finalize) {
+    if (ctx == NULL || r->filter_finalize || ctx->response_body_filtered) {
         return ngx_http_next_body_filter(r, in);
     }
 
@@ -143,18 +144,16 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         ngx_buf_t *copy_buf;
         ngx_chain_t* copy_chain;
         is_request_processed = chain->buf->last_buf;
-        ngx_int_t data_size = chain->buf->end - chain->buf->start;
-        ngx_int_t data_offset = chain->buf->pos - chain->buf->start;
-        u_char *data = chain->buf->start;
+        ngx_int_t data_size = chain->buf->last - chain->buf->pos;
+        u_char *data = chain->buf->pos;
         msc_append_response_body(ctx->modsec_transaction, data,
-                chain->buf->end - data);
+                chain->buf->last - data);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction,
                 r);
         if (ret > 0) {
             return ngx_http_filter_finalize_request(r,
                     &ngx_http_modsecurity_module, ret);
         }
-        if (data_size > 0){
             copy_chain = ngx_alloc_chain_link(r->pool);
             if (copy_chain == NULL) {
                 return NGX_ERROR;
@@ -168,9 +167,9 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             if (copy_buf->start == NULL) {
                 return NGX_ERROR;
             }
-            ngx_memcpy(copy_buf->start, chain->buf->start, data_size);
-            copy_buf->pos = copy_buf->start + data_offset;
-            copy_buf->end = copy_buf->start + data_size;
+            ngx_memcpy(copy_buf->start, chain->buf->pos, data_size);
+            copy_buf->pos = copy_buf->start ;
+            copy_buf->end = copy_buf->pos + data_size ;
             copy_buf->last = copy_buf->pos + ngx_buf_size(chain->buf);
             copy_buf->temporary = (chain->buf->temporary == 1) ? 1 : 0;
             copy_buf->memory = (chain->buf->memory == 1) ? 1 : 0;
@@ -178,9 +177,6 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             copy_chain->buf->last_buf = 1;
             copy_chain->next = NULL;
             chain->buf->pos = chain->buf->last;
-        }
-        else
-            copy_chain = chain;
         if (ctx->temp_chain == NULL) {
             ctx->temp_chain = copy_chain;
         } else {
@@ -196,15 +192,23 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
     if (is_request_processed) {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH PROCESSING");
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_response_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
-             if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL)
+            ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH PROCESSING RET = %d", ret);
+            if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL){
+                ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH DO HEADER FILTERS = %d", ret);
                 ctx->header_pt(r);
-             else return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, ret);
+                }
+            else {
+                  ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH DO FINALIZE = %d", ret);            
+                  ngx_http_filter_finalize_request(r,
+                      &ngx_http_modsecurity_module
+                     , ret);
+                    }
         } else if (ret < 0) {
             return ngx_http_filter_finalize_request(r,
                     &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
@@ -214,6 +218,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             ctx->header_pt(r);
         return ngx_http_next_body_filter(r, ctx->temp_chain);
     } else {
+        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS WAITING FOR NEXT CHUNK");
         return NGX_AGAIN;
     }
 }

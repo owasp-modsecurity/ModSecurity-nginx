@@ -552,6 +552,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      }
     else {
          ctx->header_pt =  ngx_http_next_header_filter;
+         r->headers_out.content_length_n = -1;
          return NGX_AGAIN;
-      }
+     }
 }

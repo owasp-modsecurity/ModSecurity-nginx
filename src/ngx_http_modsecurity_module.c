@@ -554,6 +554,7 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
     conf->rules_set = msc_create_rules_set();
     conf->modsec = NULL;
+    conf->pool = cf->pool;
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {
@@ -658,7 +659,7 @@ ngx_http_modsecurity_config_cleanup(void *data)
 
     dd("deleting a loc conf -- RuleSet is: \"%p\"", t->rules_set);
 
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(NULL);
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(t->pool);
     msc_rules_cleanup(t->rules_set);
     msc_cleanup(t->modsec);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);

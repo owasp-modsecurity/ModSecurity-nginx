@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Pool pointer is now handled in ngx_http_modsecurity_config_cleanup
+   [Issue #87 - @AirisX, @defanator, @zimmerle]
  - Fix memory leak in intervention processing
    [Issue #100 - @defanator]
  - Emit connector version in error log

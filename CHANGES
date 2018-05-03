@@ -1,6 +1,9 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fix incorrect handling of request/response body data chain of ngx_buf_t
+   buffers.
+   [Issue #104 - @turchanov, @defanator, @zimmerle]
  - Fix memory leak in intervention processing
    [Issue #100 - @defanator]
  - Emit connector version in error log

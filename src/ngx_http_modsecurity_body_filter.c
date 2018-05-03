@@ -152,7 +152,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         {
             u_char *data = chain->buf->pos;
 
-            msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);
+            msc_append_response_body(ctx->modsec_transaction, data,
+                                     ngx_buf_size(chain->buf));
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
             if (ret > 0) {
                 return ngx_http_filter_finalize_request(r,

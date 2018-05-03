@@ -131,8 +131,6 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
         dd("request body is ready to be processed");
 
-        ngx_chain_t *chain = r->request_body->bufs;
-
         /**
          * TODO: Speed up the analysis by sending chunk while they arrive.
          *
@@ -161,12 +159,13 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
             dd("inspection request body in memory.");
         }
 
+        ngx_chain_t *chain = r->request_body->bufs;
         while (chain && !already_inspected)
         {
             u_char *data = chain->buf->pos;
 
             msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->last - data);
+                                    ngx_buf_size(chain->buf));
 
             if (chain->buf->last_buf) {
                 break;

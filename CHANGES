@@ -1,6 +1,12 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fixed processing of response body chunks in
+   ngx_http_modsecurity_body_filter.
+   [Issue #105 - @turchanov, @defanator]
+ - Fix incorrect handling of request/response body data chain of ngx_buf_t
+   buffers
+   [Issue #104 - @turchanov, @defanator]
  - Pool pointer is now handled in ngx_http_modsecurity_config_cleanup
    [Issue #87 - @AirisX, @defanator, @zimmerle]
  - Fix memory leak in intervention processing

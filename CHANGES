@@ -1,6 +1,7 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
-
+ - Fix processing of response body when gzip compression is enabled
+   [Issue #107 - @turchanov]
  - Fixed processing of response body chunks in
    ngx_http_modsecurity_body_filter.
    [Issue #105 - @turchanov, @defanator]

@@ -82,6 +82,30 @@ fi
 
 ngx_addon_name=ngx_http_modsecurity_module
 
+# We must place ngx_http_modsecurity_module after ngx_http_gzip_filter_module
+# in load order list to be able to read response body before it gets compressed
+# (for filter modules later initialization means earlier execution).
+#
+# Nginx implements load ordering only for dynamic modules and only a BEFORE part
+# of "ngx_module_order". So we list all of the modules that come after
+# ngx_http_gzip_filter_module as a BEFORE dependency for
+# ngx_http_modsecurity_module.
+#
+# For static compilation HTTP_FILTER_MODULES will be patched later.
+
+modsecurity_dependency="ngx_http_postpone_filter_module \
+                        ngx_http_ssi_filter_module \
+                        ngx_http_charset_filter_module \
+                        ngx_http_xslt_filter_module \
+                        ngx_http_image_filter_module \
+                        ngx_http_sub_filter_module \
+                        ngx_http_addition_filter_module \
+                        ngx_http_gunzip_filter_module \
+                        ngx_http_userid_filter_module \
+                        ngx_http_headers_filter_module \
+                        ngx_http_copy_filter_module"
+
+
 if test -n "$ngx_module_link"; then
 	ngx_module_type=HTTP_FILTER
 	ngx_module_name="$ngx_addon_name"
@@ -98,7 +122,12 @@ if test -n "$ngx_module_link"; then
         ngx_module_libs="$ngx_feature_libs"
         ngx_module_incs="$ngx_feature_path"
 
-        ngx_module_order="ngx_http_chunked_filter_module ngx_http_v2_filter_module $ngx_module_name ngx_http_range_header_filter_module" 
+        ngx_module_order="ngx_http_chunked_filter_module \
+                          ngx_http_v2_filter_module \
+                          ngx_http_range_header_filter_module \
+                          ngx_http_gzip_filter_module \
+                          $ngx_module_name \
+                          $modsecurity_dependency";
 
 	. auto/module
 else
@@ -128,20 +157,36 @@ fi
 
 #
 # Nginx does not provide reliable way to introduce our module into required
-# place in static ($ngx_module_link=ADDON) compilation mode, so we should
+# place in static ($ngx_module_link=ADDON) compilation mode, so we must
 # explicitly update module "ordering rules".
 #
-# Default runtime location of ngx_http_modsecurity_module is right before
-# ngx_http_chunked_filter_module, but in case if ngx_http_v2_filter_module is
-# compiled in, we should put our module before ngx_http_v2_filter_module in
-# order to support SecRules processing for HTTP/2.0 requests.
-#
 if [ "$ngx_module_link" != DYNAMIC ] ; then
-    pre_module='ngx_http_chunked_filter_module'
-    if [ "$HTTP_V2" = "YES" ]; then
-        pre_module='ngx_http_v2_filter_module'
+    # Reposition modsecurity module to satisfy $modsecurity_dependency
+    # (this mimics dependency resolution made by ngx_add_module() function
+    # though less optimal in terms of computational complexity).
+    modules=
+    found=
+    for module in $HTTP_FILTER_MODULES; do
+        # skip our module name from the original list
+        if [ "$module" = "$ngx_addon_name" ]; then
+            continue
+        fi
+        if [ -z "${found}" ]; then
+            for item in $modsecurity_dependency; do
+                if [ "$module" = "$item" ]; then
+                    modules="${modules} $ngx_addon_name"
+                    found=1
+                    break
+                fi
+            done
+        fi
+        modules="${modules} $module"
+    done
+    if [ -z "${found}" ]; then
+        # This must never happen since ngx_http_copy_filter_module must be in HTTP_FILTER_MODULES
+        # and we stated dependency on it in $modsecurity_dependency
+        echo "$0: error: cannot reposition modsecurity module in HTTP_FILTER_MODULES list"
+        exit 1
     fi
-    HTTP_FILTER_MODULES=`echo $HTTP_FILTER_MODULES | \
-        sed -E "s/$ngx_addon_name/ /g" | \
-        sed -E "s/$pre_module/$pre_module $ngx_addon_name/g"`
+    HTTP_FILTER_MODULES="${modules}"
 fi

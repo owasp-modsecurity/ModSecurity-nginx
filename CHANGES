@@ -1,5 +1,25 @@
-DD mmm YYYY  - 1.0.0
+v1.0.x - YYYY-MMM-DD (To be released)
+-------------------------------------
+ - Fix processing of response body when gzip compression is enabled
+   [Issue #107 - @turchanov]
+ - Fixed processing of response body chunks in
+   ngx_http_modsecurity_body_filter.
+   [Issue #105 - @turchanov, @defanator]
+ - Fix incorrect handling of request/response body data chain of ngx_buf_t
+   buffers
+   [Issue #104 - @turchanov, @defanator]
+ - Pool pointer is now handled in ngx_http_modsecurity_config_cleanup
+   [Issue #87 - @AirisX, @defanator, @zimmerle]
+ - Fix memory leak in intervention processing
+   [Issue #100 - @defanator]
+ - Emit connector version in error log
+   [Issue #88 - @defanator]
+ - Fixed memory leak on config cleanup.
+   [Issue #80 - @AirisX, @defanator]
+
+
+v1.0.0 - 2017-Dec-20
 --------------------
 
- * First version of the ModSecurity-nginx 
-   [Felipe Zimmerle]
+ - First version of ModSecurity-nginx connector
+

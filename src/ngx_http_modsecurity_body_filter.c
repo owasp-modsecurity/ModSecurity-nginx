@@ -138,8 +138,8 @@ if (in == NULL) {
         }
     }
 #endif
-
-    for (chain = in; chain != NULL; chain = chain->next) {
+  
+   for (chain = in; chain != NULL; chain = chain->next) {
 
         ngx_buf_t *copy_buf;
         ngx_chain_t* copy_chain;

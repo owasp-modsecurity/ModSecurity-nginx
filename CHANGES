@@ -1,5 +1,7 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
+ - Increase log level for disruptive actions to "error"
+   [Issue #112 - @victorhora ]
  - Fix processing of response body when gzip compression is enabled
    [Issue #107 - @turchanov]
  - Fixed processing of response body chunks in

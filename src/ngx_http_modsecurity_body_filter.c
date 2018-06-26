@@ -201,7 +201,7 @@ if (in == NULL) {
                 ctx->header_pt(r);
                 }
             else {
-                  ngx_http_filter_finalize_request(r,
+                 return ngx_http_filter_finalize_request(r,
                       &ngx_http_modsecurity_module
                      , ret);
                     }

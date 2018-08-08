@@ -86,6 +86,7 @@ http {
             modsecurity on;
             modsecurity_rules '
                 SecRuleEngine On
+                SecResponseBodyAccess On
                 SecDefaultAction "phase:4,log,deny,status:403"
                 SecRule ARGS "@streq redirect301" "id:1,phase:4,status:301,redirect:http://www.modsecurity.org"
                 SecRule ARGS "@streq redirect302" "id:2,phase:4,status:302,redirect:http://www.modsecurity.org"

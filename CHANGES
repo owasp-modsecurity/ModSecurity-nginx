@@ -1,5 +1,7 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
+ - Fix tests after 42a472a change in library
+   [Issue #122 - @defanator]
  - Fix processing of response body when gzip compression is enabled
    [Issue #107 - @turchanov]
  - Fixed processing of response body chunks in

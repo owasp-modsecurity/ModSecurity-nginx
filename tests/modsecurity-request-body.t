@@ -56,6 +56,7 @@ http {
                 SecRuleEngine On
                 SecRequestBodyAccess Off
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:21,phase:request,deny,log,status:403"
+                SecRule ARGS_POST|ARGS_POST_NAMES "@rx BAD ARG" "id:22,phase:request,deny,log,status:403"
             ';
             proxy_pass http://127.0.0.1:8081;
         }
@@ -88,7 +89,7 @@ EOF
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
-$t->plan(28);
+$t->plan(32);
 
 ###############################################################################
 
@@ -96,6 +97,7 @@ foreach my $method (('GET', 'POST', 'PUT', 'DELETE')) {
 like(http_req_body($method, '/bodyaccess', 'GOOD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access on, pass");
 like(http_req_body($method, '/bodyaccess', 'VERY BAD BODY'), qr/403 Forbidden/, "$method request body access on, block");
 like(http_req_body($method, '/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access off, pass");
+like(http_req_body_postargs($method, '/nobodyaccess', 'BAD ARG'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access off (ARGS_POST), pass");
 like(http_req_body($method, '/bodylimitreject', 'BODY' x 32), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit reject, pass");
 like(http_req_body($method, '/bodylimitreject', 'BODY' x 33), qr/403 Forbidden/, "$method request body limit reject, block");
 like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 32 . 'BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit process partial, pass");
@@ -156,6 +158,27 @@ sub http_req_body {
 		. "Connection: close" . CRLF
 		. "Content-Length: " . (length $last) . CRLF . CRLF
 		. $last
+	);
+}
+
+sub http_req_body_postargs {
+	my $method = shift;
+	my $uri = shift;
+	my $last = pop;
+	return http( join '', (map {
+		my $body = $_;
+		"$method $uri HTTP/1.1" . CRLF
+		. "Host: localhost" . CRLF
+		. "Content-Type: application/x-www-form-urlencoded" . CRLF
+		. "Content-Length: " . (length "test=" . $body) . CRLF . CRLF
+		. "test=" . $body
+	} @_),
+		"$method $uri HTTP/1.1" . CRLF
+		. "Host: localhost" . CRLF
+		. "Connection: close" . CRLF
+		. "Content-Type: application/x-www-form-urlencoded" . CRLF
+		. "Content-Length: " . (length "test=" . $last) . CRLF . CRLF
+		. "test=" . $last
 	);
 }
 

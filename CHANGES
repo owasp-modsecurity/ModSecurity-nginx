@@ -1,5 +1,7 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
+ - Extend request body tests with ARGS_POST case
+   [Issue #124 - @defanator]
  - Fix tests after 42a472a change in library
    [Issue #122 - @defanator]
  - Fix processing of response body when gzip compression is enabled

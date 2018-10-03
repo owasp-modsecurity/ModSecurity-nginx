@@ -95,6 +95,8 @@ typedef struct {
     Rules *rules_set;
 
     void *pool;
+
+    ngx_http_complex_value_t  *transaction_id;
 } ngx_http_modsecurity_conf_t;
 
 

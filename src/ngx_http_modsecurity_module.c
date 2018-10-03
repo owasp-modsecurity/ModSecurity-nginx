@@ -238,6 +238,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_modsecurity_conf_t *loc_cf = NULL;
     ngx_http_modsecurity_conf_t *cf = NULL;
     ngx_pool_cleanup_t *cln = NULL;
+    ngx_str_t s;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -250,7 +251,15 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
 
-    ctx->modsec_transaction = msc_new_transaction(cf->modsec, loc_cf->rules_set, r->connection->log);
+    if (loc_cf->transaction_id) {
+        if (ngx_http_complex_value(r, loc_cf->transaction_id, &s) != NGX_OK) {
+            return NGX_CONF_ERROR;
+        }
+        ctx->modsec_transaction = msc_new_transaction_with_id(cf->modsec, loc_cf->rules_set, (char *) s.data, r->connection->log);
+
+    } else {
+        ctx->modsec_transaction = msc_new_transaction(cf->modsec, loc_cf->rules_set, r->connection->log);
+    }
 
     dd("transaction created");
 
@@ -352,6 +361,36 @@ char *ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) 
 }
 
 
+char *ngx_conf_set_transaction_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
+    ngx_str_t                         *value;
+    ngx_http_complex_value_t           cv;
+    ngx_http_compile_complex_value_t   ccv;
+    ngx_http_modsecurity_conf_t *mcf = conf;
+
+    value = cf->args->elts;
+
+    ngx_memzero(&ccv, sizeof(ngx_http_compile_complex_value_t));
+
+    ccv.cf = cf;
+    ccv.value = &value[1];
+    ccv.complex_value = &cv;
+    ccv.zero = 1;
+
+    if (ngx_http_compile_complex_value(&ccv) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    mcf->transaction_id = ngx_palloc(cf->pool, sizeof(ngx_http_complex_value_t));
+    if (mcf->transaction_id == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    *mcf->transaction_id = cv;
+
+    return NGX_CONF_OK;
+}
+
+
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
@@ -383,6 +422,14 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     ngx_conf_set_rules_remote,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_conf_t, enable),
+    NULL
+  },
+  {
+    ngx_string("modsecurity_transaction_id"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_1MORE,
+    ngx_conf_set_transaction_id,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
     NULL
   },
   ngx_null_command
@@ -542,7 +589,7 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
 {
     ngx_pool_cleanup_t *cln = NULL;
     ngx_http_modsecurity_conf_t *conf = (ngx_http_modsecurity_conf_t  *)
-        ngx_palloc(cf->pool, sizeof(ngx_http_modsecurity_conf_t));
+        ngx_pcalloc(cf->pool, sizeof(ngx_http_modsecurity_conf_t));
 
     if (conf == NULL)
     {
@@ -550,11 +597,22 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
         return NGX_CONF_ERROR;
     }
 
+    /*
+     * set by ngx_pcalloc():
+     *
+     *     conf->modsec = NULL;
+     *     conf->enable = 0;
+     *     conf->sanity_checks_enabled = 0;
+     *     conf->rules_set = NULL;
+     *     conf->pool = NULL;
+     *     conf->transaction_id = NULL;
+     */
+
     conf->enable = NGX_CONF_UNSET;
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
     conf->rules_set = msc_create_rules_set();
-    conf->modsec = NULL;
     conf->pool = cf->pool;
+    conf->transaction_id = NGX_CONF_UNSET_PTR;
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {
@@ -587,6 +645,7 @@ ngx_http_modsecurity_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
+    ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
 
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     dd("PARENT RULES");
@@ -630,6 +689,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
+    ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
 
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     dd("PARENT RULES");

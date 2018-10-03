@@ -21,7 +21,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->plan(3)->write_file_expand('nginx.conf', <<'EOF');
+my $t = Test::Nginx->new()->plan(5)->write_file_expand('nginx.conf', <<'EOF');
 
 %%TEST_GLOBALS%%
 
@@ -76,6 +76,33 @@ http {
                 SecRule ARGS "@streq block403" "id:4,phase:1,status:403,block"
             ';
         }
+
+        location /debuglog {
+            modsecurity on;
+            modsecurity_transaction_id "tid-DEBUG-$request_id";
+            modsecurity_rules '
+                SecRuleEngine On
+                SecDebugLog %%TESTDIR%%/modsec_debug.log
+                SecDebugLogLevel 4
+                SecDefaultAction "phase:1,log,deny,status:403"
+                SecRule ARGS "@streq block403" "id:4,phase:1,status:403,block"
+            ';
+        }
+
+        location /auditlog {
+            modsecurity on;
+            modsecurity_transaction_id "tid-AUDIT-$request_id";
+            modsecurity_rules '
+                SecRuleEngine On
+                SecDefaultAction "phase:1,log,deny,status:403"
+                SecAuditEngine On
+                SecAuditLogParts A
+                SecAuditLog %%TESTDIR%%/modsec_audit.log
+                SecAuditLogType Serial
+                SecAuditLogStorageDir %%TESTDIR%%/
+                SecRule ARGS "@streq block403" "id:4,phase:1,status:403,block"
+            ';
+        }
     }
 }
 EOF
@@ -92,7 +119,7 @@ Host: server1
 
 EOF
 
-is(lines($t, 'e_s1l1.log', 'unique_id "tid-HTTP-DEFAULT-'), 2, 'http default');
+isnt(lines($t, 'e_s1l1.log', 'unique_id "tid-HTTP-DEFAULT-'), 0, 'http default');
 
 http(<<EOF);
 GET /?what=block403 HTTP/1.0
@@ -100,7 +127,7 @@ Host: server2
 
 EOF
 
-is(lines($t, 'e_s2l1.log', 'unique_id "tid-SERVER-DEFAULT-'), 2, 'server default');
+isnt(lines($t, 'e_s2l1.log', 'unique_id "tid-SERVER-DEFAULT-'), 0, 'server default');
 
 http(<<EOF);
 GET /specific/?what=block403 HTTP/1.0
@@ -108,7 +135,23 @@ Host: server2
 
 EOF
 
-is(lines($t, 'e_s2l2.log', 'unique_id "tid-LOCATION-SPECIFIC-'), 2, 'location specific');
+isnt(lines($t, 'e_s2l2.log', 'unique_id "tid-LOCATION-SPECIFIC-'), 0, 'location specific');
+
+http(<<EOF);
+GET /debuglog/?what=block403 HTTP/1.0
+Host: server2
+
+EOF
+
+isnt(lines($t, 'modsec_debug.log', 'tid-DEBUG-'), 0, 'libmodsecurity debug log');
+
+http(<<EOF);
+GET /auditlog/?what=block403 HTTP/1.0
+Host: server2
+
+EOF
+
+isnt(lines($t, 'modsec_audit.log', 'tid-AUDIT-'), 0, 'libmodsecurity audit log');
 
 ###############################################################################
 

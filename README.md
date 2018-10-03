@@ -122,6 +122,51 @@ server {
 }
 ```
 
+modsecurity_transaction_id
+--------------------------
+**syntax:** *modsecurity_transaction_id string*
+
+**context:** *http, server, location*
+
+**default:** *no*
+
+Allows to pass transaction ID from nginx instead of generating it in the library.
+This can be useful for tracing purposes, e.g. consider this configuration:
+
+```nginx
+log_format extended '$remote_addr - $remote_user [$time_local] '
+                    '"$request" $status $body_bytes_sent '
+                    '"$http_referer" "$http_user_agent" $request_id';
+
+server {
+    server_name host1;
+    modsecurity on;
+    modsecurity_transaction_id "host1-$request_id";
+    access_log logs/host1-access.log extended;
+    error_log logs/host1-error.log;
+    location / {
+        ...
+    }
+}
+
+server {
+    server_name host2;
+    modsecurity on;
+    modsecurity_transaction_id "host2-$request_id";
+    access_log logs/host2-access.log extended;
+    error_log logs/host2-error.log;
+    location / {
+        ...
+    }
+}
+```
+
+Using a combination of log_format and modsecurity_transaction_id you will
+be able to find correlations between access log and error log entries
+using the same unique identificator.
+
+String can contain variables.
+
 
 # Contributing
 

@@ -1,5 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
+
+ - Support for generating transaction ID in nginx
+   [Issue #126 - @defanator]
  - Extend request body tests with ARGS_POST case
    [Issue #124 - @defanator]
  - Fix tests after 42a472a change in library

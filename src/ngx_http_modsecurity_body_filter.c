@@ -165,7 +165,6 @@ if (in == NULL) {
             if (copy_buf == NULL) {
                 return NGX_ERROR;
             }
-            //copy_buf->last=ngx_cpymem(copy_buf->pos, chain->buf->pos, data_size);
             copy_buf->pos = chain->buf->pos ;
             copy_buf->end = chain->buf->end;
             copy_buf->last = chain->buf->last;
@@ -192,21 +191,17 @@ if (in == NULL) {
         }
     
     }
-
+	
     if (is_request_processed) {
-        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH PROCESSING");
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_response_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
-            ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH PROCESSING RET = %d", ret);
-            if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL){
-                ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH DO HEADER FILTERS = %d", ret);
+            if (ret < NGX_HTTP_BAD_REQUEST && ctx->header_pt != NULL){  
                 ctx->header_pt(r);
                 }
-            else {
-                  ngx_log_debug(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS FINISH DO FINALIZE = %d", ret);            
+            else {           
                   ctx->response_body_filtered = 1;
                   return ngx_http_filter_finalize_request(r,
                       &ngx_http_modsecurity_module
@@ -222,7 +217,6 @@ if (in == NULL) {
             ctx->header_pt(r);
         return ngx_http_next_body_filter(r, ctx->temp_chain);
     } else {
-        ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,"MDS WAITING FOR NEXT CHUNK");
         return NGX_AGAIN;
     }
 }

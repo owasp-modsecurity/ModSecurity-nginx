@@ -146,7 +146,6 @@ if (in == NULL) {
         ngx_buf_t *copy_buf;
         ngx_chain_t* copy_chain;
         is_request_processed = chain->buf->last_buf;
-        ngx_int_t data_size = chain->buf->last - chain->buf->pos;
         u_char *data = chain->buf->pos;
         msc_append_response_body(ctx->modsec_transaction, data,
                 chain->buf->last - data);

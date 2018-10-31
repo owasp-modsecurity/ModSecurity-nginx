@@ -138,7 +138,9 @@ like(
         http(
                 'POST /useauth HTTP/1.0' . CRLF
                 . 'Content-Length: 64' . CRLF . CRLF
-                . 'BODY' x 16
+                . 'BODY' x 15,
+                sleep => 0.1,
+                body => 'BODY'
         ),
         qr/TEST-OK-IF-YOU-SEE-THIS/,
         'POST with auth_request (request size < client_header_buffer_size), no preread'

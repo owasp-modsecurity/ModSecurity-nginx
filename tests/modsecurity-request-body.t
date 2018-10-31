@@ -41,6 +41,7 @@ http {
         server_name  localhost;
 
         modsecurity on;
+        client_header_buffer_size 1024;
 
         location /bodyaccess {
             modsecurity_rules '
@@ -82,6 +83,20 @@ http {
             ';
             proxy_pass http://127.0.0.1:8081;
         }
+
+        location = /auth {
+            return 200;
+        }
+
+        location = /useauth {
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecRequestBodyAccess On
+            ';
+            auth_request /auth;
+            proxy_pass http://127.0.0.1:8081;
+        }
     }
 }
 EOF
@@ -89,7 +104,7 @@ EOF
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
-$t->plan(32);
+$t->plan(36);
 
 ###############################################################################
 
@@ -103,6 +118,31 @@ like(http_req_body($method, '/bodylimitreject', 'BODY' x 33), qr/403 Forbidden/,
 like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 32 . 'BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit process partial, pass");
 like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 30 . 'BAD BODY' x 32), qr/403 Forbidden/, "$method request body limit process partial, block");
 }
+
+like(http_req_body('POST', '/useauth', 'BODY' x 16), qr/TEST-OK-IF-YOU-SEE-THIS/, "POST with auth_request (request size < client_header_buffer_size)");
+like(http_req_body('POST', '/useauth', 'BODY' x 257), qr/TEST-OK-IF-YOU-SEE-THIS/, "POST with auth_request (request size > client_header_buffer_size)");
+
+like(
+        http(
+                'POST /useauth HTTP/1.0' . CRLF
+                . 'Content-Length: 1028' . CRLF . CRLF
+                . 'BODY' x 256,
+                sleep => 0.1,
+                body => 'BODY'
+        ),
+        qr/TEST-OK-IF-YOU-SEE-THIS/,
+        'POST with auth_request (request size > client_header_buffer_size), no preread'
+);
+
+like(
+        http(
+                'POST /useauth HTTP/1.0' . CRLF
+                . 'Content-Length: 64' . CRLF . CRLF
+                . 'BODY' x 16
+        ),
+        qr/TEST-OK-IF-YOU-SEE-THIS/,
+        'POST with auth_request (request size < client_header_buffer_size), no preread'
+);
 
 ###############################################################################
 

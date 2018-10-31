@@ -34,6 +34,7 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
     if (ctx->waiting_more_body)
     {
         ctx->waiting_more_body = 0;
+        r->write_event_handler = ngx_http_core_run_phases;
         ngx_http_core_run_phases(r);
     }
 }
@@ -130,6 +131,8 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         int already_inspected = 0;
 
         dd("request body is ready to be processed");
+
+        r->write_event_handler = ngx_http_core_run_phases;
 
         ngx_chain_t *chain = r->request_body->bufs;
 

@@ -33,7 +33,7 @@ before_script:
   - cd ..
   - wget http://nginx.org/download/nginx-${VER_NGINX}.tar.gz && tar -xf nginx-${VER_NGINX}.tar.gz
   - cd nginx-${VER_NGINX}
-  - ./configure --add-module=../ModSecurity-nginx
+  - ./configure --with-http_auth_request_module --add-module=../ModSecurity-nginx
   - make
   - sudo make install
   - cd ..

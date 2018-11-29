@@ -25,12 +25,9 @@
 #include <ngx_http.h>
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
-static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
-static char *ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child);
-static char *ngx_http_modsecurity_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child);
+static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_config_cleanup(void *data);
-static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);
 
 
 /*
@@ -234,11 +231,10 @@ ngx_http_modsecurity_cleanup(void *data)
 ngx_inline ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
-    ngx_http_modsecurity_ctx_t *ctx;
-    ngx_http_modsecurity_conf_t *loc_cf = NULL;
-    ngx_http_modsecurity_conf_t *cf = NULL;
-    ngx_pool_cleanup_t *cln = NULL;
-    ngx_str_t s;
+    ngx_str_t                     s;
+    ngx_pool_cleanup_t           *cln;
+    ngx_http_modsecurity_ctx_t   *ctx;
+    ngx_http_modsecurity_conf_t  *mcf;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -246,19 +242,19 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         dd("failed to allocate memory for the context.");
         return NULL;
     }
-    cf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
-    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    dd("creating transaction with the following rules: '%p' -- ms: '%p'", loc_cf->rules_set, cf->modsec);
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    if (loc_cf->transaction_id) {
-        if (ngx_http_complex_value(r, loc_cf->transaction_id, &s) != NGX_OK) {
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mcf->modsec);
+
+    if (mcf->transaction_id) {
+        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(cf->modsec, loc_cf->rules_set, (char *) s.data, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction_with_id(mcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(cf->modsec, loc_cf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mcf->modsec, mcf->rules_set, r->connection->log);
     }
 
     dd("transaction created");
@@ -437,32 +433,32 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
 
 
 static ngx_http_module_t ngx_http_modsecurity_ctx = {
-    NULL,                                   /* preconfiguration */
-    ngx_http_modsecurity_init,              /* postconfiguration */
+    NULL,                                  /* preconfiguration */
+    ngx_http_modsecurity_init,             /* postconfiguration */
 
-    ngx_http_modsecurity_create_main_conf,  /* create main configuration */
-    ngx_http_modsecurity_init_main_conf,    /* init main configuration */
+    NULL,                                  /* create main configuration */
+    NULL,                                  /* init main configuration */
 
-    ngx_http_modsecurity_create_conf,       /* create server configuration */
-    ngx_http_modsecurity_merge_srv_conf,    /* merge server configuration */
+    NULL,                                  /* create server configuration */
+    NULL,                                  /* merge server configuration */
 
-    ngx_http_modsecurity_create_conf,       /* create location configuration */
-    ngx_http_modsecurity_merge_loc_conf     /* merge location configuration */
+    ngx_http_modsecurity_create_conf,      /* create location configuration */
+    ngx_http_modsecurity_merge_conf        /* merge location configuration */
 };
 
 
 ngx_module_t ngx_http_modsecurity_module = {
     NGX_MODULE_V1,
-    &ngx_http_modsecurity_ctx,              /* module context */
-    ngx_http_modsecurity_commands,          /* module directives */
-    NGX_HTTP_MODULE,                        /* module type */
-    NULL, /* init master */
-    NULL, /* init module */
-    NULL, /* init process */
-    NULL, /* init thread */
-    NULL, /* exit thread */
-    NULL, /* exit process */
-    NULL, /* exit master */
+    &ngx_http_modsecurity_ctx,             /* module context */
+    ngx_http_modsecurity_commands,         /* module directives */
+    NGX_HTTP_MODULE,                       /* module type */
+    NULL,                                  /* init master */
+    NULL,                                  /* init module */
+    NULL,                                  /* init process */
+    NULL,                                  /* init thread */
+    NULL,                                  /* exit thread */
+    NULL,                                  /* exit process */
+    NULL,                                  /* exit master */
     NGX_MODULE_V1_PADDING
 };
 
@@ -545,51 +541,15 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
 
 
 static void *
-ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
+ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
 {
-    ngx_http_modsecurity_conf_t *conf;
+    ngx_pool_cleanup_t           *cln;
+    ngx_http_modsecurity_conf_t  *conf;
 
     ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, MODSECURITY_NGINX_WHOAMI);
 
-    /* ngx_pcalloc already sets all of this scructure to zeros. */
-    conf = ngx_http_modsecurity_create_conf(cf);
-
-    if (conf == NULL || conf == NGX_CONF_ERROR) {
-        dd("failed to allocate space for the ModSecurity configuration");
-        return NGX_CONF_ERROR;
-    }
-
-    dd ("conf crated at: '%p'", conf);
-
-    /* Create our ModSecurity instace */
-    conf->modsec = msc_init();
-    if (conf->modsec == NULL)
-    {
-        dd("failed to create the ModSecurity instance");
-        return NGX_CONF_ERROR;
-    }
-
-    /* Provide our connector information to LibModSecurity */
-    msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
-    msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
-
-    return conf;
-}
-
-
-static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
-{
-    dd("modsec main conf init. Loaded rules:");
-
-    return NGX_CONF_OK;
-}
-
-
-static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
-{
-    ngx_pool_cleanup_t *cln = NULL;
-    ngx_http_modsecurity_conf_t *conf = (ngx_http_modsecurity_conf_t  *)
-        ngx_pcalloc(cf->pool, sizeof(ngx_http_modsecurity_conf_t));
+    conf = (ngx_http_modsecurity_conf_t *) ngx_pcalloc(cf->pool,
+                                         sizeof(ngx_http_modsecurity_conf_t));
 
     if (conf == NULL)
     {
@@ -619,58 +579,30 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
         dd("failed to create the ModSecurity configuration cleanup");
         return NGX_CONF_ERROR;
     }
+
     cln->handler = ngx_http_modsecurity_config_cleanup;
     cln->data = conf;
+
+    dd ("conf created at: '%p'", conf);
+
+    /* Create our ModSecurity instance */
+    conf->modsec = msc_init();
+    if (conf->modsec == NULL)
+    {
+        dd("failed to create the ModSecurity instance");
+        return NGX_CONF_ERROR;
+    }
+
+    /* Provide our connector information to LibModSecurity */
+    msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
+    msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
     return conf;
 }
 
 
 static char *
-ngx_http_modsecurity_merge_srv_conf(ngx_conf_t *cf, void *parent, void *child)
-{
-    ngx_http_modsecurity_conf_t *p = parent;
-    ngx_http_modsecurity_conf_t *c = child;
-#if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
-    ngx_http_core_srv_conf_t *clcf = ngx_http_conf_get_module_srv_conf(cf, ngx_http_core_module);
-#endif
-    int rules;
-    const char *error = NULL;
-
-    dd("merging srv config [%s] - parent: '%p' child: '%p'",
-        ngx_str_to_char(clcf->server_name, cf->pool), parent,
-        child);
-    dd("                  state - parent: '%d' child: '%d'",
-        (int) p->enable, (int) c->enable);
-
-    ngx_conf_merge_value(c->enable, p->enable, 0);
-    ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
-    ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
-
-#if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
-    dd("PARENT RULES");
-    msc_rules_dump(p->rules_set);
-    dd("CHILD RULES");
-    msc_rules_dump(c->rules_set);
-#endif
-
-    rules = msc_rules_merge(c->rules_set, p->rules_set, &error);
-
-    if (rules < 0) {
-        return strdup(error);
-    }
-    dd("                  state - this: '%d'",
-        (int) c->enable);
-#if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
-    dd("NEW CHIELD RULES");
-    msc_rules_dump(c->rules_set);
-#endif
-    return NGX_CONF_OK;
-}
-
-
-static char *
-ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
+ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 {
     ngx_http_modsecurity_conf_t *p = parent;
     ngx_http_modsecurity_conf_t *c = child;
@@ -704,7 +636,7 @@ ngx_http_modsecurity_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child)
     }
 
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
-    dd("NEW CHIELD RULES");
+    dd("NEW CHILD RULES");
     msc_rules_dump(c->rules_set);
 #endif
     return NGX_CONF_OK;

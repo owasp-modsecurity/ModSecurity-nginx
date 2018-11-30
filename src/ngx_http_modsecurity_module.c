@@ -237,7 +237,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_str_t                          s;
     ngx_pool_cleanup_t                *cln;
     ngx_http_modsecurity_ctx_t        *ctx;
-    ngx_http_modsecurity_conf_t       *mlcf;
+    ngx_http_modsecurity_conf_t       *mcf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
@@ -248,18 +248,18 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     }
 
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
-    mlcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mlcf->rules_set, mmcf->modsec);
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
 
-    if (mlcf->transaction_id) {
-        if (ngx_http_complex_value(r, mlcf->transaction_id, &s) != NGX_OK) {
+    if (mcf->transaction_id) {
+        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mlcf->rules_set, (char *) s.data, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mlcf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
     }
 
     dd("transaction created");

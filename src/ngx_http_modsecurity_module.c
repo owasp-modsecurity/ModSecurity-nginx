@@ -25,6 +25,7 @@
 #include <ngx_http.h>
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
+static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);
 static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_config_cleanup(void *data);
@@ -437,7 +438,7 @@ static ngx_http_module_t ngx_http_modsecurity_ctx = {
     ngx_http_modsecurity_init,             /* postconfiguration */
 
     NULL,                                  /* create main configuration */
-    NULL,                                  /* init main configuration */
+    ngx_http_modsecurity_init_main_conf,   /* init main configuration */
 
     NULL,                                  /* create server configuration */
     NULL,                                  /* merge server configuration */
@@ -540,13 +541,20 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
 }
 
 
+static char *
+ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
+{
+    ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, MODSECURITY_NGINX_WHOAMI);
+
+    return NGX_CONF_OK;
+}
+
+
 static void *
 ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
 {
     ngx_pool_cleanup_t           *cln;
     ngx_http_modsecurity_conf_t  *conf;
-
-    ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, MODSECURITY_NGINX_WHOAMI);
 
     conf = (ngx_http_modsecurity_conf_t *) ngx_pcalloc(cf->pool,
                                          sizeof(ngx_http_modsecurity_conf_t));

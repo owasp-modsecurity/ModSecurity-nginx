@@ -38,7 +38,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ngx_http_modsecurity_conf_t *loc_cf = NULL;
+    ngx_http_modsecurity_conf_t *mcf;
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
@@ -57,8 +57,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    loc_cf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (loc_cf != NULL && loc_cf->sanity_checks_enabled != NGX_CONF_UNSET)
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    if (mcf != NULL && mcf->sanity_checks_enabled != NGX_CONF_UNSET)
     {
 #if 0
         dd("dumping stored ctx headers");

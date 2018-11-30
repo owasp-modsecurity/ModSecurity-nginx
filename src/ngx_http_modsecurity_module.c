@@ -699,17 +699,15 @@ static void
 ngx_http_modsecurity_cleanup_instance(void *data)
 {
     ngx_pool_t                        *old_pool;
-    ngx_http_modsecurity_main_conf_t  *conf;
+    ngx_http_modsecurity_main_conf_t  *mmcf;
 
-    conf = (ngx_http_modsecurity_main_conf_t *) data;
+    mmcf = (ngx_http_modsecurity_main_conf_t *) data;
 
-    dd("deleting a main conf -- instance is: \"%p\"", conf->modsec);
+    dd("deleting a main conf -- instance is: \"%p\"", mmcf->modsec);
 
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(conf->pool);
-    msc_cleanup(conf->modsec);
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(mmcf->pool);
+    msc_cleanup(mmcf->modsec);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-    conf->modsec = NULL;
 }
 
 
@@ -717,17 +715,15 @@ static void
 ngx_http_modsecurity_cleanup_rules(void *data)
 {
     ngx_pool_t                   *old_pool;
-    ngx_http_modsecurity_conf_t  *conf;
+    ngx_http_modsecurity_conf_t  *mcf;
 
-    conf = (ngx_http_modsecurity_conf_t *) data;
+    mcf = (ngx_http_modsecurity_conf_t *) data;
 
-    dd("deleting a loc conf -- RuleSet is: \"%p\"", conf->rules_set);
+    dd("deleting a loc conf -- RuleSet is: \"%p\"", mcf->rules_set);
 
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(conf->pool);
-    msc_rules_cleanup(conf->rules_set);
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(mcf->pool);
+    msc_rules_cleanup(mcf->rules_set);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-    conf->rules_set = NULL;
 }
 
 

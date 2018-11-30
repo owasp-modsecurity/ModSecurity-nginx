@@ -68,7 +68,7 @@ typedef struct {
     Transaction *modsec_transaction;
     ModSecurityIntervention *delayed_intervention;
 
-#ifdef MODSECURITY_SANITY_CHECKS
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
      * Should be filled with the headers that were sent to ModSecurity.
      *
@@ -87,14 +87,19 @@ typedef struct {
 
 
 typedef struct {
-    ModSecurity *modsec;
+    void                      *pool;
+    ModSecurity               *modsec;
+} ngx_http_modsecurity_main_conf_t;
 
-    ngx_flag_t enable;
-    ngx_flag_t sanity_checks_enabled;
 
-    Rules *rules_set;
+typedef struct {
+    void                      *pool;
+    Rules                     *rules_set;
 
-    void *pool;
+    ngx_flag_t                 enable;
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ngx_flag_t                 sanity_checks_enabled;
+#endif
 
     ngx_http_complex_value_t  *transaction_id;
 } ngx_http_modsecurity_conf_t;

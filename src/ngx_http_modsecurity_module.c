@@ -25,10 +25,12 @@
 #include <ngx_http.h>
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
+static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);
 static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
-static void ngx_http_modsecurity_config_cleanup(void *data);
+static void ngx_http_modsecurity_cleanup_instance(void *data);
+static void ngx_http_modsecurity_cleanup_rules(void *data);
 
 
 /*
@@ -232,10 +234,11 @@ ngx_http_modsecurity_cleanup(void *data)
 ngx_inline ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
-    ngx_str_t                     s;
-    ngx_pool_cleanup_t           *cln;
-    ngx_http_modsecurity_ctx_t   *ctx;
-    ngx_http_modsecurity_conf_t  *mcf;
+    ngx_str_t                          s;
+    ngx_pool_cleanup_t                *cln;
+    ngx_http_modsecurity_ctx_t        *ctx;
+    ngx_http_modsecurity_conf_t       *mlcf;
+    ngx_http_modsecurity_main_conf_t  *mmcf;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -244,18 +247,19 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         return NULL;
     }
 
-    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
+    mlcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mcf->modsec);
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mlcf->rules_set, mmcf->modsec);
 
-    if (mcf->transaction_id) {
-        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
+    if (mlcf->transaction_id) {
+        if (ngx_http_complex_value(r, mlcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mlcf->rules_set, (char *) s.data, r->connection->log);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mcf->modsec, mcf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mlcf->rules_set, r->connection->log);
     }
 
     dd("transaction created");
@@ -437,7 +441,7 @@ static ngx_http_module_t ngx_http_modsecurity_ctx = {
     NULL,                                  /* preconfiguration */
     ngx_http_modsecurity_init,             /* postconfiguration */
 
-    NULL,                                  /* create main configuration */
+    ngx_http_modsecurity_create_main_conf, /* create main configuration */
     ngx_http_modsecurity_init_main_conf,   /* init main configuration */
 
     NULL,                                  /* create server configuration */
@@ -541,6 +545,55 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
 }
 
 
+static void *
+ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
+{
+    ngx_pool_cleanup_t                *cln;
+    ngx_http_modsecurity_main_conf_t  *conf;
+
+    conf = (ngx_http_modsecurity_main_conf_t *) ngx_pcalloc(cf->pool,
+                                    sizeof(ngx_http_modsecurity_main_conf_t));
+
+    if (conf == NULL)
+    {
+        return NGX_CONF_ERROR;
+    }
+
+    /*
+     * set by ngx_pcalloc():
+     *
+     *     conf->modsec = NULL;
+     *     conf->pool = NULL;
+     */
+
+    cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (cln == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    cln->handler = ngx_http_modsecurity_cleanup_instance;
+    cln->data = conf;
+
+    conf->pool = cf->pool;
+
+    /* Create our ModSecurity instance */
+    conf->modsec = msc_init();
+    if (conf->modsec == NULL)
+    {
+        dd("failed to create the ModSecurity instance");
+        return NGX_CONF_ERROR;
+    }
+
+    /* Provide our connector information to LibModSecurity */
+    msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
+    msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
+
+    dd ("main conf created at: '%p', instance is: '%p'", conf, conf->modsec);
+
+    return conf;
+}
+
+
 static char *
 ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
 {
@@ -568,7 +621,6 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     /*
      * set by ngx_pcalloc():
      *
-     *     conf->modsec = NULL;
      *     conf->enable = 0;
      *     conf->sanity_checks_enabled = 0;
      *     conf->rules_set = NULL;
@@ -577,10 +629,12 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
      */
 
     conf->enable = NGX_CONF_UNSET;
-    conf->sanity_checks_enabled = NGX_CONF_UNSET;
     conf->rules_set = msc_create_rules_set();
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    conf->sanity_checks_enabled = NGX_CONF_UNSET;
+#endif
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {
@@ -588,22 +642,10 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
         return NGX_CONF_ERROR;
     }
 
-    cln->handler = ngx_http_modsecurity_config_cleanup;
+    cln->handler = ngx_http_modsecurity_cleanup_rules;
     cln->data = conf;
 
     dd ("conf created at: '%p'", conf);
-
-    /* Create our ModSecurity instance */
-    conf->modsec = msc_init();
-    if (conf->modsec == NULL)
-    {
-        dd("failed to create the ModSecurity instance");
-        return NGX_CONF_ERROR;
-    }
-
-    /* Provide our connector information to LibModSecurity */
-    msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
-    msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
     return conf;
 }
@@ -628,8 +670,10 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
         (int) c->enable, (int) p->enable);
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
-    ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
+#endif
 
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     dd("PARENT RULES");
@@ -652,20 +696,38 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
 
 static void
-ngx_http_modsecurity_config_cleanup(void *data)
+ngx_http_modsecurity_cleanup_instance(void *data)
 {
-    ngx_pool_t *old_pool;
-    ngx_http_modsecurity_conf_t *t = (ngx_http_modsecurity_conf_t *) data;
+    ngx_pool_t                        *old_pool;
+    ngx_http_modsecurity_main_conf_t  *conf;
 
-    dd("deleting a loc conf -- RuleSet is: \"%p\"", t->rules_set);
+    conf = (ngx_http_modsecurity_main_conf_t *) data;
 
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(t->pool);
-    msc_rules_cleanup(t->rules_set);
-    msc_cleanup(t->modsec);
+    dd("deleting a main conf -- instance is: \"%p\"", conf->modsec);
+
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(conf->pool);
+    msc_cleanup(conf->modsec);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
-    t->rules_set = NULL;
-    t->modsec = NULL;
+    conf->modsec = NULL;
+}
+
+
+static void
+ngx_http_modsecurity_cleanup_rules(void *data)
+{
+    ngx_pool_t                   *old_pool;
+    ngx_http_modsecurity_conf_t  *conf;
+
+    conf = (ngx_http_modsecurity_conf_t *) data;
+
+    dd("deleting a loc conf -- RuleSet is: \"%p\"", conf->rules_set);
+
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(conf->pool);
+    msc_rules_cleanup(conf->rules_set);
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+    conf->rules_set = NULL;
 }
 
 

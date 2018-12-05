@@ -201,7 +201,7 @@ like($frame->{data}, qr/TEST-OK-IF-YOU-SEE-THIS/, "POST with auth_request (reque
 
 $s = Test::Nginx::HTTP2->new();
 $sid = $s->new_stream({ method => 'POST', path => '/useauth', 'body_more' => 1 });
-$s->h2_body('BODY' x 15);
+$s->h2_body('BODY' x 15, { 'body_more' => 1 });
 select undef, undef, undef, 0.1;
 $s->h2_body('BODY');
 $frames = $s->read(all => [{ sid => $sid, fin => 1 }]);
@@ -210,7 +210,7 @@ like($frame->{data}, qr/TEST-OK-IF-YOU-SEE-THIS/, "POST with auth_request (reque
 
 $s = Test::Nginx::HTTP2->new();
 $sid = $s->new_stream({ method => 'POST', path => '/useauth', 'body_more' => 1 });
-$s->h2_body('BODY' x 256);
+$s->h2_body('BODY' x 256, { 'body_more' => 1 });
 select undef, undef, undef, 0.1;
 $s->h2_body('BODY');
 $frames = $s->read(all => [{ sid => $sid, fin => 1 }]);

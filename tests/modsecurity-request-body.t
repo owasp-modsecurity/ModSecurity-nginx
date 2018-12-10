@@ -22,7 +22,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->has(qw/http auth_request/);
+my $t = Test::Nginx->new()->has(qw/http proxy auth_request/);
 
 $t->write_file_expand('nginx.conf', <<'EOF');
 
@@ -49,7 +49,7 @@ http {
                 SecRequestBodyAccess On
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:11,phase:request,deny,log,status:403"
             ';
-            proxy_pass http://127.0.0.1:8081;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
 
         location /nobodyaccess {
@@ -59,7 +59,7 @@ http {
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:21,phase:request,deny,log,status:403"
                 SecRule ARGS_POST|ARGS_POST_NAMES "@rx BAD ARG" "id:22,phase:request,deny,log,status:403"
             ';
-            proxy_pass http://127.0.0.1:8081;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
 
         location /bodylimitreject {
@@ -70,7 +70,12 @@ http {
                 SecRequestBodyLimitAction Reject
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:31,phase:request,deny,log,status:403"
             ';
-            proxy_pass http://127.0.0.1:8081;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+
+        location /bodylimitrejectserver {
+            modsecurity off;
+            proxy_pass http://127.0.0.1:%%PORT_8082%%;
         }
 
         location /bodylimitprocesspartial {
@@ -81,7 +86,7 @@ http {
                 SecRequestBodyLimitAction ProcessPartial
                 SecRule REQUEST_BODY "@rx BAD BODY" "id:41,phase:request,deny,log,status:403"
             ';
-            proxy_pass http://127.0.0.1:8081;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
 
         location = /auth {
@@ -95,7 +100,22 @@ http {
                 SecRequestBodyAccess On
             ';
             auth_request /auth;
-            proxy_pass http://127.0.0.1:8081;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+    }
+
+    server {
+        listen 127.0.0.1:%%PORT_8082%%;
+        modsecurity on;
+        modsecurity_rules '
+            SecRuleEngine On
+            SecRequestBodyAccess On
+            SecRequestBodyLimit 128
+            SecRequestBodyLimitAction Reject
+            SecRule REQUEST_BODY "@rx BAD BODY" "id:31,phase:request,deny,log,status:403"
+        ';
+        location / {
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
     }
 }
@@ -104,7 +124,7 @@ EOF
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
 
-$t->plan(36);
+$t->plan(40);
 
 ###############################################################################
 
@@ -145,6 +165,14 @@ like(
         qr/TEST-OK-IF-YOU-SEE-THIS/,
         'POST with auth_request (request size < client_header_buffer_size), no preread'
 );
+
+TODO: {
+local $TODO = 'not yet';
+
+foreach my $method (('GET', 'POST', 'PUT', 'DELETE')) {
+like(http_req_body($method, '/bodylimitrejectserver', 'BODY' x 33), qr/403 Forbidden/, "$method request body limit reject, block (inherited SecRequestBodyLimit)");
+}
+}
 
 ###############################################################################
 

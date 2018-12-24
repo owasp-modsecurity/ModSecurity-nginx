@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Added basic tests over HTTP/2
+   [Issue #145 - @defanator]
  - Module configuration refactoring
    [Issue #139 - @defanator]
  - Restore r->write_event_handler after reading request body

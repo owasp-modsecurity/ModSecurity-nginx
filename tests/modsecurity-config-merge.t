@@ -162,9 +162,6 @@ $t->plan(10);
 like(http_get_body('/', 'GOOD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "http level defaults, pass");
 like(http_get_body('/', 'VERY BAD BODY'), qr/403 Forbidden/, "http level defaults, block");
 
-TODO: {
-local $TODO = 'not yet, see https://github.com/SpiderLabs/ModSecurity/pull/1990';
-
 like(http_get_body('/modsec-disabled', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "location override for SecRuleEngine, pass");
 like(http_get_body('/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "location override for SecRequestBodyAccess, pass");
 like(http_get_body('/bodylimitprocesspartial', 'BODY' x 33), qr/TEST-OK-IF-YOU-SEE-THIS/, "location override for SecRequestBodyLimitAction, pass");
@@ -174,7 +171,6 @@ like(http_get_body('/server/modsec-disabled', 'VERY BAD BODY'), qr/TEST-OK-IF-YO
 like(http_get_body('/server/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "server override for SecRequestBodyAccess, pass");
 like(http_get_body('/server/bodylimitprocesspartial', 'BODY' x 33), qr/TEST-OK-IF-YOU-SEE-THIS/, "server override for SecRequestBodyLimitAction, pass");
 like(http_get_body('/server/bodylimitincreased', 'BODY' x 64), qr/TEST-OK-IF-YOU-SEE-THIS/, "server override for SecRequestBodyLimit, pass");
-}
 
 ###############################################################################
 

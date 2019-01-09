@@ -166,12 +166,8 @@ like(
         'POST with auth_request (request size < client_header_buffer_size), no preread'
 );
 
-TODO: {
-local $TODO = 'not yet';
-
 foreach my $method (('GET', 'POST', 'PUT', 'DELETE')) {
 like(http_req_body($method, '/bodylimitrejectserver', 'BODY' x 33), qr/403 Forbidden/, "$method request body limit reject, block (inherited SecRequestBodyLimit)");
-}
 }
 
 ###############################################################################

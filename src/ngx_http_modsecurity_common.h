@@ -24,7 +24,7 @@
 
 #include <modsecurity/modsecurity.h>
 #include <modsecurity/transaction.h>
-#include <modsecurity/rules.h>
+#include <modsecurity/rules_set.h>
 
 
 /**
@@ -97,7 +97,7 @@ typedef struct {
 
 typedef struct {
     void                      *pool;
-    Rules                     *rules_set;
+    RulesSet                  *rules_set;
 
     ngx_flag_t                 enable;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)

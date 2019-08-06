@@ -420,6 +420,10 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
 /* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
 
+    if (r->error_page) {
+        return ngx_http_next_header_filter(r);
+    }
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("header filter, recovering ctx: %p", ctx);

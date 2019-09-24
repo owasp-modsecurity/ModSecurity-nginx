@@ -80,13 +80,27 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * erliest phase that nginx allow us to attach those kind of hooks.
          *
          */
-        int client_port = htons(((struct sockaddr_in *) connection->sockaddr)->sin_port);
-        int server_port = htons(((struct sockaddr_in *) connection->listening->sockaddr)->sin_port);
+        int client_port = ngx_inet_get_port(connection->sockaddr);
+        int server_port = ngx_inet_get_port(connection->local_sockaddr);
+
         const char *client_addr = ngx_str_to_char(addr_text, r->pool);
         if (client_addr == (char*)-1) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-        const char *server_addr = inet_ntoa(((struct sockaddr_in *) connection->sockaddr)->sin_addr);
+
+        ngx_str_t s;
+        u_char addr[NGX_SOCKADDR_STRLEN];
+        s.len = NGX_SOCKADDR_STRLEN;
+        s.data = addr;
+        if (ngx_connection_local_sockaddr(r->connection, &s, 0) != NGX_OK) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
+        const char *server_addr = ngx_str_to_char(s, r->pool);
+        if (server_addr == (char*)-1) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         ret = msc_process_connection(ctx->modsec_transaction,
             client_addr, client_port,

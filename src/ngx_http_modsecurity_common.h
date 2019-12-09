@@ -24,7 +24,21 @@
 
 #include <modsecurity/modsecurity.h>
 #include <modsecurity/transaction.h>
+
+
+/* #define MSC_USE_RULES_SET 1 */
+
+#if defined(MODSECURITY_CHECK_VERSION)
+#if MODSECURITY_VERSION_NUM >= 304010
+#define MSC_USE_RULES_SET 1
+#endif
+#endif
+
+#if defined(MSC_USE_RULES_SET)
 #include <modsecurity/rules_set.h>
+#else
+#include <modsecurity/rules.h>
+#endif
 
 
 /**
@@ -97,7 +111,8 @@ typedef struct {
 
 typedef struct {
     void                      *pool;
-    RulesSet                  *rules_set;
+    /* RulesSet or Rules */
+    void                      *rules_set;
 
     ngx_flag_t                 enable;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)

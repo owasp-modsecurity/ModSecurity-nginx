@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fixed obtaining of server_addr
+   [Issue #168 - @defanator]
  - Avoid processing of subrequests initiated by the error_page 
    [Issue #165 - @defanator]
  - Tests: extend request body tests

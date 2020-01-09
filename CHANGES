@@ -1,3 +1,9 @@
+v1.0.x - YYYY-MMM-DD (To be released)
+-------------------------------------
+
+ - Exit more gracefully if uri length is zero
+   [@martinhsv]
+
 v1.0.1 - 2019-Dec-16
 --------------------
 

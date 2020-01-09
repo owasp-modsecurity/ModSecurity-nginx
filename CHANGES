@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Exit more gracefully if uri length is zero
+   [@martinhsv]
  - Fixed obtaining of server_addr
    [Issue #167, #168 - @defanator]
  - Avoid processing of subrequests initiated by the error_page 

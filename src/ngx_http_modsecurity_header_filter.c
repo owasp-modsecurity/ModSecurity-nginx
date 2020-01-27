@@ -420,10 +420,6 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
 /* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
 
-    if (r->error_page) {
-        return ngx_http_next_header_filter(r);
-    }
-
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("header filter, recovering ctx: %p", ctx);
@@ -527,6 +523,9 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     msc_process_response_headers(ctx->modsec_transaction, status, http_response_ver);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
+    if (r->error_page) {
+        return ngx_http_next_header_filter(r);
+        }
     if (ret > 0) {
         return ret;
     }

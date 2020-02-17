@@ -146,6 +146,10 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         if (n_uri == (char*)-1 || n_method == (char*)-1) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
+        if (n_uri == NULL) {
+            dd("uri is of length zero");
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);

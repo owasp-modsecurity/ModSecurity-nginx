@@ -94,17 +94,6 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
         dd("asking for the request body, if any. Count: %d",
             r->main->count);
-        /**
-         * TODO: Check if there is any benefit to use request_body_in_single_buf set to 1.
-         *
-         *       saw some module using this request_body_in_single_buf
-         *       but not sure what exactly it does, same for the others options below.
-         *
-         * r->request_body_in_single_buf = 1;
-         */
-        r->request_body_in_single_buf = 1;
-        r->request_body_in_persistent_file = 1;
-        r->request_body_in_clean_file = 1;
 
         rc = ngx_http_read_client_request_body(r,
             ngx_http_modsecurity_request_read);

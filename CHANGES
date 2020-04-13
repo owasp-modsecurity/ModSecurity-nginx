@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fix config setting not respected: client_body_in_file_only on
+   [Issue #187 - @martinhsv]
  - Fix audit_log not generated for disruptive actions 
    [Issue #170, #2220, #2237 - @victorhora]
  - Exit more gracefully if uri length is zero

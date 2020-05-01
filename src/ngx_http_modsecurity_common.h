@@ -106,6 +106,7 @@ typedef struct {
     ngx_uint_t                 rules_inline;
     ngx_uint_t                 rules_file;
     ngx_uint_t                 rules_remote;
+    ngx_open_file_t           *audit_log_reopen;
 } ngx_http_modsecurity_main_conf_t;
 
 

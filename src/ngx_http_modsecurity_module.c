@@ -31,6 +31,8 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
+static int ngx_http_modsecurity_set_up_log_reopen(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf);
+static void ngx_http_modsecurity_log_reopen(ngx_open_file_t *file, ngx_log_t *log);
 
 
 /*
@@ -598,6 +600,7 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
      *     conf->rules_inline = 0;
      *     conf->rules_file = 0;
      *     conf->rules_remote = 0;
+     *     conf->audit_log_reopen = NULL;
      */
 
     cln = ngx_pool_cleanup_add(cf->pool, 0);
@@ -621,6 +624,20 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     /* Provide our connector information to LibModSecurity */
     msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
     msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
+
+    /* Set up audit log reopening */
+    ngx_str_t log_reopen_file = ngx_string("/dev/null");
+    conf->audit_log_reopen = ngx_conf_open_file(cf->cycle, &log_reopen_file);
+    if (conf->audit_log_reopen == NULL) {
+        dd("failed to open file for triggering audit log reopen");
+        return NGX_CONF_ERROR;
+    }
+    conf->audit_log_reopen->data = ngx_list_create(cf->pool, 100, sizeof(RulesSet*));
+    if (conf->audit_log_reopen->data == NULL) {
+        dd("failed to create list of rules sets for audit log reopen");
+        return NGX_CONF_ERROR;
+    }
+    conf->audit_log_reopen->flush = ngx_http_modsecurity_log_reopen;
 
     dd ("main conf created at: '%p', instance is: '%p'", conf, conf->modsec);
 
@@ -727,6 +744,14 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
         return strdup(error);
     }
 
+    // This is necessary for logs to be reopened when the config is reloaded
+    if (msc_rules_reopen_audit_log(c->rules_set, &error) < 0) {
+        return strdup(error);
+    }
+    if (ngx_http_modsecurity_set_up_log_reopen(cf, c) < 0) {
+        return strdup("failed to set up audit log reopen");
+    }
+
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     dd("NEW CHILD RULES");
     msc_rules_dump(c->rules_set);
@@ -764,6 +789,51 @@ ngx_http_modsecurity_cleanup_rules(void *data)
     old_pool = ngx_http_modsecurity_pcre_malloc_init(mcf->pool);
     msc_rules_cleanup(mcf->rules_set);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+}
+
+static int
+ngx_http_modsecurity_set_up_log_reopen(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf)
+{
+    ngx_http_modsecurity_main_conf_t  *mmcf;
+    ngx_list_t                        *list;
+    RulesSet                         **item;
+
+    mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
+    list = mmcf->audit_log_reopen->data;
+
+    // Each rules set may have an audit log. We need to remember each rules set
+    // so we can ask for its audit log to be reopened.
+    item = ngx_list_push(list);
+    if (item == NULL) {
+        dd("failed to set up a rules set for audit log reopen");
+        return -1;
+    }
+    *item = mcf->rules_set;
+
+    return 0;
+}
+
+static void
+ngx_http_modsecurity_log_reopen(ngx_open_file_t *file, ngx_log_t *log)
+{
+    ngx_list_t       *list;
+    ngx_list_part_t  *part;
+    ngx_uint_t        i;
+    RulesSet        **rules_sets;
+    const char       *error = NULL;
+
+    ngx_log_debug0(NGX_LOG_DEBUG_EVENT, log, 0, "modsecurity audit log buffer flush");
+
+    list = file->data;
+
+    for (part = &list->part; part != NULL; part = part->next) {
+        rules_sets = part->elts;
+        for (i = 0; i < part->nelts; i++) {
+            if (msc_rules_reopen_audit_log(rules_sets[i], &error) < 0) {
+                ngx_log_error(NGX_LOG_ERR, log, 0, "failed to reopen audit log - reason: %s", error);
+            }
+        }
+    }
 }
 
 

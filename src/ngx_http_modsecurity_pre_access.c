@@ -48,6 +48,10 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t   *ctx;
     ngx_http_modsecurity_conf_t  *mcf;
 
+    if (r->error_page) {
+        return NGX_DECLINED;
+    }
+
     dd("catching a new _preaccess_ phase handler");
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
@@ -202,9 +206,6 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (r->error_page) {
-            return NGX_DECLINED;
-            }
         if (ret > 0) {
             return ret;
         }
@@ -214,4 +215,3 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 #endif
     return NGX_DECLINED;
 }
-

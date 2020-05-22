@@ -27,6 +27,10 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t   *ctx;
     ngx_http_modsecurity_conf_t  *mcf;
 
+    if (r->error_page) {
+        return NGX_DECLINED;
+    }
+
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1) {
         dd("ModSecurity not enabled... returning");
@@ -204,9 +208,6 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
         dd("Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
-        if (r->error_page) {
-            return NGX_DECLINED;
-            }
         if (ret > 0) {
             return ret;
         }

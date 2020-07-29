@@ -104,6 +104,13 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
          */
         r->request_body_in_single_buf = 1;
         r->request_body_in_persistent_file = 1;
+        if (!r->request_body_in_file_only) {
+            // If the above condition fails, then the flag below will have been
+            // set correctly elsewhere. We need to set the flag here for other
+            // conditions (client_body_in_file_only not used but
+            // client_body_buffer_size is)
+            r->request_body_in_clean_file = 1;
+        }
 
         rc = ngx_http_read_client_request_body(r,
             ngx_http_modsecurity_request_read);

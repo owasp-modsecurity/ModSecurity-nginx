@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Support http protocol versions besides 0.9, 1.0, 1.1, 2.0
+   [Issue #224 - @HQuest, @martinhsv]
  - Fix nginx not clearing body cache (caused by incomplete fix for #187)
    [Issue #216 - @krewi1, @martinhsv]
  - Fix config setting not respected: client_body_in_file_only on

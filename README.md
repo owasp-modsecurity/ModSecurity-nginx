@@ -24,13 +24,22 @@ Apache. As a result, this current version has less dependencies, fewer bugs, and
 Before compile this software make sure that you have libmodsecurity installed.
 You can download it from the [ModSecurity git repository](https://github.com/SpiderLabs/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
 
-With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follow the nginx 3rd party module installation procedure:
+With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follows the nginx third-party module installation procedure. From the nginx source directory:
 
 ```
 ./configure --add-module=/path/to/ModSecurity-nginx
 ```
 
-Further information about nginx 3rd party add-ons support are available here:
+Or, to build a dynamic module:
+
+```
+./configure --add-dynamic-module=/path/to/ModSecurity-nginx --with-compat
+```
+
+Note that when building a dynamic module, your nginx source version
+needs to match the version of nginx you're compiling this for.
+
+Further information about nginx third-party add-ons support are available here:
 http://wiki.nginx.org/3rdPartyModules
 
 
@@ -249,7 +258,7 @@ We would love to discuss any ideas that you may have for a new feature. Please k
 feel free to open GitHub issues requesting for new features. Before opening a new issue, please check if there is an existing feature request for the desired functionality.
 
 
-## Packing
+## Packaging
 
 Having our packages in distros on time is something we highly desire. Let us know if
 there is anything we can do to facilitate your work as a packager.

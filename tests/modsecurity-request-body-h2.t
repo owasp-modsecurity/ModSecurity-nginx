@@ -185,7 +185,9 @@ is($frame->{headers}->{':status'}, 403, "${method} request body limit process pa
 }
 
 TODO: {
-local $TODO = 'not yet';
+# https://github.com/SpiderLabs/ModSecurity-nginx/issues/163
+# https://github.com/nginx/nginx/commit/6c89d752c8ab3a3cc0832927484808b68153f8c4
+local $TODO = 'not yet' unless $t->has_version('1.19.3');
 
 $s = Test::Nginx::HTTP2->new();
 $sid = $s->new_stream({ method => 'POST', path => '/useauth', 'body' => 'BODY' x 16 });

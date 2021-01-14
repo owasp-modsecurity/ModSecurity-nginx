@@ -16,8 +16,8 @@ addons:
     - liblmdb-dev
 
 env:
-  - VER_NGINX=1.17.6
-  - VER_NGINX=1.16.1
+  - VER_NGINX=1.19.6
+  - VER_NGINX=1.18.0
 
 before_script:
   - cd ..

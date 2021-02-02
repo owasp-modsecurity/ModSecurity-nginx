@@ -71,9 +71,9 @@ $t->plan(5);
 ###############################################################################
 
 like(http_get('/absolute?what=badarg1'), qr/should be moved\/blocked before this./, 'absolute scoring 1 (pass)');
-like(http_get('/absolute?what=badarg2'), qr/403 Forbidden/, 'absolute scoring 2 (block)');
+like(http_get('/absolute?what=badarg2'), qr/^HTTP.*403/, 'absolute scoring 2 (block)');
 
 like(http_get('/iterative?arg1=badarg1'), qr/should be moved\/blocked before this./, 'iterative scoring 1 (pass)');
 like(http_get('/iterative?arg1=badarg1&arg2=badarg2'), qr/should be moved\/blocked before this./, 'iterative scoring 2 (pass)');
-like(http_get('/iterative?arg1=badarg1&arg2=badarg2&arg3=badarg3'), qr/403 Forbidden/, 'iterative scoring 3 (block)');
+like(http_get('/iterative?arg1=badarg1&arg2=badarg2&arg3=badarg3'), qr/^HTTP.*403/, 'iterative scoring 3 (block)');
 

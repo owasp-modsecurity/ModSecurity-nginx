@@ -64,6 +64,6 @@ $t->plan(1);
 TODO: {
 local $TODO = 'not yet';
 
-like(http_get('/body1'), qr/403 Forbidden/, 'response body (block)');
+like(http_get('/body1'), qr/^HTTP.*403/, 'response body (block)');
 }
 

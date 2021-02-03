@@ -78,6 +78,10 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    if (ctx->intervention_triggered) {
+        return NGX_DECLINED;
+    }
+
     if (ctx->waiting_more_body == 1)
     {
         dd("waiting for more data before proceed. / count: %d",

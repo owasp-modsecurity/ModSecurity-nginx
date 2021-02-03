@@ -430,6 +430,10 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
 
+    if (ctx->intervention_triggered) {
+        return ngx_http_next_header_filter(r);
+    }
+
 /* XXX: can it happen ?  already processed i mean */
 /* XXX: check behaviour on 'ModSecurity off' */
 

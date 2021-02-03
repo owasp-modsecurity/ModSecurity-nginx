@@ -97,6 +97,7 @@ typedef struct {
     unsigned waiting_more_body:1;
     unsigned body_requested:1;
     unsigned processed:1;
+    unsigned intervention_triggered:1;
 } ngx_http_modsecurity_ctx_t;
 
 

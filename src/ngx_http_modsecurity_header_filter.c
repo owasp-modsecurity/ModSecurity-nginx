@@ -525,9 +525,9 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
     if (r->error_page) {
         return ngx_http_next_header_filter(r);
-        }
+    }
     if (ret > 0) {
-        return ret;
+        return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
     }
 
     /*

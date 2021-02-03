@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fix nginx sends response without headers
+   [Issue #238 - @airween, @defanator]
  - Fix nginx not clearing body cache (caused by incomplete fix for #187)
    [Issue #216 - @krewi1, @martinhsv]
  - Fix config setting not respected: client_body_in_file_only on

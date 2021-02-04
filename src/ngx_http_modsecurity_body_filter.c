@@ -56,6 +56,10 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
+    if (ctx->intervention_triggered) {
+        return ngx_http_next_body_filter(r, in);
+    }
+
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf != NULL && mcf->sanity_checks_enabled != NGX_CONF_UNSET)

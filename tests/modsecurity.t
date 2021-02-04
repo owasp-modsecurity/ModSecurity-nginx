@@ -105,6 +105,23 @@ http {
                 SecRule ARGS "@streq block403" "id:4,phase:4,status:403,block"
             ';
         }
+        location /early-block {
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecResponseBodyAccess On
+                SecDefaultAction "phase:1,log,auditlog,pass"
+                SecDefaultAction "phase:2,log,auditlog,pass"
+                SecAction "id:900101,phase:1,nolog,pass,t:none,setvar:tx.trigger_phase1=1"
+                SecAction "id:900103,phase:1,nolog,pass,t:none,setvar:tx.trigger_phase3=1"
+                SecAction "id:900105,phase:1,nolog,pass,t:none,setvar:tx.trigger_phase5=1"
+                SecRule TX:TRIGGER_PHASE1 "@eq 1" "id:901111,phase:1,t:none,deny,log"
+                SecRule REQUEST_BODY "@rx attack" "id:901121,phase:2,t:none,deny,log"
+                SecRule TX:TRIGGER_PHASE3 "@eq 1" "id:901131,phase:3,t:none,deny,log"
+                SecRule RESPONSE_BODY "@rx ok" "id:901141,phase:4,t:none,deny,log"
+                SecRule TX:TRIGGER_PHASE5 "@eq 1" "id:901151,phase:5,t:none,pass,log,msg:\'This is the phase 5.\'"
+            ';
+        }
     }
 }
 EOF
@@ -113,9 +130,10 @@ $t->write_file("/phase1", "should be moved/blocked before this.");
 $t->write_file("/phase2", "should be moved/blocked before this.");
 $t->write_file("/phase3", "should be moved/blocked before this.");
 $t->write_file("/phase4", "should not be moved/blocked, headers delivered before phase 4.");
+$t->write_file("/early-block", "should be moved/blocked before this.");
 $t->run();
 $t->todo_alerts();
-$t->plan(20);
+$t->plan(21);
 
 ###############################################################################
 
@@ -150,3 +168,5 @@ like(http_get('/phase2?what=nothing'), qr/should be moved\/blocked before this./
 like(http_get('/phase3?what=nothing'), qr/should be moved\/blocked before this./, 'nothing phase 3');
 like(http_get('/phase4?what=nothing'), qr/should not be moved\/blocked, headers delivered before phase 4./, 'nothing phase 4');
 
+# early block (https://github.com/SpiderLabs/ModSecurity-nginx/issues/238)
+like(http_get('/early-block'), qr/^HTTP.*403/, 'early block 403 (https://github.com/SpiderLabs/ModSecurity-nginx/issues/238)');

@@ -117,6 +117,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
         }
 
@@ -157,6 +158,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r);
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
         }
 
@@ -208,6 +210,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             return NGX_DECLINED;
             }
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
         }
     }

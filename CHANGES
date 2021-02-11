@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 -------------------------------------
 
+ - Fix auditlog in case of internal redirect
+   [Issue #90 - @AirisX, @defanator]
  - Fix nginx sends response without headers
    [Issue #238 - @airween, @defanator]
  - Fix nginx not clearing body cache (caused by incomplete fix for #187)

@@ -137,7 +137,7 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 
 
 int
-ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log)
+ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r)
 {
     char *log = NULL;
     ModSecurityIntervention intervention;
@@ -222,11 +222,8 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
          */
         msc_update_status_code(ctx->modsec_transaction, intervention.status);
 
-        if (early_log) {
-            dd("intervention -- calling log handler manually with code: %d", intervention.status);
-            ngx_http_modsecurity_log_handler(r);
-            ctx->logged = 1;
-	}
+        dd("intervention -- calling log handler manually with code: %d", intervention.status);
+        ngx_http_modsecurity_log_handler(r);
 
         if (r->header_sent)
         {

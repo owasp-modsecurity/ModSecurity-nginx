@@ -143,7 +143,17 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         }
 
         const char *n_uri = ngx_str_to_char(r->unparsed_uri, r->pool);
-        const char *n_method = ngx_str_to_char(r->method_name, r->pool);
+        const char *n_method = ngx_str_to_char(r->request_line, r->pool);
+        if (n_method != NULL && n_method != (char *)-1) {
+            char *p = (char *) n_method;
+            while (*p) {
+                if (*p == ' ') {
+                    *p = '\0';
+                    break;
+                }
+                p++;
+            }
+        }
         if (n_uri == (char*)-1 || n_method == (char*)-1) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }

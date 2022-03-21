@@ -56,6 +56,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
+    if (ctx->modsec_transaction == NULL) {
+        // we have freed the modsec_transaction
+        return ngx_http_next_body_filter(r, in);
+    }
+
     if (ctx->intervention_triggered) {
         return ngx_http_next_body_filter(r, in);
     }
@@ -177,6 +182,15 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (!is_request_processed)
     {
         dd("buffer was not fully loaded! ctx: %p", ctx);
+    }
+
+    if (r->headers_out.status == NGX_HTTP_SWITCHING_PROTOCOLS) {
+        dd("it's switching protocols, clean transaction for %p", ctx);
+        // I don't think there are any response body
+        ngx_http_modsecurity_log_handler(r);
+        ctx->logged = 1;
+
+        ngx_http_modsecurity_cleanup(ctx);
     }
 
 /* XXX: xflt_filter() -- return NGX_OK here */

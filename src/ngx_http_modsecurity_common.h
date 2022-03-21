@@ -142,6 +142,7 @@ ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *
 char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 ngx_pool_t *ngx_http_modsecurity_pcre_malloc_init(ngx_pool_t *pool);
 void ngx_http_modsecurity_pcre_malloc_done(ngx_pool_t *old_pool);
+void ngx_http_modsecurity_cleanup(void *data);
 
 /* ngx_http_modsecurity_body_filter.c */
 ngx_int_t ngx_http_modsecurity_body_filter_init(void);

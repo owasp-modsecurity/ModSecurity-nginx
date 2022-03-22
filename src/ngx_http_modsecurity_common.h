@@ -115,6 +115,9 @@ typedef struct {
     void                      *pool;
     /* RulesSet or Rules */
     void                      *rules_set;
+    const char                *rules;
+    const char                *rules_set_file;
+    const char                *rules_remote_key, *rules_remote_server;
 
     ngx_flag_t                 enable;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)

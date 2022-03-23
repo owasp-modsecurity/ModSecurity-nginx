@@ -25,6 +25,7 @@
 #include <ngx_http.h>
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
+static ngx_int_t ngx_http_modsecurity_create_rule_set(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);
 static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
@@ -331,6 +332,11 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_OK;
     }
 
+    if (mcf->rules_set == NGX_CONF_UNSET_PTR) {
+        // don't lazy load for configuration test
+        ngx_http_modsecurity_create_rule_set(cf, mcf);
+    }
+
     old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
     res = msc_rules_add(mcf->rules_set, rules, &error);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
@@ -369,6 +375,11 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         mcf->rules_set_file = rules_set;
         ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, "would lazy-load rules file %s", rules_set);
         return NGX_CONF_OK;
+    }
+
+    if (mcf->rules_set == NGX_CONF_UNSET_PTR) {
+        // don't lazy load for configuration test
+        ngx_http_modsecurity_create_rule_set(cf, mcf);
     }
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
@@ -415,6 +426,11 @@ ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         mcf->rules_remote_server = rules_remote_server;
         ngx_log_error(NGX_LOG_NOTICE, cf->log, 0, "would lazy-load remote rules %s", rules_remote_server);
         return NGX_CONF_OK;
+    }
+
+    if (mcf->rules_set == NGX_CONF_UNSET_PTR) {
+        // don't lazy load for configuration test
+        ngx_http_modsecurity_create_rule_set(cf, mcf);
     }
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
@@ -523,17 +539,24 @@ static ngx_http_module_t ngx_http_modsecurity_ctx = {
 };
 
 
-static int load_msc_rules(ngx_http_modsecurity_conf_t *mcf, ngx_log_t *log) {
-    int rules;
-    const char *error;
-#define show_loaded_rules(message)                                                                     \
-    if (rules >= 0) {                                                                                  \
-        ngx_log_error(NGX_LOG_NOTICE, log, 0,                                                          \
-                      "loaded %d rules from %s", rules, message);                                      \
-    } else {                                                                                           \
-        goto clean;                                                                                    \
-    }
+static ngx_int_t load_msc_rules(ngx_http_modsecurity_conf_t *mcf, ngx_log_t *log) {
+#define show_loaded_rules(message) do {                                             \
+    if (rules >= 0) {                                                               \
+        ngx_log_error(NGX_LOG_NOTICE, log, 0, "%s (loaded %d rules from %s)",       \
+                      MODSECURITY_NGINX_WHOAMI, rules, message);                    \
+        rules_loaded += rules;                                                      \
+    } else {                                                                        \
+        goto clean;                                                                 \
+    }                                                                               \
+} while (0)
 
+    int rules;
+    int rules_loaded = 0;
+    const char *error;
+
+    if (mcf->rules_set == NGX_CONF_UNSET_PTR) {
+        mcf->rules_set = msc_create_rules_set();
+    }
     if (mcf->rules != NGX_CONF_UNSET_PTR) {
         rules = msc_rules_add(mcf->rules_set, mcf->rules, &error);
         show_loaded_rules(mcf->rules);
@@ -548,6 +571,7 @@ static int load_msc_rules(ngx_http_modsecurity_conf_t *mcf, ngx_log_t *log) {
                                      mcf->rules_remote_key, mcf->rules_remote_server, &error);
         show_loaded_rules(mcf->rules_remote_server);
     }
+    mcf->rules_loaded = rules_loaded;
     return NGX_OK;
 clean:
     ngx_log_error(NGX_ERROR_ERR, log, 0, "cannot load rules: %s", error);
@@ -555,15 +579,76 @@ clean:
 }
 
 
-static ngx_int_t ngx_http_modsecurity_init_process(ngx_cycle_t *cycle) {
+#ifndef RULES_FILE_CACHE_SIZE
+#define RULES_FILE_CACHE_SIZE 0x7
+#endif
+static ngx_int_t load_msc_rules_file(ngx_http_modsecurity_conf_t *mcf, ngx_log_t *log) {
+    static const char *files[RULES_FILE_CACHE_SIZE];
+    static RulesSet *rules_sets[RULES_FILE_CACHE_SIZE];
+    int i;
+    for (i = 0; i < RULES_FILE_CACHE_SIZE; ++i) {
+        if (files[i] == NULL) {
+            if (load_msc_rules(mcf, log) != NGX_OK) {
+                return NGX_ERROR;
+            }
+            files[i] = mcf->rules_set_file;
+            rules_sets[i] = mcf->rules_set;
+            return NGX_OK;
+        } else if (ngx_strcmp(files[i], mcf->rules_set_file) == 0) {
+            if (mcf->rules_set != NGX_CONF_UNSET_PTR) {
+                // shouldn't happen
+                msc_rules_cleanup(mcf->rules_set);
+            }
+            mcf->rules_set = rules_sets[i];
+            mcf->rules_loaded = -1;
+            return NGX_OK;
+        }
+    }
+    return load_msc_rules(mcf, log);
+}
+
+
+static ngx_int_t ngx_http_modsecurity_create_rule_set(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf) {
     ngx_pool_cleanup_t *cleanup;
+    cleanup = ngx_pool_cleanup_add(cf->pool, 0);
+    if (cleanup == NULL) {
+        return NGX_ERROR;
+    }
+    if (ngx_test_config) {
+        // don't lazy load for configuration test
+        mcf->rules_set = msc_create_rules_set();
+    }
+    cleanup->handler = ngx_http_modsecurity_cleanup_rules;
+    cleanup->data = mcf;
+    return NGX_OK;
+}
+
+
+static ngx_int_t ngx_http_modsecurity_init_process(ngx_cycle_t *cycle) {
+#define is_rules_file_only(mcf) ((mcf)->rules == NGX_CONF_UNSET_PTR         \
+        && (mcf)->rules_remote_key == NGX_CONF_UNSET_PTR                    \
+        && (mcf)->rules_remote_server == NGX_CONF_UNSET_PTR                 \
+        && (mcf)->rules_set_file != NGX_CONF_UNSET_PTR)
+    ngx_pool_cleanup_t *cleanup;
+    ngx_log_t *log = cycle->log;
+    ngx_uint_t log_level = log->log_level;
+    log->log_level = NGX_LOG_NOTICE;
     for (cleanup = cycle->pool->cleanup; cleanup; cleanup = cleanup->next) {
         if (cleanup->handler == ngx_http_modsecurity_cleanup_rules) {
-            if (load_msc_rules(cleanup->data, cycle->log) != NGX_OK) {
-                return NGX_ERROR;
+            ngx_http_modsecurity_conf_t *mcf = cleanup->data;
+            mcf->rules_loaded = 0;
+            if (is_rules_file_only(mcf)) {
+                if (load_msc_rules_file(mcf, log) != NGX_OK) {
+                    return NGX_ERROR;
+                }
+            } else {
+                if (load_msc_rules(mcf, log) != NGX_OK) {
+                    return NGX_ERROR;
+                }
             }
         }
     }
+    log->log_level = log_level;
     return NGX_OK;
 }
 
@@ -719,6 +804,10 @@ ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
     ngx_http_modsecurity_main_conf_t  *mmcf;
     mmcf = (ngx_http_modsecurity_main_conf_t *) conf;
 
+    if (!ngx_test_config) {
+        return NGX_CONF_OK;
+    }
+
     ngx_log_error(NGX_LOG_NOTICE, cf->log, 0,
                   "%s (rules loaded inline/local/remote: %ui/%ui/%ui)",
                   MODSECURITY_NGINX_WHOAMI, mmcf->rules_inline,
@@ -731,7 +820,6 @@ ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
 static void *
 ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
 {
-    ngx_pool_cleanup_t           *cln;
     ngx_http_modsecurity_conf_t  *conf;
 
     conf = (ngx_http_modsecurity_conf_t *) ngx_pcalloc(cf->pool,
@@ -754,27 +842,17 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
      */
 
     conf->enable = NGX_CONF_UNSET;
-    conf->rules_set = msc_create_rules_set();
+    conf->rules_set = NGX_CONF_UNSET_PTR;
     conf->rules = NGX_CONF_UNSET_PTR;
     conf->rules_set_file = NGX_CONF_UNSET_PTR;
     conf->rules_remote_key = NGX_CONF_UNSET_PTR;
     conf->rules_remote_server = NGX_CONF_UNSET_PTR;
+    conf->rules_loaded = 0;
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
-
-    cln = ngx_pool_cleanup_add(cf->pool, 0);
-    if (cln == NULL) {
-        dd("failed to create the ModSecurity configuration cleanup");
-        return NGX_CONF_ERROR;
-    }
-
-    cln->handler = ngx_http_modsecurity_cleanup_rules;
-    cln->data = conf;
-
-    dd ("conf created at: '%p'", conf);
 
     return conf;
 }
@@ -811,17 +889,33 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     msc_rules_dump(c->rules_set);
 #endif
 
-#define ngx_conf_merge_ptr_value_if_unset(conf, prev, message)               \
-    if (conf != NGX_CONF_UNSET_PTR && prev != NGX_CONF_UNSET_PTR) {          \
-        return "cannot use " message " on both parent and child";            \
-    } else {                                                                 \
-       ngx_conf_merge_ptr_value(conf, prev, NGX_CONF_UNSET_PTR);             \
+#define ngx_conf_merge_ptr_value_if_unset(conf, prev, message)              \
+    if ((conf) != NGX_CONF_UNSET_PTR && (prev) != NGX_CONF_UNSET_PTR) {     \
+        return "cannot use " message " on both parent and child";           \
+    } else {                                                                \
+       ngx_conf_merge_ptr_value((conf), (prev), NGX_CONF_UNSET_PTR);        \
     }
 
     ngx_conf_merge_ptr_value_if_unset(c->rules, p->rules, "modsecurity_rules");
     ngx_conf_merge_ptr_value_if_unset(c->rules_set_file, p->rules_set_file, "modsecurity_rules_file");
     ngx_conf_merge_ptr_value_if_unset(c->rules_remote_key, p->rules_remote_key, "modsecurity_rules_remote");
     ngx_conf_merge_ptr_value_if_unset(c->rules_remote_server, p->rules_remote_server, "modsecurity_rules_remote");
+
+
+#define has_rules(x) ((x)->rules != NGX_CONF_UNSET_PTR                      \
+    || (x)->rules_set_file != NGX_CONF_UNSET_PTR                            \
+    || ((x)->rules_remote_key != NGX_CONF_UNSET_PTR                         \
+        && (x)->rules_remote_server != NGX_CONF_UNSET_PTR))
+
+    if (!has_rules(c)) {
+        return NGX_CONF_OK;
+    }
+
+    ngx_http_modsecurity_create_rule_set(cf, c);
+
+    if (p->rules_set == NGX_CONF_UNSET_PTR) {
+        return NGX_CONF_OK;
+    }
 
     rules = msc_rules_merge(c->rules_set, p->rules_set, &error);
 
@@ -862,6 +956,10 @@ ngx_http_modsecurity_cleanup_rules(void *data)
     mcf = (ngx_http_modsecurity_conf_t *) data;
 
     dd("deleting a loc conf -- RuleSet is: \"%p\"", mcf->rules_set);
+
+    if (mcf->rules_loaded < 0 || mcf->rules_set == NGX_CONF_UNSET_PTR) {
+        return;
+    }
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(mcf->pool);
     msc_rules_cleanup(mcf->rules_set);

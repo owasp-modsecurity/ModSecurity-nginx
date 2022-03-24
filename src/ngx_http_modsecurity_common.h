@@ -99,6 +99,10 @@ typedef struct {
     unsigned processed:1;
     unsigned logged:1;
     unsigned intervention_triggered:1;
+    ngx_msec_int_t req_headers_phase_time;
+    ngx_msec_int_t req_body_phase_time;
+    ngx_msec_int_t resp_headers_phase_time;
+    ngx_msec_int_t resp_body_phase_time;
 } ngx_http_modsecurity_ctx_t;
 
 
@@ -164,5 +168,6 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r);
 /* ngx_http_modsecurity_rewrite.c */
 ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r);
 
+ngx_msec_int_t ngx_http_modsecurity_compute_processing_time(struct timeval tv);
 
 #endif /* _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_ */

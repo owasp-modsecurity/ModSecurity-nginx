@@ -103,6 +103,7 @@ typedef struct {
     ngx_msec_int_t req_body_phase_time;
     ngx_msec_int_t resp_headers_phase_time;
     ngx_msec_int_t resp_body_phase_time;
+    ngx_msec_int_t logging_phase_time;
 } ngx_http_modsecurity_ctx_t;
 
 

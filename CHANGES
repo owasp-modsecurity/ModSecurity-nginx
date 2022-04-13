@@ -1,3 +1,9 @@
+v1.0.x - YYYY-MMM-DD (To be released)
+--------------------
+
+ - Support for building with nginx configured with PCRE2
+   [Issue #260 - @defanator]
+
 v1.0.2 - 2021-Jun-02
 --------------------
 

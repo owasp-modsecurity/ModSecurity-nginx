@@ -1,6 +1,8 @@
 v1.0.x - YYYY-MMM-DD (To be released)
 --------------------
 
+ - Support http protocol versions besides 0.9, 1.0, 1.1, 2.0
+   [Issue #224 - @HQuest, @martinhsv]
  - Support for building with nginx configured with PCRE2
    [Issue #260 - @defanator]
 

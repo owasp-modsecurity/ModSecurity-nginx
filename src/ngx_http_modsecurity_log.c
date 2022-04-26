@@ -67,6 +67,11 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_ERROR;
     }
 
+    if (ctx->logged) {
+        dd("already logged earlier");
+        return NGX_OK;
+    }
+
     dd("calling msc_process_logging for %p", ctx);
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_logging(ctx->modsec_transaction);

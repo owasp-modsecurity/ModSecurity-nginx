@@ -95,18 +95,18 @@ $t->plan(9);
 
 
 # Performing requests at root
-like(http_get('/index.html?what=root'), qr/302 Moved Temporarily/, 'redirect 302 - root');
+like(http_get('/index.html?what=root'), qr/^HTTP.*302/, 'redirect 302 - root');
 like(http_get('/index.html?what=subfolder1'), qr/should be moved\/blocked before this./, 'nothing - requested subfolder1 at root');
 like(http_get('/index.html?what=subfolder2'), qr/should be moved\/blocked before this./, 'nothing - requested subfolder2 at root');
 
 # Performing requests at subfolder1
 like(http_get('/subfolder1/index.html?what=root'), qr/should be moved\/blocked before this./, 'nothing - requested root at subfolder 1');
-like(http_get('/subfolder1/index.html?what=subfolder1'), qr/302 Moved Temporarily/, 'redirect 302 - subfolder 1');
+like(http_get('/subfolder1/index.html?what=subfolder1'), qr/^HTTP.*302/, 'redirect 302 - subfolder 1');
 like(http_get('/subfolder1/index.html?what=subfolder2'), qr/should be moved\/blocked before this./, 'nothing - requested subfolder2 at subfolder1');
 
 # Performing requests at subfolder2
 like(http_get('/subfolder1/subfolder2/index.html?what=root'), qr/should be moved\/blocked before this./, 'nothing - requested root at subfolder 2');
-like(http_get('/subfolder1/subfolder2/index.html?what=subfolder1'), qr/302 Moved Temporarily/, 'redirect 302 - subfolder 2');
-like(http_get('/subfolder1/subfolder2/index.html?what=subfolder2'), qr/302 Moved Temporarily/, 'redirect 302 - subfolder 2');
+like(http_get('/subfolder1/subfolder2/index.html?what=subfolder1'), qr/^HTTP.*302/, 'redirect 302 - subfolder 2');
+like(http_get('/subfolder1/subfolder2/index.html?what=subfolder2'), qr/^HTTP.*302/, 'redirect 302 - subfolder 2');
 
 

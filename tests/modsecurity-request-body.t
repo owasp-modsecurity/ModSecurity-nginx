@@ -130,13 +130,13 @@ $t->plan(40);
 
 foreach my $method (('GET', 'POST', 'PUT', 'DELETE')) {
 like(http_req_body($method, '/bodyaccess', 'GOOD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access on, pass");
-like(http_req_body($method, '/bodyaccess', 'VERY BAD BODY'), qr/403 Forbidden/, "$method request body access on, block");
+like(http_req_body($method, '/bodyaccess', 'VERY BAD BODY'), qr/^HTTP.*403/, "$method request body access on, block");
 like(http_req_body($method, '/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access off, pass");
 like(http_req_body_postargs($method, '/nobodyaccess', 'BAD ARG'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body access off (ARGS_POST), pass");
 like(http_req_body($method, '/bodylimitreject', 'BODY' x 32), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit reject, pass");
-like(http_req_body($method, '/bodylimitreject', 'BODY' x 33), qr/403 Forbidden/, "$method request body limit reject, block");
+like(http_req_body($method, '/bodylimitreject', 'BODY' x 33), qr/^HTTP.*403/, "$method request body limit reject, block");
 like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 32 . 'BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "$method request body limit process partial, pass");
-like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 30 . 'BAD BODY' x 32), qr/403 Forbidden/, "$method request body limit process partial, block");
+like(http_req_body($method, '/bodylimitprocesspartial', 'BODY' x 30 . 'BAD BODY' x 32), qr/^HTTP.*403/, "$method request body limit process partial, block");
 }
 
 like(http_req_body('POST', '/useauth', 'BODY' x 16), qr/TEST-OK-IF-YOU-SEE-THIS/, "POST with auth_request (request size < client_header_buffer_size)");
@@ -167,7 +167,7 @@ like(
 );
 
 foreach my $method (('GET', 'POST', 'PUT', 'DELETE')) {
-like(http_req_body($method, '/bodylimitrejectserver', 'BODY' x 33), qr/403 Forbidden/, "$method request body limit reject, block (inherited SecRequestBodyLimit)");
+like(http_req_body($method, '/bodylimitrejectserver', 'BODY' x 33), qr/^HTTP.*403/, "$method request body limit reject, block (inherited SecRequestBodyLimit)");
 }
 
 ###############################################################################

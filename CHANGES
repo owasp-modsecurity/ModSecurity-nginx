@@ -1,8 +1,18 @@
 v1.0.x - YYYY-MMM-DD (To be released)
--------------------------------------
+--------------------
 
  - Support http protocol versions besides 0.9, 1.0, 1.1, 2.0
    [Issue #224 - @HQuest, @martinhsv]
+ - Support for building with nginx configured with PCRE2
+   [Issue #260 - @defanator]
+
+v1.0.2 - 2021-Jun-02
+--------------------
+
+ - Fix auditlog in case of internal redirect
+   [Issue #90 - @AirisX, @defanator]
+ - Fix nginx sends response without headers
+   [Issue #238 - @airween, @defanator]
  - Fix nginx not clearing body cache (caused by incomplete fix for #187)
    [Issue #216 - @krewi1, @martinhsv]
  - Fix config setting not respected: client_body_in_file_only on

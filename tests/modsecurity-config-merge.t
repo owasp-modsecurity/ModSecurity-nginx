@@ -160,7 +160,7 @@ $t->plan(10);
 ###############################################################################
 
 like(http_get_body('/', 'GOOD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "http level defaults, pass");
-like(http_get_body('/', 'VERY BAD BODY'), qr/403 Forbidden/, "http level defaults, block");
+like(http_get_body('/', 'VERY BAD BODY'), qr/^HTTP.*403/, "http level defaults, block");
 
 like(http_get_body('/modsec-disabled', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "location override for SecRuleEngine, pass");
 like(http_get_body('/nobodyaccess', 'VERY BAD BODY'), qr/TEST-OK-IF-YOU-SEE-THIS/, "location override for SecRequestBodyAccess, pass");

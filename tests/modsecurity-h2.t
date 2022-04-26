@@ -102,7 +102,6 @@ $t->write_file("/phase2", "should be moved/blocked before this.");
 $t->write_file("/phase3", "should be moved/blocked before this.");
 $t->write_file("/phase4", "should not be moved/blocked, headers delivered before phase 4.");
 $t->run();
-$t->todo_alerts();
 $t->plan(20);
 
 ###############################################################################

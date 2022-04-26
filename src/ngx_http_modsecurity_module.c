@@ -38,6 +38,7 @@ static void ngx_http_modsecurity_cleanup_rules(void *data);
  * https://github.com/openresty/lua-nginx-module/blob/master/src/ngx_http_lua_pcrefix.c
  */
 
+#if !(NGX_PCRE2)
 static void *(*old_pcre_malloc)(size_t);
 static void (*old_pcre_free)(void *ptr);
 static ngx_pool_t *ngx_http_modsec_pcre_pool = NULL;
@@ -103,6 +104,7 @@ ngx_http_modsecurity_pcre_malloc_done(ngx_pool_t *old_pool)
         pcre_free = old_pcre_free;
     }
 }
+#endif
 
 /*
  * ngx_string's are not null-terminated in common case, so we need to convert
@@ -130,7 +132,7 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 
 
 ngx_inline int
-ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r)
+ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log)
 {
     char *log = NULL;
     ModSecurityIntervention intervention;
@@ -138,8 +140,15 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     intervention.url = NULL;
     intervention.log = NULL;
     intervention.disruptive = 0;
+    ngx_http_modsecurity_ctx_t *ctx = NULL;
 
     dd("processing intervention");
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    if (ctx == NULL)
+    {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
 
     if (msc_intervention(transaction, &intervention) == 0) {
         dd("nothing to do");
@@ -192,7 +201,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         r->headers_out.location->hash = 1;
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modescurity_store_ctx_header(r, &location->key, &location->value);
+        ngx_http_modsecurity_store_ctx_header(r, &location->key, &location->value);
 #endif
 
         return intervention.status;
@@ -200,6 +209,20 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     if (intervention.status != 200)
     {
+        /**
+         * FIXME: this will bring proper response code to audit log in case
+         * when e.g. error_page redirect was triggered, but there still won't be another
+         * required pieces like response headers etc.
+         *
+         */
+        msc_update_status_code(ctx->modsec_transaction, intervention.status);
+
+        if (early_log) {
+            dd("intervention -- calling log handler manually with code: %d", intervention.status);
+            ngx_http_modsecurity_log_handler(r);
+            ctx->logged = 1;
+	}
+
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");

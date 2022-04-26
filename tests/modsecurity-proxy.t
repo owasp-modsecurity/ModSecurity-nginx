@@ -114,27 +114,27 @@ unlike(http_head('/'), qr/SEE-THIS/, 'proxy head request');
 
 
 # Redirect (302)
-like(http_get('/phase1?what=redirect302'), qr/302 Moved Temporarily/, 'redirect 302 - phase 1');
-like(http_get('/phase2?what=redirect302'), qr/302 Moved Temporarily/, 'redirect 302 - phase 2');
-like(http_get('/phase3?what=redirect302'), qr/302 Moved Temporarily/, 'redirect 302 - phase 3');
+like(http_get('/phase1?what=redirect302'), qr/^HTTP.*302/, 'redirect 302 - phase 1');
+like(http_get('/phase2?what=redirect302'), qr/^HTTP.*302/, 'redirect 302 - phase 2');
+like(http_get('/phase3?what=redirect302'), qr/^HTTP.*302/, 'redirect 302 - phase 3');
 is(http_get('/phase4?what=redirect302'), '', 'redirect 302 - phase 4');
 
 # Redirect (301)
-like(http_get('/phase1?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 1');
-like(http_get('/phase2?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 2');
-like(http_get('/phase3?what=redirect301'), qr/301 Moved Permanently/, 'redirect 301 - phase 3');
+like(http_get('/phase1?what=redirect301'), qr/^HTTP.*301/, 'redirect 301 - phase 1');
+like(http_get('/phase2?what=redirect301'), qr/^HTTP.*301/, 'redirect 301 - phase 2');
+like(http_get('/phase3?what=redirect301'), qr/^HTTP.*301/, 'redirect 301 - phase 3');
 is(http_get('/phase4?what=redirect301'), '', 'redirect 301 - phase 4');
 
 # Block (401)
-like(http_get('/phase1?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 1');
-like(http_get('/phase2?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 2');
-like(http_get('/phase3?what=block401'), qr/401 Unauthorized/, 'block 401 - phase 3');
+like(http_get('/phase1?what=block401'), qr/^HTTP.*401/, 'block 401 - phase 1');
+like(http_get('/phase2?what=block401'), qr/^HTTP.*401/, 'block 401 - phase 2');
+like(http_get('/phase3?what=block401'), qr/^HTTP.*401/, 'block 401 - phase 3');
 is(http_get('/phase4?what=block401'), '', 'block 401 - phase 4');
 
 # Block (403)
-like(http_get('/phase1?what=block403'), qr/403 Forbidden/, 'block 403 - phase 1');
-like(http_get('/phase2?what=block403'), qr/403 Forbidden/, 'block 403 - phase 2');
-like(http_get('/phase3?what=block403'), qr/403 Forbidden/, 'block 403 - phase 3');
+like(http_get('/phase1?what=block403'), qr/^HTTP.*403/, 'block 403 - phase 1');
+like(http_get('/phase2?what=block403'), qr/^HTTP.*403/, 'block 403 - phase 2');
+like(http_get('/phase3?what=block403'), qr/^HTTP.*403/, 'block 403 - phase 3');
 is(http_get('/phase4?what=block403'), '', 'block 403 - phase 4');
 
 # Nothing to detect

@@ -156,8 +156,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
         if (is_request_processed) {
             ngx_pool_t *old_pool;
-            struct timeval start_tv;
-            ngx_gettimeofday(&start_tv);
+            struct timespec start_tv;
+            (void) clock_gettime(CLOCK_MONOTONIC, &start_tv);
 
             old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
             msc_process_response_body(ctx->modsec_transaction);

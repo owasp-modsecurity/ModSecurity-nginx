@@ -51,9 +51,9 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     if (ctx == NULL)
     {
         int ret = 0;
-        struct timeval start_tv;
+        struct timespec start_tv;
 
-        ngx_gettimeofday(&start_tv);
+        (void) clock_gettime(CLOCK_MONOTONIC, &start_tv);
 
         ngx_connection_t *connection = r->connection;
         /**

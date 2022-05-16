@@ -169,6 +169,6 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r);
 /* ngx_http_modsecurity_rewrite.c */
 ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r);
 
-ngx_msec_int_t ngx_http_modsecurity_compute_processing_time(struct timeval tv);
+ngx_msec_int_t ngx_http_modsecurity_compute_processing_time(struct timespec tv);
 
 #endif /* _NGX_HTTP_MODSECURITY_COMMON_H_INCLUDED_ */

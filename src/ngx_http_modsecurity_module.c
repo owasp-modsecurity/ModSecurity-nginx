@@ -37,15 +37,7 @@ static ngx_table_elt_t * search_headers(ngx_list_part_t *part, u_char *name, siz
 static ngx_int_t add_headers(AdditionalHeader *iterator, ngx_pool_t *pool, ngx_list_t *headers);
 static void free_headers(AdditionalHeader *iterator);
 
-static ngx_int_t ngx_http_modsecurity_req_headers_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_modsecurity_req_body_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_modsecurity_resp_headers_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_modsecurity_resp_body_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data);
-static ngx_int_t ngx_http_modsecurity_logging_phase_time(ngx_http_request_t *r,
+static ngx_int_t ngx_http_modsecurity_phase_time(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
 static ngx_int_t ngx_http_modsecurity_time_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data, ngx_msec_int_t usec);
@@ -550,23 +542,23 @@ ngx_module_t ngx_http_modsecurity_module = {
 
 static ngx_http_variable_t  ngx_http_modsecurity_vars[] = {
     { ngx_string("modsecurity_req_headers_phase_time"), NULL,
-      ngx_http_modsecurity_req_headers_phase_time, 0,
+      ngx_http_modsecurity_phase_time, 0,
       NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
 
     { ngx_string("modsecurity_req_body_phase_time"), NULL,
-      ngx_http_modsecurity_req_body_phase_time, 0,
+      ngx_http_modsecurity_phase_time, 1,
       NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
 
     { ngx_string("modsecurity_resp_headers_phase_time"), NULL,
-      ngx_http_modsecurity_resp_headers_phase_time, 0,
+      ngx_http_modsecurity_phase_time, 2,
       NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
     
     { ngx_string("modsecurity_resp_body_phase_time"), NULL,
-      ngx_http_modsecurity_resp_body_phase_time, 0,
+      ngx_http_modsecurity_phase_time, 3,
       NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
 
     { ngx_string("modsecurity_logging_phase_time"), NULL,
-      ngx_http_modsecurity_logging_phase_time, 0,
+      ngx_http_modsecurity_phase_time, 4,
       NGX_HTTP_VAR_NOCACHEABLE|NGX_HTTP_VAR_NOHASH, 0 },
 
     { ngx_null_string, NULL, NULL, 0, 0, 0 }
@@ -962,16 +954,30 @@ ngx_http_modsecurity_cleanup_rules(void *data)
 
 
 static ngx_int_t
-ngx_http_modsecurity_req_headers_phase_time(ngx_http_request_t *r,
+ngx_http_modsecurity_phase_time(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
     ngx_http_modsecurity_ctx_t *ctx;
+    ngx_msec_int_t phase_time;
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
     if (ctx == NULL) {
         return NGX_ERROR;
     }
-    return ngx_http_modsecurity_time_variable(r, v, data, ctx->req_headers_phase_time);
+
+    if (data == 0) {
+        phase_time = ctx->req_headers_phase_time;
+    } else if (data == 1) {
+        phase_time = ctx->req_body_phase_time;
+    } else if (data == 2) {
+        phase_time = ctx->resp_headers_phase_time;
+    } else if (data == 3) {
+        phase_time = ctx->resp_body_phase_time;
+    } else if (data == 4) {
+        phase_time = ctx->logging_phase_time;
+    }
+
+    return ngx_http_modsecurity_time_variable(r, v, data, ctx->phase_time);
 }
 
 
@@ -1045,7 +1051,7 @@ ngx_http_modsecurity_time_variable(ngx_http_request_t *r,
     if(usec == -1) {
         v->len = ngx_sprintf(p, "-") - p;
     } else  {
-        v->len = ngx_sprintf(p, "%T.%06M", (time_t) usec / 1000000, usec % 1000000) - p;
+        v->len = ngx_sprintf(p, "%T.%06M", (time_t) nsec / 1000000000, nsec % 1000000000) - p;
     }
 
     v->valid = 1;

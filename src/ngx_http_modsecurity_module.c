@@ -34,8 +34,6 @@ static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void 
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
 static ngx_table_elt_t * search_headers(ngx_list_part_t *part, u_char *name, size_t len);
-static ngx_int_t add_headers(AdditionalHeader *iterator, ngx_pool_t *pool, ngx_list_t *headers);
-static void free_headers(AdditionalHeader *iterator);
 
 static ngx_int_t ngx_http_modsecurity_phase_time(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);

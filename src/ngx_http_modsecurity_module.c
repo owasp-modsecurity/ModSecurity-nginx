@@ -157,13 +157,8 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     if (msc_intervention(transaction, &intervention) == 0) {
         dd("nothing to do");
-        add_headers(msc_get_additional_req_headers(transaction), r->pool, &(r->headers_in.headers));
-        add_headers(msc_get_additional_resp_headers(transaction), r->pool, &(r->headers_out.headers));
         return 0;
     }
-
-    add_headers(msc_get_additional_req_headers(transaction), r->pool, &(r->headers_in.headers));
-    add_headers(msc_get_additional_resp_headers(transaction), r->pool, &(r->headers_out.headers));
 
     log = intervention.log;
     if (intervention.log == NULL) {

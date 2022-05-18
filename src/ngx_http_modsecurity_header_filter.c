@@ -531,7 +531,6 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
     ctx->resp_headers_phase_time = ngx_http_modsecurity_compute_processing_time(start_tv);
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-
     if (r->error_page) {
         return ngx_http_next_header_filter(r);
     }

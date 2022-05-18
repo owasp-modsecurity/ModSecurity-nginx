@@ -864,9 +864,9 @@ ngx_http_modsecurity_phase_time(ngx_http_request_t *r,
             return ngx_http_modsecurity_time_variable(r, v, data, ctx->resp_body_phase_time);
         case 4:
             return ngx_http_modsecurity_time_variable(r, v, data, ctx->logging_phase_time);
+        default:
+            return -1;
     }
-
-    return -1;
 }
 
 

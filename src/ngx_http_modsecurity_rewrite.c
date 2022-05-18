@@ -52,7 +52,6 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     {
         int ret = 0;
         struct timespec start_tv;
-
         (void) clock_gettime(CLOCK_MONOTONIC, &start_tv);
 
         ngx_connection_t *connection = r->connection;
@@ -210,7 +209,6 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         dd("Processing intervention with the request headers information filled in");
         ctx->req_headers_phase_time = ngx_http_modsecurity_compute_processing_time(start_tv);
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
-        
         if (r->error_page) {
             return NGX_DECLINED;
             }

@@ -220,5 +220,6 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         }
     }
 
+
     return NGX_DECLINED;
 }

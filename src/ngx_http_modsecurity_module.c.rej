@@ -1,0 +1,144 @@
+--- src/ngx_http_modsecurity_module.c
++++ src/ngx_http_modsecurity_module.c
+@@ -20,6 +20,7 @@
+ 
+ #include "ngx_http_modsecurity_common.h"
+ #include "stdio.h"
++#include "string.h"
+ #include <ngx_config.h>
+ #include <ngx_core.h>
+ #include <ngx_http.h>
+@@ -31,6 +32,9 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
+ static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
+ static void ngx_http_modsecurity_cleanup_instance(void *data);
+ static void ngx_http_modsecurity_cleanup_rules(void *data);
++static ngx_table_elt_t * search_headers(ngx_list_part_t *part, u_char *name, size_t len);
++static ngx_int_t add_headers(AdditionalHeader *iterator, ngx_pool_t *pool, ngx_list_t *headers);
++static void free_headers(AdditionalHeader *iterator);
+ 
+ 
+ /*
+@@ -150,9 +154,14 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
+ 
+     if (msc_intervention(transaction, &intervention) == 0) {
+         dd("nothing to do");
++        add_headers(msc_get_additional_req_headers(transaction), r->pool, &(r->headers_in.headers));
++        add_headers(msc_get_additional_resp_headers(transaction), r->pool, &(r->headers_out.headers));
+         return 0;
+     }
+ 
++    add_headers(msc_get_additional_req_headers(transaction), r->pool, &(r->headers_in.headers));
++    add_headers(msc_get_additional_resp_headers(transaction), r->pool, &(r->headers_out.headers));
++
+     log = intervention.log;
+     if (intervention.log == NULL) {
+         log = "(no log message was specified)";
+@@ -787,5 +796,108 @@ ngx_http_modsecurity_cleanup_rules(void *data)
+     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+ }
+ 
++static ngx_int_t
++add_headers(AdditionalHeader *iterator, ngx_pool_t *pool, ngx_list_t *headers)
++{
++        AdditionalHeader *header_from_modsecurity;
++        header_from_modsecurity = iterator;
++        dd("Debug - ADD HEADER: key - pointer : \"%p\"", header_from_modsecurity);
++        while(header_from_modsecurity != NULL) {
++            ngx_table_elt_t *header = NULL;
++            header = search_headers(&headers->part, (u_char *)header_from_modsecurity->key,  strlen(header_from_modsecurity->key));
++
++            if (header == NULL) {
++                header = ngx_list_push(headers);
++                if (header == NULL) {
++                    free_headers(iterator);
++                    return NGX_ERROR;
++                }
++                header->key.data = ngx_pnalloc(pool, strlen(header_from_modsecurity->key)+1);
++                if (header->key.data == NULL) {
++                    free_headers(iterator);
++                    return NGX_ERROR;
++                }
++                header->key.len = strlen(header_from_modsecurity->key);
++                ngx_cpystrn(header->key.data, (u_char *)header_from_modsecurity->key, header->key.len+1);
++            } else if((strlen(header_from_modsecurity->value) == header->value.len) && (ngx_strcmp(&header->value.data, header_from_modsecurity->value) == 0)) {
++                header_from_modsecurity = header_from_modsecurity->next;
++                continue;
++            }
++
++            dd("Debug - ADD HEADER: key: \"%s\"", header_from_modsecurity->key);
++            dd("Debug - ADD HEADER: value: \"%s\"", header_from_modsecurity->value);
++            header->value.data = ngx_pnalloc(pool, strlen(header_from_modsecurity->value)+1);
++            if (header->value.data == NULL) {
++                free_headers(iterator);
++                return NGX_ERROR;
++            }
++            header->value.len = strlen(header_from_modsecurity->value);
++            ngx_cpystrn(header->value.data, (u_char *)header_from_modsecurity->value, header->value.len+1);
++            header->hash = ngx_hash_key_lc(header->value.data, strlen(header_from_modsecurity->value));
++            header_from_modsecurity = header_from_modsecurity->next;
++        };
++        free_headers(iterator);
++        return NGX_OK;
++}
++
++static void
++free_headers(AdditionalHeader *iterator) {
++       AdditionalHeader* current;
++        while(iterator != NULL) {
++            current = iterator;
++            iterator = current->next;
++            free(current->key);
++            free(current->value);
++            free(current);
++        }
++}
++
++static ngx_table_elt_t *
++search_headers(ngx_list_part_t *part, u_char *name, size_t len) {
++    ngx_table_elt_t            *h;
++    ngx_uint_t                  i;
++
++    /*
++    Get the first part of the list. There is usual only one part.
++    */
++    h = part->elts;
++
++    /*
++    Headers list array may consist of more than one part,
++    so loop through all of it
++    */
++    for (i = 0; /* void */ ; i++) {
++        if (i >= part->nelts) {
++            if (part->next == NULL) {
++                /* The last part, search is done. */
++                break;
++            }
++
++            part = part->next;
++            h = part->elts;
++            i = 0;
++        }
++
++        /*
++        Just compare the lengths and then the names case insensitively.
++        */
++        if (len != h[i].key.len || ngx_strcasecmp(name, h[i].key.data) != 0) {
++            /* This header doesn't match. */
++            continue;
++        }
++
++        /*
++        Ta-da, we got one!
++        Note, we'v stop the search at the first matched header
++        while more then one header may fit.
++        */
++        return &h[i];
++    }
++
++    /*
++    No headers was found
++    */
++    return NULL;
++}
+ 
+ 

@@ -817,110 +817,6 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     return NGX_CONF_OK;
 }
 
-static ngx_int_t
-add_headers(AdditionalHeader *iterator, ngx_pool_t *pool, ngx_list_t *headers)
-{
-        AdditionalHeader *header_from_modsecurity;
-        header_from_modsecurity = iterator;
-        dd("Debug - ADD HEADER: key - pointer : \"%p\"", header_from_modsecurity);
-        while(header_from_modsecurity != NULL) {
-            ngx_table_elt_t *header = NULL;
-            header = search_headers(&headers->part, (u_char *)header_from_modsecurity->key,  strlen(header_from_modsecurity->key));
-
-            if (header == NULL) {
-                header = ngx_list_push(headers);
-                if (header == NULL) {
-                    free_headers(iterator);
-                    return NGX_ERROR;
-                }
-                header->key.data = ngx_pnalloc(pool, strlen(header_from_modsecurity->key)+1);
-                if (header->key.data == NULL) {
-                    free_headers(iterator);
-                    return NGX_ERROR;
-                }
-                header->key.len = strlen(header_from_modsecurity->key);
-                ngx_cpystrn(header->key.data, (u_char *)header_from_modsecurity->key, header->key.len+1);
-            } else if((strlen(header_from_modsecurity->value) == header->value.len) && (ngx_strcmp(&header->value.data, header_from_modsecurity->value) == 0)) {
-                header_from_modsecurity = header_from_modsecurity->next;
-                continue;
-            }
-
-            dd("Debug - ADD HEADER: key: \"%s\"", header_from_modsecurity->key);
-            dd("Debug - ADD HEADER: value: \"%s\"", header_from_modsecurity->value);
-            header->value.data = ngx_pnalloc(pool, strlen(header_from_modsecurity->value)+1);
-            if (header->value.data == NULL) {
-                free_headers(iterator);
-                return NGX_ERROR;
-            }
-            header->value.len = strlen(header_from_modsecurity->value);
-            ngx_cpystrn(header->value.data, (u_char *)header_from_modsecurity->value, header->value.len+1);
-            header->hash = ngx_hash_key_lc(header->value.data, strlen(header_from_modsecurity->value));
-            header_from_modsecurity = header_from_modsecurity->next;
-        };
-        free_headers(iterator);
-        return NGX_OK;
-}
-
-static void
-free_headers(AdditionalHeader *iterator) {
-       AdditionalHeader* current;
-        while(iterator != NULL) {
-            current = iterator;
-            iterator = current->next;
-            free(current->key);
-            free(current->value);
-            free(current);
-        }
-}
-
-static ngx_table_elt_t *
-search_headers(ngx_list_part_t *part, u_char *name, size_t len) {
-    ngx_table_elt_t            *h;
-    ngx_uint_t                  i;
-
-    /*
-    Get the first part of the list. There is usual only one part.
-    */
-    h = part->elts;
-
-    /*
-    Headers list array may consist of more than one part,
-    so loop through all of it
-    */
-    for (i = 0; /* void */ ; i++) {
-        if (i >= part->nelts) {
-            if (part->next == NULL) {
-                /* The last part, search is done. */
-                break;
-            }
-
-            part = part->next;
-            h = part->elts;
-            i = 0;
-        }
-
-        /*
-        Just compare the lengths and then the names case insensitively.
-        */
-        if (len != h[i].key.len || ngx_strcasecmp(name, h[i].key.data) != 0) {
-            /* This header doesn't match. */
-            continue;
-        }
-
-        /*
-        Ta-da, we got one!
-        Note, we'v stop the search at the first matched header
-        while more then one header may fit.
-        */
-        return &h[i];
-    }
-
-    /*
-    No headers was found
-    */
-    return NULL;
-}
-
 static void
 ngx_http_modsecurity_cleanup_instance(void *data)
 {
@@ -935,7 +831,6 @@ ngx_http_modsecurity_cleanup_instance(void *data)
     msc_cleanup(mmcf->modsec);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 }
-
 
 static void
 ngx_http_modsecurity_cleanup_rules(void *data)
@@ -978,62 +873,6 @@ ngx_http_modsecurity_phase_time(ngx_http_request_t *r,
     }
 
     return -1;
-}
-
-
-static ngx_int_t
-ngx_http_modsecurity_req_body_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_http_modsecurity_ctx_t *ctx;
-
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-    if (ctx == NULL) {
-        return NGX_ERROR;
-    }
-    return ngx_http_modsecurity_time_variable(r, v, data, ctx->req_body_phase_time);
-}
-
-
-static ngx_int_t
-ngx_http_modsecurity_resp_headers_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_http_modsecurity_ctx_t *ctx;
-
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-    if (ctx == NULL) {
-        return NGX_ERROR;
-    }
-    return ngx_http_modsecurity_time_variable(r, v, data, ctx->resp_headers_phase_time);
-}
-
-
-static ngx_int_t
-ngx_http_modsecurity_resp_body_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_http_modsecurity_ctx_t *ctx;
-
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-    if (ctx == NULL) {
-        return NGX_ERROR;
-    }
-    return ngx_http_modsecurity_time_variable(r, v, data, ctx->resp_body_phase_time);
-}
-
-
-static ngx_int_t
-ngx_http_modsecurity_logging_phase_time(ngx_http_request_t *r,
-    ngx_http_variable_value_t *v, uintptr_t data)
-{
-    ngx_http_modsecurity_ctx_t *ctx;
-
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-    if (ctx == NULL) {
-        return NGX_ERROR;
-    }
-    return ngx_http_modsecurity_time_variable(r, v, data, ctx->logging_phase_time);
 }
 
 

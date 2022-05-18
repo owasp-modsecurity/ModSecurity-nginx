@@ -93,8 +93,7 @@ ngx_addon_name=ngx_http_modsecurity_module
 #
 # For static compilation HTTP_FILTER_MODULES will be patched later.
 
-modsecurity_dependency="ngx_http_link_func_module \
-                        ngx_http_postpone_filter_module \
+modsecurity_dependency="ngx_http_postpone_filter_module \
                         ngx_http_ssi_filter_module \
                         ngx_http_charset_filter_module \
                         ngx_http_xslt_filter_module \

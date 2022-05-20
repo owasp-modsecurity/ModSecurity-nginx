@@ -71,8 +71,8 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         dd("already logged earlier");
         return NGX_OK;
     }
-    struct timeval start_tv;
-    ngx_gettimeofday(&start_tv);
+    struct timespec start_tv;
+    (void) clock_gettime(CLOCK_MONOTONIC, &start_tv);
 
     dd("calling msc_process_logging for %p", ctx);
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);

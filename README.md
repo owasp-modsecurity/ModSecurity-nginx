@@ -176,6 +176,27 @@ using the same unique identificator.
 
 String can contain variables.
 
+# Format Variables
+ModSecurity-nginx provide times variables for particular phases that you can uses in nginx *log_format*:
+
+    *$modsecurity_req_headers_phase_time*
+        request headers processing time in seconds with a microseconds resolution; time elapsed for processing headers in first phase by ModSecurity
+    *$modsecurity_req_body_phase_time*
+        request body processing time in seconds with a microseconds resolution; time elapsed for processing request body in second phase by ModSecurity
+    *$modsecurity_resp_headers_phase_time*
+        resposnse headers processing time in seconds with a microseconds resolution; time elapsed for processing response headers in third phase by ModSecurity
+    *$modsecurity_resp_body_phase_time*
+        response body processing time in seconds with a microseconds resolution; time elapsed for processing response body in fourth phase by ModSecurity
+    *$modsecurity_logging_phase_time*
+        logging processing time in seconds with a microseconds resolution; time elapsed for processing logging in fifth phase by ModSecurity
+
+The following example show how to configure custom *log_format* with variables above and use them with custom *access.log*:
+
+```nginx
+    log_format format_modsecurity 'modsecurity_req_headers_phase_time: $modsecurity_req_headers_phase_time, modsecurity_req_body_phase_time: $modsecurity_req_body_phase_time, modsecurity_resp_headers_phase_time: $modsecurity_resp_headers_phase_time, modsecurity_resp_body_phase_time: $modsecurity_resp_body_phase_time, modsecurity_logging_phase_time: $modsecurity_logging_phase_time';
+
+    access_log /usr/local/nginx/logs/modsecurity.log format_modsecurity;
+```
 
 # Contributing
 

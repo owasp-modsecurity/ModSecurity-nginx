@@ -138,64 +138,67 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     if (ctx->waiting_more_body == 0)
     {
         int ret = 0;
-        int already_inspected = 0;
-
-        dd("request body is ready to be processed");
-
-        r->write_event_handler = ngx_http_core_run_phases;
-
-        ngx_chain_t *chain = r->request_body->bufs;
-
-        /**
-         * TODO: Speed up the analysis by sending chunk while they arrive.
-         *
-         * Notice that we are waiting for the full request body to
-         * start to process it, it may not be necessary. We may send
-         * the chunks to ModSecurity while nginx keep calling this
-         * function.
-         */
-
-        if (r->request_body->temp_file != NULL) {
-            ngx_str_t file_path = r->request_body->temp_file->file.name;
-            const char *file_name = ngx_str_to_char(file_path, r->pool);
-            if (file_name == (char*)-1) {
-                return NGX_HTTP_INTERNAL_SERVER_ERROR;
-            }
-            /*
-             * Request body was saved to a file, probably we don't have a
-             * copy of it in memory.
-             */
-            dd("request body inspection: file -- %s", file_name);
-
-            msc_request_body_from_file(ctx->modsec_transaction, file_name);
-
-            already_inspected = 1;
-        } else {
-            dd("inspection request body in memory.");
-        }
-
-        while (chain && !already_inspected)
+        if (r->request_body != NULL)
         {
-            u_char *data = chain->buf->pos;
+            int already_inspected = 0;
 
-            msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->last - data);
+            dd("request body is ready to be processed");
 
-            if (chain->buf->last_buf) {
-                break;
+            r->write_event_handler = ngx_http_core_run_phases;
+
+            ngx_chain_t *chain = r->request_body->bufs;
+
+            /**
+             * TODO: Speed up the analysis by sending chunk while they arrive.
+             *
+             * Notice that we are waiting for the full request body to
+             * start to process it, it may not be necessary. We may send
+             * the chunks to ModSecurity while nginx keep calling this
+             * function.
+             */
+
+            if (r->request_body->temp_file != NULL) {
+                ngx_str_t file_path = r->request_body->temp_file->file.name;
+                const char *file_name = ngx_str_to_char(file_path, r->pool);
+                if (file_name == (char*)-1) {
+                    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+                }
+                /*
+                 * Request body was saved to a file, probably we don't have a
+                 * copy of it in memory.
+                 */
+                dd("request body inspection: file -- %s", file_name);
+
+                msc_request_body_from_file(ctx->modsec_transaction, file_name);
+
+                already_inspected = 1;
+            } else {
+                dd("inspection request body in memory.");
             }
-            chain = chain->next;
+
+            while (chain && !already_inspected)
+            {
+                u_char *data = chain->buf->pos;
+
+                msc_append_request_body(ctx->modsec_transaction, data,
+                    chain->buf->last - data);
+
+                if (chain->buf->last_buf) {
+                    break;
+                }
+                chain = chain->next;
 
 /* XXX: chains are processed one-by-one, maybe worth to pass all chains and then call intervention() ? */
 
-            /**
-             * ModSecurity may perform stream inspection on this buffer,
-             * it may ask for a intervention in consequence of that.
-             *
-             */
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-            if (ret > 0) {
-                return ret;
+                /**
+                 * ModSecurity may perform stream inspection on this buffer,
+                 * it may ask for a intervention in consequence of that.
+                 *
+                 */
+                ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
+                if (ret > 0) {
+                    return ret;
+                }
             }
         }
 

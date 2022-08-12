@@ -29,7 +29,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1) {
-        dd("ModSecurity not enabled... returning");
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ModSecurity not enabled... returning");
         return NGX_DECLINED;
     }
 
@@ -42,11 +42,11 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     }
     */
 
-    dd("catching a new _rewrite_ phase handler");
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "catching a new _rewrite_ phase handler");
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
-    dd("recovering ctx: %p", ctx);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "recovering ctx: %p", ctx);
 
     if (ctx == NULL)
     {
@@ -61,10 +61,10 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 
         ctx = ngx_http_modsecurity_create_ctx(r);
 
-        dd("ctx was NULL, creating new context: %p", ctx);
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ctx was NULL, creating new context: %p", ctx);
 
         if (ctx == NULL) {
-            dd("ctx still null; Nothing we can do, returning an error.");
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ctx still null; Nothing we can do, returning an error.");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
@@ -103,7 +103,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             server_addr, server_port);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
         if (ret != 1){
-            dd("Was not able to extract connection information.");
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "Was not able to extract connection information.");
         }
         /**
          *
@@ -114,7 +114,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * and try to use it later.
          *
          */
-        dd("Processing intervention with the connection information filled in");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
         if (ret > 0) {
             ctx->intervention_triggered = 1;
@@ -156,14 +156,14 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (n_uri == NULL) {
-            dd("uri is of length zero");
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "uri is of length zero");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
-        dd("Processing intervention with the transaction information filled in (uri, method and version)");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
         if (ret > 0) {
             ctx->intervention_triggered = 1;
@@ -196,7 +196,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
              *
              */
 
-            dd("Adding request header: %.*s with value %.*s", (int)data[i].key.len, data[i].key.data, (int) data[i].value.len, data[i].value.data);
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "Adding request header: %.*s with value %.*s", (int)data[i].key.len, data[i].key.data, (int)data[i].value.len, data[i].value.data);
             msc_add_n_request_header(ctx->modsec_transaction,
                 (const unsigned char *) data[i].key.data,
                 data[i].key.len,
@@ -212,7 +212,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_request_headers(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
-        dd("Processing intervention with the request headers information filled in");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
         if (r->error_page) {
             return NGX_DECLINED;

@@ -48,12 +48,12 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t   *ctx;
     ngx_http_modsecurity_conf_t  *mcf;
 
-    dd("catching a new _preaccess_ phase handler");
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "catching a new _preaccess_ phase handler");
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1)
     {
-        dd("ModSecurity not enabled... returning");
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ModSecurity not enabled... returning");
         return NGX_DECLINED;
     }
     /*
@@ -70,11 +70,11 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
-    dd("recovering ctx: %p", ctx);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "recovering ctx: %p", ctx);
 
     if (ctx == NULL)
     {
-        dd("ctx is null; Nothing we can do, returning an error.");
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ctx is null; Nothing we can do, returning an error.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
@@ -84,8 +84,8 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
     if (ctx->waiting_more_body == 1)
     {
-        dd("waiting for more data before proceed. / count: %d",
-            r->main->count);
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "waiting for more data before proceed. / count: %d",
+                      r->main->count);
 
         return NGX_DONE;
     }
@@ -96,8 +96,8 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
         ctx->body_requested = 1;
 
-        dd("asking for the request body, if any. Count: %d",
-            r->main->count);
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "asking for the request body, if any. Count: %d",
+                      r->main->count);
         /**
          * TODO: Check if there is any benefit to use request_body_in_single_buf set to 1.
          *
@@ -128,7 +128,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         }
         if (rc == NGX_AGAIN)
         {
-            dd("nginx is asking us to wait for more data.");
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nginx is asking us to wait for more data.");
 
             ctx->waiting_more_body = 1;
             return NGX_DONE;
@@ -140,7 +140,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         int ret = 0;
         int already_inspected = 0;
 
-        dd("request body is ready to be processed");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "request body is ready to be processed");
 
         r->write_event_handler = ngx_http_core_run_phases;
 
@@ -165,13 +165,13 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
              * Request body was saved to a file, probably we don't have a
              * copy of it in memory.
              */
-            dd("request body inspection: file -- %s", file_name);
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "request body inspection: file -- %s", file_name);
 
             msc_request_body_from_file(ctx->modsec_transaction, file_name);
 
             already_inspected = 1;
         } else {
-            dd("inspection request body in memory.");
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "inspection request body in memory.");
         }
 
         while (chain && !already_inspected)
@@ -221,7 +221,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         }
     }
 
-    dd("Nothing to add on the body inspection, reclaiming a NGX_DECLINED");
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "Nothing to add on the body inspection, reclaiming a NGX_DECLINED");
 #endif
     return NGX_DECLINED;
 }

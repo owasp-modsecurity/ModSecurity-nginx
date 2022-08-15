@@ -426,7 +426,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
     if (ctx == NULL)
     {
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "something really bad happened or ModSecurity is disabled. going to the next filter.");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "something really bad happened or ModSecurity is disabled. going to the next filter.");
         return ngx_http_next_header_filter(r);
     }
 

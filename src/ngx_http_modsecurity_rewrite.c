@@ -303,7 +303,7 @@ ngx_int_t ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1)
     {
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "ModSecurity not enabled... returning");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ModSecurity not enabled... returning");
         return NGX_DECLINED;
     }
 

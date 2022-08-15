@@ -241,7 +241,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1)
     {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "ModSecurity not enabled... returning");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ModSecurity not enabled... returning");
         return NGX_DECLINED;
     }
 
@@ -261,7 +261,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
     if (m_ctx->waiting_more_body == 1)
     {
-        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "waiting for more data before proceed. / count: %d",
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "waiting for more data before proceed. / count: %d",
                       r->main->count);
 
         return NGX_DONE;
@@ -308,7 +308,7 @@ ngx_int_t ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         }
         if (rc == NGX_AGAIN)
         {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "nginx is asking us to wait for more data.");
+            ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "nginx is asking us to wait for more data.");
 
             m_ctx->waiting_more_body = 1;
             return NGX_DONE;

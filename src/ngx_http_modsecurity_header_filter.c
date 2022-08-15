@@ -415,18 +415,18 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     int ret = 0;
     ngx_uint_t status;
     char *http_response_ver;
-    ngx_pool_t *old_pool;
+    // ngx_pool_t *old_pool;
 
 
 /* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
-    dd("header filter, recovering ctx: %p", ctx);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "header filter, recovering ctx: %p", ctx);
 
     if (ctx == NULL)
     {
-        dd("something really bad happened or ModSecurity is disabled. going to the next filter.");
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "something really bad happened or ModSecurity is disabled. going to the next filter.");
         return ngx_http_next_header_filter(r);
     }
 
@@ -442,7 +442,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         /*
          * FIXME: verify if this request is already processed.
          */
-        dd("Already processed... going to the next header...");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "Already processed... going to the next header...");
         return ngx_http_next_header_filter(r);
     }
 
@@ -469,13 +469,13 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      */
     for (i = 0; ngx_http_modsecurity_headers_out[i].name.len; i++)
     {
-        dd(" Sending header to ModSecurity - header: `%.*s'.",
-            (int) ngx_http_modsecurity_headers_out[i].name.len,
-            ngx_http_modsecurity_headers_out[i].name.data);
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, " Sending header to ModSecurity - header: `%.*s'.",
+                      (int)ngx_http_modsecurity_headers_out[i].name.len,
+                      ngx_http_modsecurity_headers_out[i].name.data);
 
-                ngx_http_modsecurity_headers_out[i].resolver(r,
-                    ngx_http_modsecurity_headers_out[i].name,
-                    ngx_http_modsecurity_headers_out[i].offset);
+        ngx_http_modsecurity_headers_out[i].resolver(r,
+                                                     ngx_http_modsecurity_headers_out[i].name,
+                                                     ngx_http_modsecurity_headers_out[i].offset);
     }
 
     for (i = 0 ;; i++)
@@ -523,9 +523,9 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 #endif
 
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+    // old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_response_headers(ctx->modsec_transaction, status, http_response_ver);
-    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+    // ngx_http_modsecurity_pcre_malloc_done(old_pool);
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
     if (r->error_page) {
         return ngx_http_next_header_filter(r);

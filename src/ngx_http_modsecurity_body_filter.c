@@ -50,7 +50,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
-    dd("body filter, recovering ctx: %p", ctx);
+    ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "body filter, recovering ctx: %p", ctx);
 
     if (ctx == NULL) {
         return ngx_http_next_body_filter(r, in);
@@ -155,11 +155,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         is_request_processed = chain->buf->last_buf;
 
         if (is_request_processed) {
-            ngx_pool_t *old_pool;
+            // ngx_pool_t *old_pool;
 
-            old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+            // old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
             msc_process_response_body(ctx->modsec_transaction);
-            ngx_http_modsecurity_pcre_malloc_done(old_pool);
+            // ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
 /* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
    XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
@@ -176,7 +176,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
     if (!is_request_processed)
     {
-        dd("buffer was not fully loaded! ctx: %p", ctx);
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "buffer was not fully loaded! ctx: %p", ctx);
     }
 
 /* XXX: xflt_filter() -- return NGX_OK here */

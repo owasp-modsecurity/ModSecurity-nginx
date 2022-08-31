@@ -44,7 +44,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 
     dd("catching a new _rewrite_ phase handler");
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    ctx = ngx_http_modsecurity_get_module_ctx(r);
 
     dd("recovering ctx: %p", ctx);
 

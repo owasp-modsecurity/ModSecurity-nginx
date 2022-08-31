@@ -72,6 +72,11 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
+    if (!ctx->modsec_transaction) {
+        // it's already clean and logged in 101
+        return NGX_OK;
+    }
+
     dd("calling msc_process_logging for %p", ctx);
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_logging(ctx->modsec_transaction);

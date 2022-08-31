@@ -188,7 +188,6 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         dd("it's switching protocols, clean transaction for %p", ctx);
         // I don't think there are any response body
         ngx_http_modsecurity_log_handler(r);
-        ctx->logged = 1;
 
         ngx_http_modsecurity_cleanup(ctx);
     }

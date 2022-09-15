@@ -633,6 +633,7 @@ static ngx_int_t ngx_http_modsecurity_init_process(ngx_cycle_t *cycle) {
     ngx_log_t *log = cycle->log;
     ngx_uint_t log_level = log->log_level;
     log->log_level = NGX_LOG_NOTICE;
+    ngx_pool_t *old_pool = ngx_http_modsecurity_pcre_malloc_init(mmcf->pool);
     for (cleanup = cycle->pool->cleanup; cleanup; cleanup = cleanup->next) {
         if (cleanup->handler == ngx_http_modsecurity_cleanup_rules) {
             ngx_http_modsecurity_conf_t *mcf = cleanup->data;
@@ -648,6 +649,7 @@ static ngx_int_t ngx_http_modsecurity_init_process(ngx_cycle_t *cycle) {
             }
         }
     }
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
     log->log_level = log_level;
     return NGX_OK;
 }

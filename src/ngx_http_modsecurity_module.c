@@ -106,6 +106,57 @@ ngx_http_modsecurity_pcre_malloc_done(ngx_pool_t *old_pool)
 }
 #endif
 
+ngx_int_t
+ngx_http_modsecurity_is_enabled(ngx_http_request_t *r)
+{
+    ngx_http_modsecurity_conf_t  *mcf;
+
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    if (mcf == NULL)
+    {
+      dd("Cannot get ModSecurity module structure. Assuming ModSecurity is disabled.");
+      return NGX_DECLINED;
+    }
+
+    if (mcf->enable == NULL)
+    {
+        dd("modsec enable ptr is null");
+        return NGX_DECLINED;
+    }
+
+    ngx_str_t value;
+    if (ngx_http_complex_value(r, mcf->enable, &value) != NGX_OK)
+    {
+        dd("unable to get complex modsec enabled value");
+        return NGX_ERROR;
+    }
+
+    ngx_str_t str_on = ngx_string("on");
+    ngx_str_t str_off = ngx_string("off");
+
+    if (value.len == str_on.len && ngx_strncasecmp(str_on.data, value.data, value.len) == 0)
+    {
+        dd("modsec is enabled");
+        return NGX_OK;
+    }
+
+    if (value.len == str_off.len && ngx_strncasecmp(str_off.data, value.data, value.len) == 0)
+    {
+        dd("modsec is disabled");
+        return NGX_DECLINED;
+    }
+
+    dd("unrecognized value for `modsecurity` directive: '%.*s'", (int) value.len, value.data);
+    ngx_log_error(
+        NGX_LOG_ERR,
+        r->connection->log,
+        0,
+        "unrecognized value for `modsecurity` directive: '%.*s'",
+        (int) value.len, value.data
+    );
+    return NGX_ERROR;
+}
+
 /*
  * ngx_string's are not null-terminated in common case, so we need to convert
  * them into null-terminated ones before passing to ModSecurity
@@ -450,7 +501,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
-    ngx_conf_set_flag_slot,
+    ngx_http_set_complex_value_slot,
     NGX_HTTP_LOC_CONF_OFFSET,
     offsetof(ngx_http_modsecurity_conf_t, enable),
     NULL
@@ -684,14 +735,14 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     /*
      * set by ngx_pcalloc():
      *
-     *     conf->enable = 0;
+     *     conf->enable = NULL;
      *     conf->sanity_checks_enabled = 0;
      *     conf->rules_set = NULL;
      *     conf->pool = NULL;
      *     conf->transaction_id = NULL;
      */
 
-    conf->enable = NGX_CONF_UNSET;
+    conf->enable = NULL;
     conf->rules_set = msc_create_rules_set();
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
@@ -729,10 +780,13 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
         ngx_str_to_char(clcf->name, cf->pool), parent,
         child);
 
-    dd("                  state - parent: '%d' child: '%d'",
-        (int) c->enable, (int) p->enable);
+    dd("                  state - parent: '%p' child: '%p'",
+        p->enable, c->enable);
 
-    ngx_conf_merge_value(c->enable, p->enable, 0);
+    if (c->enable == NULL)
+    {
+        c->enable = p->enable;
+    }
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);

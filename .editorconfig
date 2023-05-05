@@ -1,3 +1,6 @@
+# top-most EditorConfig file
+root = true
+
 [*]
 end_of_line = lf
 indent_style = space

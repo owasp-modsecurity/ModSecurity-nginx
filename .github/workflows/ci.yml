@@ -1,7 +1,5 @@
 name: Quality Assurance
 
-language: c
-
 on:
   push:
   pull_request:

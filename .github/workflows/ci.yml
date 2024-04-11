@@ -44,7 +44,7 @@ jobs:
       - name: Build nginx
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx
           make
           sudo make install
           /usr/local/nginx/sbin/nginx -V

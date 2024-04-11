@@ -10,8 +10,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04]
-        platform: [x64]
-        compiler: [gcc]
+        platform: [x32, x64]
+        compiler: [gcc, clang]
     steps:
       - name: Setup Dependencies
         run: |

@@ -1,0 +1,52 @@
+name: Quality Assurance
+
+language: c
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-linux:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+        platform: [x64]
+        compiler: [gcc]
+    steps:
+      - name: Setup Dependencies
+        run: |
+          sudo apt-get update -y -qq
+          sudo apt-get install -y gcc g++ make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libpcre2-dev libpcre2-8-0 libpcre2-16-0 libpcre2-32-0 libcurl4-gnutls-dev jq wget
+      - name: Install ModSecurity library
+        run: |
+          modsec=`curl -s https://api.github.com/repos/owasp-modsecurity/ModSecurity/releases/latest | jq .assets[0].browser_download_url | tr -d "\""`
+          modsecver=`curl -s https://api.github.com/repos/owasp-modsecurity/ModSecurity/releases/latest | jq .name | tr -d "\""`
+          wget $modsec -O modsecurity.tar.gz
+          tar -xzf modsecurity.tar.gz
+          cd modsecurity-$modsecver
+          ./configure --disable-lmdb --prefix=/usr
+          make -j `nproc`
+          sudo make install
+          cd
+      - uses: actions/checkout@v2
+        with:
+          path: ModSecurity-nginx
+      - name: Get Nginx source
+        uses: actions/checkout@v3
+        with:
+          repository: nginx/nginx
+          path: nginx
+      - name: Get ngx_devel_kit
+        uses: actions/checkout@v3
+        with:
+          repository: vision5/ngx_devel_kit
+          path: ngx_devel_kit
+      - name: Build nginx
+        working-directory: nginx
+        run: |
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx
+          make
+          sudo make install
+          /usr/local/nginx/sbin/nginx -V

@@ -43,7 +43,8 @@ jobs:
           make
           make modules
           sudo make install
-          /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx.conf
+      - name: Start Nginx
+          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx.conf
       - name: Run attack test vhost 1
         run: |
           resp=`curl -I -X GET -H "Host: modsectest1" http://localhost/?q=attack | head -1 | cut -d$' ' -f2`

@@ -44,6 +44,7 @@ jobs:
           make modules
           sudo make install
       - name: Start Nginx
+        run: |
           sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx.conf
       - name: Run attack test vhost 1
         run: |

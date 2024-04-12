@@ -18,10 +18,11 @@ jobs:
           sudo apt-get update -y -qq
           sudo apt-get install -y gcc g++ make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libpcre2-dev libpcre2-8-0 libpcre2-16-0 libpcre2-32-0 libcurl4-gnutls-dev jq wget
       - name: Install ModSecurity library
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          modsec=`curl -s https://api.github.com/repos/owasp-modsecurity/ModSecurity/releases/latest | jq .assets[0].browser_download_url | tr -d "\""`
-          modsecver=`curl -s https://api.github.com/repos/owasp-modsecurity/ModSecurity/releases/latest | jq .name | tr -d "\""`
-          wget $modsec -O modsecurity.tar.gz
+          modsecver=`gh release view -R owasp-modsecurity/ModSecurity -q .tagName --json tagName`
+          gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity $modsecver -O - | tar -xzf -
           tar -xzf modsecurity.tar.gz
           cd modsecurity-$modsecver
           ./configure --disable-lmdb --prefix=/usr

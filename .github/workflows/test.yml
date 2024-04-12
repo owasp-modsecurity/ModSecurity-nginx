@@ -38,7 +38,7 @@ jobs:
           repository: nginx/nginx
           path: nginx
           fetch-depth: 1
-      - name: Build nginx
+      - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
           ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx

@@ -23,7 +23,6 @@ jobs:
         run: |
           modsecver=`gh release view -R owasp-modsecurity/ModSecurity -q .tagName --json tagName`
           gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity $modsecver -O - | tar -xzf -
-          tar -xzf modsecurity.tar.gz
           cd modsecurity-$modsecver
           ./configure --disable-lmdb --prefix=/usr
           make -j `nproc`

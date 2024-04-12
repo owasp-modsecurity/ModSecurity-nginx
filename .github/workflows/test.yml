@@ -30,12 +30,14 @@ jobs:
           cd
       - uses: actions/checkout@v2
         with:
+          path: ModSecurity-nginx
           fetch-depth: 1
       - name: Get Nginx source
         uses: actions/checkout@v3
         with:
           repository: nginx/nginx
           path: nginx
+          fetch-depth: 1
       - name: Build nginx
         working-directory: nginx
         run: |

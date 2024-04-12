@@ -50,18 +50,38 @@ jobs:
           sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
       - name: Run attack test vhost 1
         run: |
-          resp=`curl -I -X GET -H "Host: modsectest1" http://localhost/?q=attack | head -1 | cut -d$' ' -f2`
-          if [ $resp == "403" ]; then echo "OK"; else echo "FAIL"; exit 1; fi
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
       - name: Run non-attack test vhost 1
         run: |
-          resp=`curl -I -X GET -H "Host: modsectest1" http://localhost/?q=1 | head -1 | cut -d$' ' -f2`
-          if [ $resp == "200" ]; then echo "OK"; else echo "FAIL"; exit 1; fi
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
       - name: Run attack test vhost 2
         run: |
-          resp=`curl -I -X GET -H "Host: modsectest2" http://localhost/?q=attack | head -1 | cut -d$' ' -f2`
-          if [ $resp == "403" ]; then echo "OK"; else echo "FAIL"; exit 1; fi
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
       - name: Run non-attack test vhost 2
         run: |
-          resp=`curl -I -X GET -H "Host: modsectest2" http://localhost/?q=1 | head -1 | cut -d$' ' -f2`
-          if [ $resp == "200" ]; then echo "OK"; else echo "FAIL"; exit 1; fi
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
 

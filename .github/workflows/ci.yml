@@ -25,7 +25,7 @@ jobs:
           gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity $modsecver -O - | tar -xzf -
           cd modsecurity-$modsecver
           ./configure --disable-lmdb --prefix=/usr
-          make -j `nproc`
+          make -j $(nproc)
           sudo make install
           cd
       - uses: actions/checkout@v2

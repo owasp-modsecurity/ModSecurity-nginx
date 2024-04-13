@@ -21,9 +21,8 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          modsecver=`gh release view -R owasp-modsecurity/ModSecurity -q .tagName --json tagName`
-          gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity $modsecver -O - | tar -xzf -
-          cd modsecurity-$modsecver
+          gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity -O - | tar -xzf -
+          cd modsecurity-*
           ./configure --disable-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install

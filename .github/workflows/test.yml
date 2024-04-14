@@ -21,6 +21,7 @@ jobs:
             sudo dpkg --add-architecture i386
             sudo apt-get install -y gcc-multilib
             export CFLAGS="-m32"
+            export CXXFLAGS="-m32"
             export LDFLAGS="-m32"
           fi
           if [ "${{ matrix.compiler }}" == "gcc" ]; then

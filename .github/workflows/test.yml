@@ -17,13 +17,13 @@ jobs:
         run: |
           sudo apt-get update -y -qq
           sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libpcre2-dev libpcre2-8-0 libpcre2-16-0 libpcre2-32-0 libcurl4-gnutls-dev
-          if [ ${{ matrix.platform }} == 'x32' ]; then
+          if [ "${{ matrix.platform }}" == "x32" ]; then
             sudo dpkg --add-architecture i386
             sudo apt-get install -y gcc-multilib
             export CFLAGS="-m32"
             export LDFLAGS="-m32"
           fi
-          if [ ${{ matrix.compiler }} == 'gcc' ]; then
+          if [ "${{ matrix.compiler }}" == "gcc" ]; then
             sudo apt-get install -y gcc
             export CC=$(which gcc)
           else

@@ -17,7 +17,7 @@ jobs:
         CXXFLAGS: "-m${{ matrix.platform }}"
         LDFLAGS: "-m${{ matrix.platform }}"
         CC: "/usr/bin/${{ matrix.platform }}"
-        C++: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
+        CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
     steps:
       - name: Setup Dependencies
         run: |
@@ -30,7 +30,7 @@ jobs:
         run: |
           gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity -O - | tar -xzf -
           cd modsecurity-*
-          ./configure --disable-lmdb --prefix=/usr
+          ./configure --without-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install
           cd

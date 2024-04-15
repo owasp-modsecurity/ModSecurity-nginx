@@ -104,7 +104,8 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake make libyajl-dev:i386 libxml2-dev:i386 libmaxminddb-dev:i386 libcurl4-gnutls-dev:i386 gcc clang gcc-multilib g++-multilib g++-11-multilib
+          sudo apt-get install -y make autoconf automake make gcc clang gcc-multilib g++-multilib g++-11-multilib
+          sudo apt-get install -y libyajl-dev:i386 libxml2-dev:i386 libmaxminddb-dev:i386 libcurl4-gnutls-dev:i386
       - name: Install ModSecurity library
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

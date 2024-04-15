@@ -16,7 +16,7 @@ jobs:
         CFLAGS: "-m${{ matrix.platform }}"
         CXXFLAGS: "-m${{ matrix.platform }}"
         LDFLAGS: "-m${{ matrix.platform }}"
-        CC: "/usr/bin/${{ matrix.platform }}"
+        CC: "/usr/bin/${{ matrix.compiler }}"
         CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
     steps:
       - name: Setup Dependencies

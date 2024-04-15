@@ -10,12 +10,8 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04]
-        platform: [x32, x64]
         compiler: [gcc, clang]
     env:
-        CFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
-        CXXFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
-        LDFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
         CC: "/usr/bin/${{ matrix.compiler }}"
         CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
     steps:
@@ -23,8 +19,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev:amd64 gcc clang gcc-multilib g++-multilib g++-11-multilib
-          sudo apt-get install -y libyajl-dev:i386 libxml2-dev:i386 libmaxminddb-dev:i386 libcurl4-gnutls-dev:i386
+          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev gcc clang
       - name: Install ModSecurity library
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -92,3 +87,87 @@ jobs:
             exit 1
           fi
 
+  build-linux-x32:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+        compiler: [gcc, clang]
+    env:
+        CFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
+        CXXFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
+        LDFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
+        CC: "/usr/bin/${{ matrix.compiler }}"
+        CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
+    steps:
+      - name: Setup Dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -y -qq
+          sudo apt-get install -y make autoconf automake make libyajl-dev:i386 libxml2-dev:i386 libmaxminddb-dev:i386 libcurl4-gnutls-dev:i386 gcc clang gcc-multilib g++-multilib g++-11-multilib
+      - name: Install ModSecurity library
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity -O - | tar -xzf -
+          cd modsecurity-*
+          ./configure --without-lmdb --prefix=/usr
+          make -j $(nproc)
+          sudo make install
+          cd
+      - uses: actions/checkout@v4
+        with:
+          path: ModSecurity-nginx
+          fetch-depth: 1
+      - name: Get Nginx source
+        uses: actions/checkout@v4
+        with:
+          repository: nginx/nginx
+          path: nginx
+          fetch-depth: 1
+      - name: Build nginx with ModSecurity-nginx module
+        working-directory: nginx
+        run: |
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx
+          make
+          make modules
+          sudo make install
+      - name: Start Nginx
+        run: |
+          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
+      - name: Run attack test vhost 1
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run non-attack test vhost 1
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run attack test vhost 2
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run non-attack test vhost 2
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi

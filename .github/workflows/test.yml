@@ -10,11 +10,20 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04]
+        platform: [x32, x64]
+        compiler: [gcc, clang]
+    env:
+        CFLAGS: "-m${{ matrix.platform }}"
+        CXXFLAGS: "-m${{ matrix.platform }}"
+        LDFLAGS: "-m${{ matrix.platform }}"
+        CC: "/usr/bin/${{ matrix.platform }}"
+        C++: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
     steps:
       - name: Setup Dependencies
         run: |
+          sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libpcre2-dev libpcre2-8-0 libpcre2-16-0 libpcre2-32-0 libcurl4-gnutls-dev
+          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libpcre2-dev libpcre2-8-0 libpcre2-16-0 libpcre2-32-0 libcurl4-gnutls-dev gcc clang gcc-multilib
       - name: Install ModSecurity library
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

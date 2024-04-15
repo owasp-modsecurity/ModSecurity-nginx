@@ -13,9 +13,9 @@ jobs:
         platform: [x32, x64]
         compiler: [gcc, clang]
     env:
-        CFLAGS: "-m${{ matrix.platform }}"
-        CXXFLAGS: "-m${{ matrix.platform }}"
-        LDFLAGS: "-m${{ matrix.platform }}"
+        CFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
+        CXXFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
+        LDFLAGS: "${{ matrix.platform == 'x32' && '-m32' || '-m64' }}"
         CC: "/usr/bin/${{ matrix.compiler }}"
         CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
     steps:

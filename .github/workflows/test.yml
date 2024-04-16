@@ -1,0 +1,89 @@
+name: Quality Assurance
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-linux:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-22.04]
+        compiler: [gcc, clang]
+    env:
+        CC: "/usr/bin/${{ matrix.compiler }}"
+        CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
+        COMPDEPS: "${{ matrix.compiler == 'gcc' && 'gcc g++' || 'clang' }}"
+    steps:
+      - name: Setup Dependencies
+        run: |
+          sudo dpkg --add-architecture i386
+          sudo apt-get update -y -qq
+          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
+      - name: Install ModSecurity library
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity -O - | tar -xzf -
+          cd modsecurity-*
+          ./configure --without-lmdb --prefix=/usr
+          make -j $(nproc)
+          sudo make install
+          cd
+      - uses: actions/checkout@v4
+        with:
+          path: ModSecurity-nginx
+          fetch-depth: 1
+      - name: Get Nginx source
+        uses: actions/checkout@v4
+        with:
+          repository: nginx/nginx
+          path: nginx
+          fetch-depth: 1
+      - name: Build nginx with ModSecurity-nginx module
+        working-directory: nginx
+        run: |
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx
+          make
+          make modules
+          sudo make install
+      - name: Start Nginx
+        run: |
+          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
+      - name: Run attack test vhost 1
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run non-attack test vhost 1
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run attack test vhost 2
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run non-attack test vhost 2
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi

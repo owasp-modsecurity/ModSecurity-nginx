@@ -20,7 +20,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev ${{ COMPDEPS }}
+          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
       - name: Install ModSecurity library
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

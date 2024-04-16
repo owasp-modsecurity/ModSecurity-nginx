@@ -8,9 +8,9 @@ on:
 permissions: {}
 
 jobs:
-  permissions:
-    contents: read
   build-linux:
+    permissions:
+      contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:

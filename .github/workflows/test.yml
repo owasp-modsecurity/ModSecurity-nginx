@@ -4,7 +4,12 @@ on:
   push:
   pull_request:
 
+  # Default: none
+  permissions: {}
+
 jobs:
+  permissions:
+    contents: read
   build-linux:
     runs-on: ${{ matrix.os }}
     strategy:
@@ -13,7 +18,7 @@ jobs:
         compiler: [gcc, clang]
     env:
         CC: "/usr/bin/${{ matrix.compiler }}"
-        CXX: "${{ matrix.compiler == 'gcc' && '/usr/bin/g++' || '/usr/bin/clang++' }}"
+        CXX: "/usr/bin/${{ matrix.compiler == 'gcc' && 'g' || 'clang' }}++"
         COMPDEPS: "${{ matrix.compiler == 'gcc' && 'gcc g++' || 'clang' }}"
     steps:
       - name: Setup Dependencies
@@ -30,7 +35,6 @@ jobs:
           ./configure --without-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install
-          cd
       - uses: actions/checkout@v4
         with:
           path: ModSecurity-nginx
@@ -44,13 +48,13 @@ jobs:
       - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=/home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx
           make
           make modules
           sudo make install
       - name: Start Nginx
         run: |
-          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
+          sudo /usr/local/nginx/sbin/nginx -c ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
       - name: Run attack test vhost 1
         run: |
           status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")

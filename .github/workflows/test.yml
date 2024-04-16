@@ -53,9 +53,8 @@ jobs:
           make modules
           sudo make install
       - name: Start Nginx
-        working-directory: ModSecurity-nginx
         run: |
-          sudo /usr/local/nginx/sbin/nginx -c .github/nginx/nginx.conf
+          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
       - name: Run attack test vhost 1
         run: |
           status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")

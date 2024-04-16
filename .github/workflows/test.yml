@@ -5,7 +5,7 @@ on:
   pull_request:
 
   # Default: none
-  permissions: {}
+permissions: {}
 
 jobs:
   permissions:

@@ -661,6 +661,9 @@ ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
                   "%s (rules loaded inline/local/remote: %ui/%ui/%ui)",
                   MODSECURITY_NGINX_WHOAMI, mmcf->rules_inline,
                   mmcf->rules_file, mmcf->rules_remote);
+    ngx_log_error(NGX_LOG_NOTICE, cf->log, 0,
+                  "libmodsecurity3 version %s.%s.%s",
+                  MODSECURITY_MAJOR, MODSECURITY_MINOR, MODSECURITY_PATCHLEVEL);
 
     return NGX_CONF_OK;
 }

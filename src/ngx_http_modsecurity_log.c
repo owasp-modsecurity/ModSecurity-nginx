@@ -41,13 +41,13 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t   *ctx;
     ngx_http_modsecurity_conf_t  *mcf;
 
-    dd("catching a new _log_ phase handler");
+    ngx_log_error(NGX_LOG_DEBUG_HTTP, r->connection->log, 0, "catching a new _log_ phase handler");
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1)
     {
-        dd("ModSecurity not enabled... returning");
-        return NGX_OK;
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "ModSecurity not enabled... returning");
+        return NGX_DECLINED;
     }
 
     /*
@@ -63,13 +63,13 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     dd("recovering ctx: %p", ctx);
 
     if (ctx == NULL) {
-        dd("something really bad happened here. returning NGX_ERROR");
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "something really bad happened here. returning NGX_ERROR");
         return NGX_ERROR;
     }
 
     if (ctx->logged) {
-        dd("already logged earlier");
-        return NGX_OK;
+        ngx_log_error(NGX_LOG_DEBUG, r->connection->log, 0, "already logged earlier");
+        return NGX_DECLINED;
     }
 
     dd("calling msc_process_logging for %p", ctx);
@@ -77,5 +77,5 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     msc_process_logging(ctx->modsec_transaction);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
-    return NGX_OK;
+    return NGX_DECLINED;
 }

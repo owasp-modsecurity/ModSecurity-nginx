@@ -13,6 +13,8 @@
  *
  */
 
+#include <ngx_config.h>
+
 #ifndef MODSECURITY_DDEBUG
 #define MODSECURITY_DDEBUG 0
 #endif
@@ -20,7 +22,6 @@
 
 #include "ngx_http_modsecurity_common.h"
 #include "stdio.h"
-#include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 

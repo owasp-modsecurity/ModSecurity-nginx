@@ -25,6 +25,10 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+#ifdef _MSC_VER
+#define strdup _strdup
+#endif
+
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);

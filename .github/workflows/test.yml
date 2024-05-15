@@ -26,12 +26,17 @@ jobs:
           sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
           sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
-      - name: Install ModSecurity library
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Get libModSecurity source
+        uses: actions/checkout@v4
+        with:
+          repository: owasp-modsecurity/ModSecurity
+          path: ModSecurity
+          submodules: true
+          fetch-depth: 1
+      - name: Build libModSecurity
+        working-directory: ModSecurity
         run: |
-          gh release download -p "*.tar.gz" -R owasp-modsecurity/ModSecurity -O - | tar -xzf -
-          cd modsecurity-*
+          ./build.sh
           ./configure --without-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install
@@ -45,13 +50,26 @@ jobs:
           repository: nginx/nginx
           path: nginx
           fetch-depth: 1
+      - name: Get Nginx tests
+        uses: actions/checkout@v4
+        with:
+          repository: nginx/nginx-tests
+          path: nginx/test
+          fetch-depth: 1
+      - name: Copy ModSecurity-nginx tests to nginx/test
+        run: |
+          cp ModSecurity-nginx/tests/* nginx/test
       - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --add-module=../ModSecurity-nginx
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
           make
           make modules
           sudo make install
+      - name: Run ModSecurity-nginx tests
+        working-directory: nginx/test
+        run: |
+          TEST_NGINX_BINARY=../objs/nginx prove modsecurity*.t
       - name: Start Nginx
         run: |
           sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf

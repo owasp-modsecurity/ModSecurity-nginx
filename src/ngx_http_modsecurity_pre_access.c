@@ -142,6 +142,9 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
         int ret = 0;
         int already_inspected = 0;
 
+        struct timespec start_tv;
+        (void) clock_gettime(CLOCK_MONOTONIC, &start_tv);
+
         dd("request body is ready to be processed");
 
         r->write_event_handler = ngx_http_core_run_phases;
@@ -212,6 +215,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_request_body(ctx->modsec_transaction);
+        ctx->req_body_phase_time = ngx_http_modsecurity_compute_processing_time(start_tv);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);

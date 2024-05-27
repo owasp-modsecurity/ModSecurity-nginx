@@ -73,11 +73,14 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         dd("already logged earlier");
         return NGX_OK;
     }
+    struct timespec start_tv;
+    (void) clock_gettime(CLOCK_MONOTONIC, &start_tv);
 
     dd("calling msc_process_logging for %p", ctx);
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_logging(ctx->modsec_transaction);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+    ctx->logging_phase_time = ngx_http_modsecurity_compute_processing_time(start_tv);
 
     return NGX_OK;
 }

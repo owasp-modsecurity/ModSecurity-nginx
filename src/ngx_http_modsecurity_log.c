@@ -13,6 +13,8 @@
  *
  */
 
+#include <ngx_config.h>
+
 #ifndef MODSECURITY_DDEBUG
 #define MODSECURITY_DDEBUG 0
 #endif
@@ -65,6 +67,11 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     if (ctx == NULL) {
         dd("something really bad happened here. returning NGX_ERROR");
         return NGX_ERROR;
+    }
+
+    if (ctx->logged) {
+        dd("already logged earlier");
+        return NGX_OK;
     }
 
     dd("calling msc_process_logging for %p", ctx);

@@ -103,7 +103,6 @@ http {
 
 EOF
 
-$t->todo_alerts();
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
 

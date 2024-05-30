@@ -1,7 +1,7 @@
 v1.0.4 - 2024-May-29
 --------------------
 
- - Fix request logging false positives due to error_page internal redirects
+ - Fix request logging false positives due to error_page internal redirects and improve performance by not evaluating again post redirect
    [Issue #182 - @jeremyjpj0916]
 
 v1.0.3 - 2022-May-24

@@ -292,6 +292,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     dd("transaction created");
 
+    ctx->response_body_filtered = 0;
     ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
     cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));

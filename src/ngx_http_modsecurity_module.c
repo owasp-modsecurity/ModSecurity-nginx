@@ -36,7 +36,10 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
+static ngx_int_t ngx_http_modsecurity_add_variables(ngx_conf_t *cf);
+static ngx_int_t ngx_http_modsecurity_status_variable(ngx_http_request_t *r, ngx_http_variable_value_t *v, uintptr_t data);
 
+static ngx_str_t  ngx_http_modsecurity_status = ngx_string("modsecurity_status");
 
 /*
  * PCRE malloc/free workaround, based on
@@ -146,6 +149,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     intervention.log = NULL;
     intervention.disruptive = 0;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_http_modsecurity_conf_t  *mcf;
 
     dd("processing intervention");
 
@@ -160,12 +164,20 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         return 0;
     }
 
-    log = intervention.log;
-    if (intervention.log == NULL) {
-        log = "(no log message was specified)";
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    if (mcf == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", log);
+    // logging to nginx error log can be disable by setting `modsecurity_error_log` to off
+    if (mcf->error_log) {
+        log = intervention.log;
+        if (intervention.log == NULL) {
+          log = "(no log message was specified)";
+        }
+
+        ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", log);
+    }
 
     if (intervention.log != NULL) {
         free(intervention.log);
@@ -214,6 +226,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     if (intervention.status != 200)
     {
+        ctx->status = intervention.status;
         /**
          * FIXME: this will bring proper response code to audit log in case
          * when e.g. error_page redirect was triggered, but there still won't be another
@@ -226,7 +239,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
             dd("intervention -- calling log handler manually with code: %d", intervention.status);
             ngx_http_modsecurity_log_handler(r);
             ctx->logged = 1;
-	}
+	      }
 
         if (r->header_sent)
         {
@@ -267,6 +280,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
+    ngx_log_t                         *log = NULL;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -275,19 +289,26 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         return NULL;
     }
 
+    ctx->status = 0;
+
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
 
+    // if logging to error log is disabled, log will be NULL and nothing will be logged by `ngx_http_modsecurity_log`
+    if (mcf->error_log) {
+        log = r->connection->log;
+    }
+
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, log);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, log);
     }
 
     dd("transaction created");
@@ -465,7 +486,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_rules,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_modsecurity_conf_t, enable),
+    0,
     NULL
   },
   {
@@ -473,7 +494,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_rules_file,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_modsecurity_conf_t, enable),
+    0,
     NULL
   },
   {
@@ -481,7 +502,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE2,
     ngx_conf_set_rules_remote,
     NGX_HTTP_LOC_CONF_OFFSET,
-    offsetof(ngx_http_modsecurity_conf_t, enable),
+    0,
     NULL
   },
   {
@@ -492,12 +513,20 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     0,
     NULL
   },
+  {
+    ngx_string("modsecurity_error_log"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_modsecurity_conf_t, error_log),
+    NULL
+  },
   ngx_null_command
 };
 
 
 static ngx_http_module_t ngx_http_modsecurity_ctx = {
-    NULL,                                  /* preconfiguration */
+    ngx_http_modsecurity_add_variables,    /* preconfiguration */
     ngx_http_modsecurity_init,             /* postconfiguration */
 
     ngx_http_modsecurity_create_main_conf, /* create main configuration */
@@ -703,6 +732,7 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->rules_set = msc_create_rules_set();
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
+    conf->error_log = NGX_CONF_UNSET;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -742,6 +772,7 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
+    ngx_conf_merge_value(c->error_log, p->error_log, 1);
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif
@@ -796,6 +827,50 @@ ngx_http_modsecurity_cleanup_rules(void *data)
     msc_rules_cleanup(mcf->rules_set);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 }
+
+
+static ngx_int_t
+ngx_http_modsecurity_add_variables(ngx_conf_t *cf)
+{
+    ngx_http_variable_t  *v;
+
+    v = ngx_http_add_variable(cf, &ngx_http_modsecurity_status,
+                              NGX_HTTP_VAR_NOCACHEABLE);
+    if (v == NULL) {
+        return NGX_ERROR;
+    }
+
+    v->get_handler = ngx_http_modsecurity_status_variable;
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_modsecurity_status_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    ngx_http_modsecurity_ctx_t  *ctx;
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    if (ctx == NULL || ctx->status == 0) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    v->data = ngx_pnalloc(r->pool, NGX_INT_T_LEN);
+    if (v->data == NULL) {
+        return NGX_ERROR;
+    }
+
+    v->len = ngx_sprintf(v->data, "%03ui", ctx->status) - v->data;
+    v->valid = 1;
+    v->no_cacheable = 0;
+    v->not_found = 0;
+
+    return NGX_OK;
+}
+
 
 
 /* vi:set ft=c ts=4 sw=4 et fdm=marker: */

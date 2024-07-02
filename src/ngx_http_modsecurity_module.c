@@ -280,6 +280,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
+    ngx_log_t                         *log = NULL;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -295,14 +296,19 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
 
+    // if logging to error log is disabled, log will be NULL and nothing will be logged by `ngx_http_modsecurity_log`
+    if (mcf->error_log) {
+        log = r->connection->log;
+    }
+
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, log);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, log);
     }
 
     dd("transaction created");

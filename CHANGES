@@ -1,3 +1,9 @@
+v1.0.4 - 2024-May-29
+--------------------
+
+ - Fix request logging false positives due to error_page internal redirects and improve performance by not evaluating again post redirect
+   [Issue #182 - @jeremyjpj0916]
+
 v1.0.3 - 2022-May-24
 --------------------
 
@@ -17,7 +23,7 @@ v1.0.2 - 2021-Jun-02
    [Issue #216 - @krewi1, @martinhsv]
  - Fix config setting not respected: client_body_in_file_only on
    [Issue #187 - @martinhsv]
- - Fix audit_log not generated for disruptive actions 
+ - Fix audit_log not generated for disruptive actions
    [Issue #170, #2220, #2237 - @victorhora]
  - Exit more gracefully if uri length is zero
    [@martinhsv]
@@ -27,7 +33,7 @@ v1.0.1 - 2019-Dec-16
 
  - Fixed obtaining of server_addr
    [Issue #167, #168 - @defanator]
- - Avoid processing of subrequests initiated by the error_page 
+ - Avoid processing of subrequests initiated by the error_page
    [Issue #76, #164, #165 - @defanator]
  - Tests: extend request body tests
    [Issue #142,#143 - @defanator]
@@ -67,4 +73,3 @@ v1.0.0 - 2017-Dec-20
 --------------------
 
  - First version of ModSecurity-nginx connector
-

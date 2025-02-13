@@ -514,6 +514,14 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     0,
     NULL
   },
+  {
+    ngx_string("modsecurity_proxy_protocol_ip"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_modsecurity_conf_t, proxy_protocol_ip),
+    NULL
+  },
   ngx_null_command
 };
 
@@ -725,6 +733,7 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->rules_set = msc_create_rules_set();
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
+    conf->proxy_protocol_ip = NGX_CONF_UNSET;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -764,6 +773,7 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
+    ngx_conf_merge_value(c->proxy_protocol_ip, p->proxy_protocol_ip, 0);
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif

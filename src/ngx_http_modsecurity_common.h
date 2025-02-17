@@ -76,6 +76,7 @@ typedef struct {
     ngx_str_t value;
 } ngx_http_modsecurity_header_t;
 
+
 typedef struct {
     ngx_http_request_t *r;
     Transaction *modsec_transaction;
@@ -96,13 +97,8 @@ typedef struct {
     unsigned waiting_more_body:1;
     unsigned body_requested:1;
     unsigned processed:1;
-    ngx_http_output_header_filter_pt header_pt;
-    ngx_chain_t* temp_chain;
-    ngx_chain_t* current_chain;
-    unsigned response_body_filtered:1;
     unsigned logged:1;
     unsigned intervention_triggered:1;
-    unsigned request_body_processed:1;
 } ngx_http_modsecurity_ctx_t;
 
 
@@ -143,7 +139,6 @@ extern ngx_module_t ngx_http_modsecurity_module;
 /* ngx_http_modsecurity_module.c */
 int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log);
 ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
-ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r);
 char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 #if (NGX_PCRE2)
 #define ngx_http_modsecurity_pcre_malloc_init(x) NULL

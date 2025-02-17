@@ -60,13 +60,13 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
     */
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("recovering ctx: %p", ctx);
 
     if (ctx == NULL) {
-        dd("ModSecurity not enabled or error occurred");
-        return NGX_OK;
+        dd("something really bad happened here. returning NGX_ERROR");
+        return NGX_ERROR;
     }
 
     if (ctx->logged) {

@@ -27,7 +27,7 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
 
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
 #if defined(nginx_version) && nginx_version >= 8011
     r->main->count--;
@@ -70,7 +70,7 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     }
     */
 
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("recovering ctx: %p", ctx);
 
@@ -78,11 +78,6 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
     {
         dd("ctx is null; Nothing we can do, returning an error.");
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    if (ctx->request_body_processed) {
-        // should we use r->internal or r->filter_finalize?
-        return NGX_DECLINED;
     }
 
     if (ctx->intervention_triggered) {
@@ -217,7 +212,6 @@ ngx_http_modsecurity_pre_access_handler(ngx_http_request_t *r)
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_request_body(ctx->modsec_transaction);
-        ctx->request_body_processed = 1;
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);

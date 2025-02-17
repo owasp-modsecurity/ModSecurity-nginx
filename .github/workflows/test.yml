@@ -72,6 +72,7 @@ jobs:
           TEST_NGINX_BINARY=../objs/nginx prove modsecurity*.t
       - name: Start Nginx
         run: |
+          sudo cp /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/docs/* /usr/local/nginx/html/
           sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
       - name: Run attack test vhost 1
         run: |
@@ -109,6 +110,37 @@ jobs:
             echo "FAIL"
             exit 1
           fi
+      - name: Run file consistency check 1
+        run: |
+          curl -sS "http://localhost/data50k.json" --output data50k.json
+          if [ -f data50k.json ]; then
+            diff data50k.json /usr/local/nginx/html/data50k.json > /dev/null
+            if [ $? -eq 0 ]; then
+                echo "OK"
+            else
+                echo "FAIL"
+                exit 2
+            fi
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run file consistency check 2
+        run: |
+          curl -sS "http://localhost/plugged.png" --output plugged.png
+          if [ -f plugged.png ]; then
+            diff plugged.png /usr/local/nginx/html/plugged.png > /dev/null
+            if [ $? -eq 0 ]; then
+                echo "OK"
+            else
+                echo "FAIL"
+                exit 2
+            fi
+          else
+            echo "FAIL"
+            exit 1
+          fi
+
 
   build-windows:
     runs-on: windows-2022

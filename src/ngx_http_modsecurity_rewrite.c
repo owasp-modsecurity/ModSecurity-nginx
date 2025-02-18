@@ -134,9 +134,14 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
             case NGX_HTTP_VERSION_11 :
                 http_version = "1.1";
                 break;
-#if defined(nginx_version) && nginx_version >= 1009005
+#ifdef NGX_HTTP_VERSION_20
             case NGX_HTTP_VERSION_20 :
                 http_version = "2.0";
+                break;
+#endif
+#ifdef NGX_HTTP_VERSION_30
+            case NGX_HTTP_VERSION_30 :
+                http_version = "3.0";
                 break;
 #endif
             default :
@@ -152,15 +157,41 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
                 break;
         }
 
+        // Do not allocate new string for common methods
+        const char *n_method;
+        switch (r->method) {
+            case NGX_HTTP_GET:
+                n_method = "GET";
+                break;
+            case NGX_HTTP_HEAD:
+                n_method = "HEAD";
+                break;
+            case NGX_HTTP_POST:
+                n_method = "POST";
+                break;
+            case NGX_HTTP_OPTIONS:
+                n_method = "OPTIONS";
+                break;
+            case NGX_HTTP_CONNECT:
+                n_method = "CONNECT";
+                break;
+            default:
+                n_method = ngx_str_to_char(r->method_name, r->pool);
+                if (n_method == (char*)-1) {
+                    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+                }
+                break;
+        }
+
         const char *n_uri = ngx_str_to_char(r->unparsed_uri, r->pool);
-        const char *n_method = ngx_str_to_char(r->method_name, r->pool);
-        if (n_uri == (char*)-1 || n_method == (char*)-1) {
+        if (n_uri == (char*)-1) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         if (n_uri == NULL) {
             dd("uri is of length zero");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
+
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
         msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);

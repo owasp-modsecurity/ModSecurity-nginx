@@ -116,7 +116,7 @@ typedef struct {
     /* RulesSet or Rules */
     void                      *rules_set;
 
-    ngx_flag_t                 enable;
+    ngx_http_complex_value_t  *enable;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_flag_t                 sanity_checks_enabled;
 #endif
@@ -147,6 +147,8 @@ char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 ngx_pool_t *ngx_http_modsecurity_pcre_malloc_init(ngx_pool_t *pool);
 void ngx_http_modsecurity_pcre_malloc_done(ngx_pool_t *old_pool);
 #endif
+
+ngx_int_t ngx_http_modsecurity_is_enabled(ngx_http_request_t *r);
 
 /* ngx_http_modsecurity_body_filter.c */
 ngx_int_t ngx_http_modsecurity_body_filter_init(void);

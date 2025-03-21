@@ -123,6 +123,7 @@ typedef struct {
 #endif
 
     ngx_http_complex_value_t  *transaction_id;
+    ngx_flag_t                 proxy_protocol_ip;
 } ngx_http_modsecurity_conf_t;
 
 

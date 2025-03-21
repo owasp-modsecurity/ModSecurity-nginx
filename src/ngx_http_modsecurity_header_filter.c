@@ -471,7 +471,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
      */
     for (i = 0; ngx_http_modsecurity_headers_out[i].name.len; i++)
     {
-        dd(" Sending header to ModSecurity - header: `%.*s'.",
+        dd("Sending header to ModSecurity - header: `%.*s'",
             (int) ngx_http_modsecurity_headers_out[i].name.len,
             ngx_http_modsecurity_headers_out[i].name.data);
 
@@ -516,14 +516,24 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
     /*
      * NGINX always sends HTTP response with HTTP/1.1, except cases when
-     * HTTP V2 module is enabled, and request has been posted with HTTP/2.0.
+     * HTTP V2 module is enabled, and request has been posted with HTTP/2.0
+     * or when using HTTP V3
      */
-    http_response_ver = "HTTP 1.1";
-#if (NGX_HTTP_V2)
-    if (r->stream) {
-        http_response_ver = "HTTP 2.0";
-    }
+    switch (r->http_version) {
+#ifdef NGX_HTTP_VERSION_30
+        case NGX_HTTP_VERSION_30 :
+            http_response_ver = "HTTP 3.0";
+            break;
 #endif
+#ifdef NGX_HTTP_VERSION_20
+        case NGX_HTTP_VERSION_20 :
+            http_response_ver = "HTTP 2.0";
+            break;
+#endif
+        default:
+            http_response_ver = "HTTP 1.1";
+            break;
+    }
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_response_headers(ctx->modsec_transaction, status, http_response_ver);

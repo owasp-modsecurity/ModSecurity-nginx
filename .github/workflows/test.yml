@@ -140,6 +140,78 @@ jobs:
             echo "FAIL"
             exit 1
           fi
+      - name: Start Nginx with redir
+        run: |
+          sudo killall nginx
+          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf.redir
+      - name: Run attack test vhost 1
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run non-attack test vhost 1 (redir config)
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run attack test vhost 2 (redir config)
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=attack")
+          if [ "${status}" == "403" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run non-attack test vhost 2 (redir config)
+        run: |
+          status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest2" "http://localhost/?q=1")
+          if [ "${status}" == "200" ]; then
+            echo "OK"
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run file consistency check 1 (redir config)
+        run: |
+          curl -sS "http://localhost/data50k.json" --output data50k.json
+          if [ -f data50k.json ]; then
+            diff data50k.json /usr/local/nginx/html/data50k.json > /dev/null
+            if [ $? -eq 0 ]; then
+                ls -l data50k.json /usr/local/nginx/html/data50k.json
+                echo "OK"
+            else
+                echo "FAIL"
+                exit 2
+            fi
+          else
+            echo "FAIL"
+            exit 1
+          fi
+      - name: Run file consistency check 2 (redir config)
+        run: |
+          curl -sS "http://localhost/plugged.png" --output plugged.png
+          if [ -f plugged.png ]; then
+            diff plugged.png /usr/local/nginx/html/plugged.png > /dev/null
+            if [ $? -eq 0 ]; then
+                ls -l plugged.png /usr/local/nginx/html/plugged.png
+                echo "OK"
+            else
+                echo "FAIL"
+                exit 2
+            fi
+          else
+            echo "FAIL"
+            exit 1
+          fi
 
 
   build-windows:

@@ -89,6 +89,7 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
 #if defined(MODSECURITY_CHECK_VERSION)
 #if MODSECURITY_VERSION_NUM >= 30130100
         ngx_str_t hostname;
+        hostname.len = 0;
         // first check if Nginx received a Host header and it's usable
         // (i.e. not empty)
         // if yes, we can use that

@@ -29,6 +29,11 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t   *ctx;
     ngx_http_modsecurity_conf_t  *mcf;
 
+    
+    if (r->error_page) {
+        return NGX_DECLINED;
+    }
+
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL || mcf->enable != 1) {
         dd("ModSecurity not enabled... returning");

@@ -78,10 +78,23 @@ ngx_http_modsecurity_rewrite_handler(ngx_http_request_t *r)
          * erliest phase that nginx allow us to attach those kind of hooks.
          *
          */
-        int client_port = ngx_inet_get_port(connection->sockaddr);
+        int client_port;
+
+        if (mcf->proxy_protocol_ip && connection->proxy_protocol) {
+          client_port = connection->proxy_protocol->src_port;
+        } else {
+          client_port = ngx_inet_get_port(connection->sockaddr);
+        }
         int server_port = ngx_inet_get_port(connection->local_sockaddr);
 
-        const char *client_addr = ngx_str_to_char(addr_text, r->pool);
+        const char *client_addr;
+
+        if (mcf->proxy_protocol_ip && connection->proxy_protocol) {
+          client_addr =  ngx_str_to_char(connection->proxy_protocol->src_addr, r->pool);
+        } else {
+          client_addr = ngx_str_to_char(addr_text, r->pool);
+        }
+
         if (client_addr == (char*)-1) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }

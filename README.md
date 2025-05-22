@@ -5,7 +5,7 @@
 [![](https://raw.githubusercontent.com/ZenHubIO/support/master/zenhub-badge.png)](https://zenhub.com)
 
 
-The ModSecurity-nginx connector is the connection point between nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between nginx and libmodsecurity. This connector is required to use LibModSecurity with nginx. 
+The ModSecurity-nginx connector is the connection point between nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between nginx and libmodsecurity. This connector is required to use LibModSecurity with nginx.
 
 The ModSecurity-nginx connector takes the form of an nginx module. The module simply serves as a layer of communication between nginx and ModSecurity.
 
@@ -175,6 +175,17 @@ using the same unique identificator.
 
 String can contain variables.
 
+modsecurity_proxy_protocol_ip
+-----------
+**syntax:** *modsecurity_proxy_protocol_ip on | off*
+
+**context:** *http, server, location*
+
+**default:** *off*
+
+If activated, ModSecurity logs the actual IP address of a client when the connections is proxied using the Proxy Protocol.
+If a connection is proxied without this directive activated, the logged IP address is the one of the proxy server.
+
 
 # Contributing
 
@@ -193,7 +204,7 @@ here: https://help.github.com/articles/using-pull-requests/
 Please respect the coding style in use. Pull requests can include various commits, so
 provide one fix or one functionality per commit. Do not change anything outside
 the scope of your target work (e.g. coding style in a function that you have
-passed by). 
+passed by).
 
 ### Don’t know where to start?
 
@@ -210,9 +221,9 @@ You may also take a look at recent bug reports and open issues to get an idea of
 ### Testing your patch
 
 Along with the manual testing, we strongly recommend that you to use the nginx test
-utility to make sure that you patch does not adversely affect the behavior or performance of nginx. 
+utility to make sure that you patch does not adversely affect the behavior or performance of nginx.
 
-The nginx tests are available on: http://hg.nginx.org/nginx-tests/ 
+The nginx tests are available on: http://hg.nginx.org/nginx-tests/
 
 To use those tests, make sure you have the Perl utility prove (part of Perl 5)
 and proceed with the following commands:
@@ -225,7 +236,7 @@ $ TEST_NGINX_BINARY=/path/to/your/nginx prove .
 
 If you are facing problems getting your added functionality to pass all the nginx tests, feel free to contact us or the nginx mailing list at: http://nginx.org/en/support.html
 
-### Debugging 
+### Debugging
 
 We respect the nginx debugging schema. By using the configuration option
 "--with-debug" during the nginx configuration you will also be enabling the

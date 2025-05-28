@@ -55,7 +55,7 @@ http {
         error_page 403 /403.html;
 
         location /403.html {
-            root %%TESTDIR%%/http;
+            alias %%TESTDIR%%/403.html;
             internal;
         }
 
@@ -63,7 +63,11 @@ http {
             modsecurity on;
             modsecurity_rules '
                 SecRuleEngine On
-                SecRule ARGS "@streq root" "id:10,phase:1,auditlog,status:403,deny"
+                SecResponseBodyAccess On
+                SecRule ARGS:phase1 "@streq BAD" "id:10,phase:1,auditlog,status:403,deny"
+                SecRule ARGS:phase2 "@streq BAD" "id:11,phase:2,auditlog,status:403,deny"
+                SecRule ARGS:phase3 "@streq BAD" "id:12,phase:3,auditlog,status:403,deny"
+                SecRule ARGS:phase4 "@streq BAD" "id:13,phase:4,auditlog,status:403,drop"
                 SecDebugLog %%TESTDIR%%/auditlog-debug-local.txt
                 SecDebugLogLevel 9
                 SecAuditEngine RelevantOnly
@@ -82,7 +86,11 @@ http {
         modsecurity on;
         modsecurity_rules '
             SecRuleEngine On
-            SecRule ARGS "@streq root" "id:10,phase:1,auditlog,status:403,deny"
+            SecResponseBodyAccess On
+            SecRule ARGS:phase1 "@streq BAD" "id:10,phase:1,auditlog,status:403,deny"
+            SecRule ARGS:phase2 "@streq BAD" "id:11,phase:2,auditlog,status:403,deny"
+            SecRule ARGS:phase3 "@streq BAD" "id:12,phase:3,auditlog,status:403,deny"
+            SecRule ARGS:phase4 "@streq BAD" "id:13,phase:4,auditlog,status:403,drop"
             SecDebugLog %%TESTDIR%%/auditlog-debug-global.txt
             SecDebugLogLevel 9
             SecAuditEngine RelevantOnly
@@ -96,7 +104,7 @@ http {
 
         location /403.html {
             modsecurity off;
-            root %%TESTDIR%%/http;
+            alias %%TESTDIR%%/403.html;
             internal;
         }
 
@@ -107,31 +115,28 @@ http {
 EOF
 
 my $index_txt = "This is the index page.";
-my $custom_txt = "This is a custom error page.";
+my $error_txt = "This is a custom error page.";
 
 $t->write_file("/index.html", $index_txt);
-mkdir($t->testdir() . '/http');
-$t->write_file("/http/403.html", $custom_txt);
+$t->write_file("/403.html", $error_txt);
 
+$t->todo_alerts();
 $t->run();
-$t->plan(10);
+$t->plan(32);
 
 ###############################################################################
 
 my $d = $t->testdir();
 
-my $t1;
-my $t2;
-my $t3;
-my $t4;
-
 # Performing requests to a server with ModSecurity enabled at location context
-$t1 = http_get_host('s1', '/index.html?what=root');
-$t2 = http_get_host('s1', '/index.html?what=other');
-
-# Performing requests to a server with ModSecurity enabled at server context
-$t3 = http_get_host('s2', '/index.html?what=root');
-$t4 = http_get_host('s2', '/index.html?what=other');
+like(http_get_host('s1', '/?phase1=BAD'), qr/$error_txt/, 'location context, phase 1, error page');
+like(http_get_host('s1', '/?phase1=GOOD'), qr/$index_txt/, 'location context, phase 1, index page');
+like(http_get_host('s1', '/?phase2=BAD'), qr/$error_txt/, 'location context, phase 2, error page');
+like(http_get_host('s1', '/?phase2=GOOD'), qr/$index_txt/, 'location context, phase 2, index page');
+like(http_get_host('s1', '/?phase3=BAD'), qr/$error_txt/, 'location context, phase 3, error page');
+like(http_get_host('s1', '/?phase3=GOOD'), qr/$index_txt/, 'location context, phase 3, index page');
+is(http_get_host('s1', '/?phase4=BAD'), '', 'location context, phase 4, drop');
+like(http_get_host('s1', '/?phase4=GOOD'), qr/$index_txt/, 'location context, phase 4, index page');
 
 my $local = do {
     local $/ = undef;
@@ -140,6 +145,25 @@ my $local = do {
     <$fh>;
 };
 
+like($local, qr/phase1=BAD/, 'location context, phase 1, BAD in auditlog');
+unlike($local, qr/phase1=GOOD/, 'location context, phase 1, GOOD not in auditlog');
+like($local, qr/phase2=BAD/, 'location context, phase 2, BAD in auditlog');
+unlike($local, qr/phase2=GOOD/, 'location context, phase 2, GOOD not in auditlog');
+like($local, qr/phase3=BAD/, 'location context, phase 3, BAD in auditlog');
+unlike($local, qr/phase3=GOOD/, 'location context, phase 3, GOOD not in auditlog');
+like($local, qr/phase4=BAD/, 'location context, phase 4, BAD in auditlog');
+unlike($local, qr/phase4=GOOD/, 'location context, phase 4, GOOD not in auditlog');
+
+# Performing requests to a server with ModSecurity enabled at server context
+like(http_get_host('s2', '/?phase1=BAD'), qr/$error_txt/, 'server context, phase 1, error page');
+like(http_get_host('s2', '/?phase1=GOOD'), qr/$index_txt/, 'server context, phase 1, index page');
+like(http_get_host('s2', '/?phase2=BAD'), qr/$error_txt/, 'server context, phase 2, error page');
+like(http_get_host('s2', '/?phase2=GOOD'), qr/$index_txt/, 'server context, phase 2, index page');
+like(http_get_host('s2', '/?phase3=BAD'), qr/$error_txt/, 'server context, phase 3, error page');
+like(http_get_host('s2', '/?phase3=GOOD'), qr/$index_txt/, 'server context, phase 3, index page');
+is(http_get_host('s2', '/?phase4=BAD'), '', 'server context, phase 4, drop');
+like(http_get_host('s2', '/?phase4=GOOD'), qr/$index_txt/, 'server context, phase 4, index page');
+
 my $global = do {
     local $/ = undef;
     open my $fh, "<", "$d/auditlog-global.txt"
@@ -147,18 +171,14 @@ my $global = do {
     <$fh>;
 };
 
-like($t1, qr/$custom_txt/, 'ModSecurity at location / root');
-like($t2, qr/$index_txt/, 'ModSecurity at location / other');
-like($local, qr/what=root/, 'ModSecurity at location / root present in auditlog');
-unlike($local, qr/what=other/, 'ModSecurity at location / other not present in auditlog');
-
-like($t3, qr/$custom_txt/, 'ModSecurity at server / root');
-like($t4, qr/$index_txt/, 'ModSecurity at server / other');
-like($global, qr/what=root/, 'ModSecurity at server / root present in auditlog');
-unlike($global, qr/what=other/, 'ModSecurity at server / other not present in auditlog');
-
-like($local, qr/Access denied with code 403/, 'ModSecurity at location / 403 in auditlog');
-like($global, qr/Access denied with code 403/, 'ModSecurity at server / 403 in auditlog');
+like($global, qr/phase1=BAD/, 'server context, phase 1, BAD in auditlog');
+unlike($global, qr/phase1=GOOD/, 'server context, phase 1, GOOD not in auditlog');
+like($global, qr/phase2=BAD/, 'server context, phase 2, BAD in auditlog');
+unlike($global, qr/phase2=GOOD/, 'server context, phase 2, GOOD not in auditlog');
+like($global, qr/phase3=BAD/, 'server context, phase 3, BAD in auditlog');
+unlike($global, qr/phase3=GOOD/, 'server context, phase 3, GOOD not in auditlog');
+like($global, qr/phase4=BAD/, 'server context, phase 4, BAD in auditlog');
+unlike($global, qr/phase4=GOOD/, 'server context, phase 4, GOOD not in auditlog');
 
 ###############################################################################
 

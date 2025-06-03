@@ -262,4 +262,8 @@ feel free to open GitHub issues requesting for new features. Before opening a ne
 Having our packages in distros on time is something we highly desire. Let us know if
 there is anything we can do to facilitate your work as a packager.
 
+For users who prefer not to compile from source, prebuilt Nginx packages that include ModSecurity are available via a third-party git repository. These packages can be found at:
+[modsecurity-packages](https://github.com/milad-zanganeh/modsecurity-packages)
+
+Note: This is a third-party repository and is not officially maintained by the ModSecurity project.
 

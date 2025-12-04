@@ -199,6 +199,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
                 http_version = "2.0";
                 break;
 #endif
+#if defined(nginx_version) && nginx_version >= 1025000
+            case NGX_HTTP_VERSION_30 :
+                http_version = "3.0";
+                break;
+#endif
             default :
                 http_version = ngx_str_to_char(r->http_protocol, r->pool);
                 if (http_version == (char*)-1) {
@@ -233,9 +238,26 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         }
 
         /**
-         * Since incoming request headers are already in place, lets send it to ModSecurity
+         * HTTP/3 uses :authority pseudo-header instead of Host header and nginx
+         * parses it into r->headers_in.server (see ngx_http_v3_request.c#L982)
+         * but doesn't add it to the headers list, so ModSecurity never sees it.
          *
+         * Per RFC 9114 §4.3.1, when an HTTP/3 request is normalized to HTTP/1.1,
+         * a `Host` header must be generated from the `:authority` pseudo-header
+         * if `Host` is absent. This code does not check for a pre-existing `Host`
+         * header because, if present, it will be overwritten by the subsequent
+         * call to `msc_add_n_request_header()`.
          */
+        if (strcmp(http_version, "3.0") == 0 && r->headers_in.server.len > 0) {
+            dd("adding Host header from :authority: %.*s",
+               (int)r->headers_in.server.len, r->headers_in.server.data);
+
+            msc_add_n_request_header(ctx->modsec_transaction,
+                (const unsigned char *)"Host", 4,
+                (const unsigned char *)r->headers_in.server.data,
+                r->headers_in.server.len);
+        }
+
         ngx_list_part_t *part = &r->headers_in.headers.part;
         ngx_table_elt_t *data = part->elts;
         ngx_uint_t i = 0;

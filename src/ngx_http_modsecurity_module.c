@@ -529,6 +529,22 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     offsetof(ngx_http_modsecurity_conf_t, use_error_log),
     NULL
   },
+  {
+    ngx_string("modsecurity_skip_req_body_filter"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_modsecurity_conf_t, skip_req_body_filter),
+    NULL
+  },
+  {
+    ngx_string("modsecurity_skip_resp_body_filter"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_modsecurity_conf_t, skip_resp_body_filter),
+    NULL
+  },
   ngx_null_command
 };
 

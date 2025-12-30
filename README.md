@@ -45,7 +45,7 @@ Further information about nginx third-party add-ons support are available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds six new directives and they are:
+It adds seven new directives and they are:
 
 modsecurity
 -----------

@@ -185,6 +185,36 @@ modsecurity_use_error_log
 
 Turns on or off ModSecurity error log functionality.
 
+# Variables
+
+This module exposes the following variables that can be used in `log_format` or anywhere else nginx variables are valid.
+
+modsecurity_intervention
+-------------------------
+**value:** *`1` if ModSecurity triggered a disruptive intervention
+(deny, redirect, etc.) on the request, `0` otherwise*
+
+modsecurity_triggered_rules
+----------------------------
+**value:** *comma-separated list of matched rule IDs (e.g. `941100,949110`),
+or `-` when no rule matched*
+
+```nginx
+log_format modsec '$remote_addr [$time_local] "$request" $status '
+                  'intervention=$modsecurity_intervention '
+                  'rules=$modsecurity_triggered_rules';
+
+server {
+    listen 8080;
+    modsecurity on;
+    modsecurity_rules_file /etc/modsecurity.d/modsecurity.conf;
+    access_log logs/modsec-access.log modsec;
+    location / {
+        ...
+    }
+}
+```
+
 # Contributing
 
 As an open source project we invite (and encourage) anyone from the community to contribute to our project. This may take the form of: new

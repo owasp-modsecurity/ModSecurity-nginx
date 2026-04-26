@@ -612,7 +612,8 @@ ngx_http_modsecurity_triggered_rules_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
     ngx_http_modsecurity_ctx_t  *ctx;
-    size_t                       count, i, cap;
+    size_t                       size, written, i, cap;
+    int64_t                     *ids;
     u_char                      *buf, *p, *end;
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
@@ -621,14 +622,26 @@ ngx_http_modsecurity_triggered_rules_variable(ngx_http_request_t *r,
         return NGX_OK;
     }
 
-    count = msc_get_matched_rules_count(ctx->modsec_transaction);
-    if (count == 0) {
+    size = msc_get_rules_messages_size(ctx->modsec_transaction);
+    if (size == 0) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    ids = ngx_pnalloc(r->pool, size * sizeof(int64_t));
+    if (ids == NULL) {
+        return NGX_ERROR;
+    }
+
+    written = msc_get_rules_messages_rule_ids(ctx->modsec_transaction,
+                                              ids, size);
+    if (written == 0) {
         v->not_found = 1;
         return NGX_OK;
     }
 
     /* NGX_INT64_LEN digits per id + one comma separator per id */
-    cap = count * (NGX_INT64_LEN + 1);
+    cap = written * (NGX_INT64_LEN + 1);
     buf = ngx_pnalloc(r->pool, cap);
     if (buf == NULL) {
         return NGX_ERROR;
@@ -636,12 +649,11 @@ ngx_http_modsecurity_triggered_rules_variable(ngx_http_request_t *r,
 
     p = buf;
     end = buf + cap;
-    for (i = 0; i < count; i++) {
-        int64_t id = msc_get_matched_rule_id(ctx->modsec_transaction, i);
+    for (i = 0; i < written; i++) {
         if (i > 0) {
             *p++ = ',';
         }
-        p = ngx_snprintf(p, end - p, "%L", id);
+        p = ngx_snprintf(p, end - p, "%L", ids[i]);
     }
 
     v->data = buf;

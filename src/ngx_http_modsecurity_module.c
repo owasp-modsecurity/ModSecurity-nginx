@@ -612,9 +612,12 @@ ngx_http_modsecurity_triggered_rules_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data)
 {
     ngx_http_modsecurity_ctx_t  *ctx;
-    size_t                       size, written, i, cap;
-    int64_t                     *ids;
-    u_char                      *buf, *p, *end;
+    size_t  size;
+    size_t  written;
+    size_t  i;
+    size_t  cap;
+    int64_t *ids;
+    u_char  *buf, *p, *end;
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
     if (ctx == NULL || ctx->modsec_transaction == NULL) {

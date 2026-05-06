@@ -1,32 +1,62 @@
 # ModSecurity-nginx: Phase 4 Handling (English)
 
-## Introduction: what is the `phase:4` problem?
+## Purpose of this document
 
-`phase:4` rules run while processing the **response body**. In nginx, response headers may already have been sent to the client at that point. Once headers are sent, nginx cannot reliably switch HTTP status (for example to 403) or inject redirect headers anymore.
+This document describes the currently implemented Phase 4 behavior in the nginx module, including:
 
-This repository adds explicit Phase 4 handling for that condition, including dedicated modes and structured logging.
+- technical limits once headers are already sent,
+- behavior of `minimal`, `safe`, and `strict` modes,
+- content-type scoping,
+- logging (`modsecurity_phase4_log`) and security boundaries,
+- a clear split between **production configuration** and **test/demo behavior**.
 
-## Why “headers already sent” is a problem
+Only statements supported by the current repository code and tests are included.
 
-If a ModSecurity intervention (`deny`, `status`, `redirect`) is triggered in `phase:4`, classic blocking/redirecting only works when headers are still unsent.
+---
 
-If headers are already sent:
+## 1) Background: request vs response phases
 
-- late `status:401/403` cannot be cleanly enforced as HTTP status,
-- late redirect (`301/302` + `Location`) cannot be cleanly enforced,
-- only degraded reactions remain (logging, optionally aborting the connection).
+ModSecurity rules run in multiple transaction phases.
 
-## Why there is **no global response-body buffering**
+- Early phases (for example request phases) make decisions before a response is emitted.
+- `phase:4` belongs to **response-body processing**.
 
-The implementation intentionally avoids global buffering of large response bodies. This aligns with:
+This difference is critical: during `phase:4`, nginx may already have sent headers and/or part of the body.
 
-- no blanket memory/latency overhead for all responses,
-- no extra reordering logic between already-sent headers and late body-time decisions,
-- no false guarantee that `phase:4` can always be translated to clean HTTP block/redirect semantics.
+### Why this matters
 
-## New directives
+If a `phase:4` rule triggers an intervention (`deny`, `status`, `redirect`), a clean status/redirect rewrite is only possible while headers are still unsent.
 
-### `modsecurity_phase4_mode`
+---
+
+## 2) What `phase:4` means operationally
+
+`phase:4` rules inspect response body content. This is useful when security signals are visible only in outgoing payload.
+
+At the same time, this creates a hard technical boundary:
+
+- **Before headers are sent**: status/redirect can still be applied cleanly.
+- **After headers are sent**: status/redirect can no longer be reliably changed.
+
+Therefore the module includes dedicated late-intervention handling.
+
+---
+
+## 3) Why headers may already be sent in `phase:4`
+
+nginx processes responses as a stream. Depending on upstream behavior, buffering, and filter timing, headers can already be on the wire before body inspection fully completes.
+
+Result: a `phase:4` `status:403` or `redirect:302` is not guaranteed to become a clean client-visible HTTP status.
+
+> No false guarantee: after headers are sent, `phase:4` cannot guarantee a clean HTTP status rewrite.
+
+---
+
+## 4) New directives in this module
+
+## `modsecurity_phase4_mode`
+
+Configures phase-4 late-intervention behavior.
 
 Supported values:
 
@@ -34,129 +64,188 @@ Supported values:
 - `safe`
 - `strict`
 
-Invalid values are rejected at config parsing time.
+Invalid values are rejected by configuration parsing.
 
-### `modsecurity_phase4_content_types_file`
+## `modsecurity_phase4_content_types_file`
 
-Loads content types from a file (one type per line, `#` comments supported). Entries are validated; invalid entries fail configuration loading.
+Loads scoped content types from a file.
 
-If not set, built-in default content types are used.
+- one MIME type per line,
+- `#` comments supported,
+- entries are validated,
+- wildcards (`*`) are rejected.
 
-### `modsecurity_phase4_log`
+If unset, module defaults are used.
 
-Enables a dedicated JSON-lines log for Phase 4 interventions.
+## `modsecurity_phase4_log`
 
-## Modes: behavior and safety profile
+Enables dedicated JSON-lines logging for Phase 4 events.
+
+---
+
+## 5) Mode behavior (`minimal`, `safe`, `strict`)
 
 ## `minimal`
 
-- For `phase:4` interventions after headers are sent: no synthetic deny, `log_only`.
-- Goal: least intrusive behavior, no forced disconnect.
+Goal: least intrusive behavior.
+
+For interventions after headers were sent:
+
+- action is downgraded to `log_only`,
+- no forced connection termination.
+
+Use when delivery continuity is prioritized.
 
 ## `safe`
 
-- For late interventions, behavior is also `log_only`.
-- Goal: operational stability without forced abort.
+Goal: conservative production baseline (module default merge behavior).
+
+For late interventions:
+
+- also downgraded to `log_only`.
+
+Use as default when you want phase:4 visibility without forced disconnect side effects.
 
 ## `strict`
 
-- For `phase:4` interventions after headers are sent: `connection_abort`.
-- Goal: stricter handling when clean status/redirect changes are no longer possible.
+Goal: stricter fallback once clean status rewrite is no longer possible.
 
-> Important: `strict` does **not** guarantee a retroactive 401/403/301/302; it may terminate the connection instead.
+For interventions after headers were sent:
 
-## Behavior by header state
+- `connection_abort`.
 
-### Headers **not sent yet**
+### Risks of `strict`
 
-Normal ModSecurity intervention paths remain possible (for example `deny_status`), because nginx can still adjust outgoing headers.
+- Active connections may terminate.
+- Clients/proxies may observe transport interruption rather than a clean 4xx/3xx response.
+- It does **not** mean “guaranteed 403/401/301/302”.
 
-### Headers **already sent**
+Use only when those trade-offs are acceptable.
 
-- `minimal`/`safe`: `log_only`
+---
+
+## 6) Behavior by header state
+
+## Headers **not sent yet**
+
+If intervention is finalized before header send, normal deny/status behavior remains possible (logged as `deny_status` in code path).
+
+## Headers **already sent**
+
+- `minimal`: `log_only`
+- `safe`: `log_only`
 - `strict`: `connection_abort`
 
-## Action semantics
+This is an intentional downgrade to avoid false status guarantees.
 
-### `connection_abort`
+---
 
-- Implemented fallback in `strict` mode for late `phase:4` interventions.
-- Technical effect: request terminates via error path (no post-hoc header rewrite).
+## 7) Why there is **no global response-body buffering**
 
-### `log_only`
+Global buffering of all responses could delay decision points, but introduces broad costs:
 
-- Intervention is recorded, while response flow continues as far as possible.
-- Provides traceability without forced transport interruption.
+- additional memory and latency overhead,
+- higher complexity in generic response paths,
+- increased risk of throughput/stability side effects.
 
-## Content-Type scoping (`modsecurity_phase4_content_types_file`)
+Current implementation instead makes late interventions explicit and controlled (`log_only` or `connection_abort`).
 
-Phase 4 handling is scoped by content type. If `Content-Type` is missing or not in scope, the module logs a degraded action (`log_only`, with reasons such as `content_type_missing` / `content_type_not_in_scope`) instead of enforcing a hard action.
+---
 
-This limits side effects on non-targeted response types.
+## 8) Why there is no `ngx_chain_t` reordering/rewriting
 
-## Logging
+The module does **not** implement synthetic reordering of already flowing body chains to force post-hoc status semantics.
 
-### `modsecurity_phase4_log`
+Reasoning:
 
-Writes JSON lines with fields such as:
+- high implementation complexity,
+- higher fragility,
+- difficult correctness guarantees across all filter/upstream combinations.
+
+The documented downgrade model is more robust than pretending hard guarantees.
+
+---
+
+## 9) Content-type scoping: meaning and safe usage
+
+`modsecurity_phase4_content_types_file` limits special phase-4 handling to selected MIME types.
+
+If `Content-Type` is missing or out of scope:
+
+- action is logged as `log_only`,
+- reason is typically `content_type_missing` or `content_type_not_in_scope`.
+
+### Why this matters
+
+- reduces side effects on non-target response types,
+- improves predictability,
+- enforces explicit operator intent.
+
+---
+
+## 10) Logging format and security boundaries
+
+With `modsecurity_phase4_log`, the module emits JSON lines including fields such as:
 
 - `event` (`phase4_intervention`)
 - `uri`, `method`
 - `response_status`, `waf_status`
 - `content_type`
-- `header_sent` (boolean)
+- `header_sent`
 - `mode`
 - `wanted_action`, `actual_action`
 - `reason`
 - `intervention`
 - `rule_id`
 
-### nginx `error.log`
+Additionally, nginx `error.log` may contain warnings (especially on strict late-intervention paths).
 
-Additionally, especially on the `strict` path, a warning is emitted to nginx error log when an intervention occurs after headers are sent.
+### Logging boundary
 
-## Security decisions (implementation)
+Tests explicitly check that response body payload is not leaked into phase-4 log output.
 
-- **No response body in Phase 4 log**: reduces leakage risk through logs.
-- **No `ngx_chain_t` rewriting**: avoids brittle low-level mutations of already flowing body chains.
-- **No synthetic reordering logic**: avoids inconsistent states between sent headers and late decisions.
-- **`strict` may abort connections**: deliberate trade-off for stricter fail behavior without false HTTP-status guarantees.
+---
 
-## Example configurations
+## 11) Production examples
 
-See:
+General (non test-path-specific) example configurations:
 
 - `docs/examples/phase4-minimal.conf`
 - `docs/examples/phase4-safe.conf`
 - `docs/examples/phase4-strict.conf`
 - `docs/examples/phase4-content-types.conf`
 
-## JSON log examples
+These use `http` / `server` / `location /` patterns and avoid `/phase4` as a production example path.
 
-`log_only` (for example `safe`):
+---
 
-```json
-{"event":"phase4_intervention","uri":"/phase4","method":"GET","response_status":200,"waf_status":403,"content_type":"text/html","header_sent":true,"mode":"safe","wanted_action":"deny","actual_action":"log_only","reason":"mode_safe","intervention":"...","rule_id":"910002"}
-```
+## 12) Test/demo behavior (explicitly separate)
 
-`connection_abort` (`strict`):
+Repository tests include `/phase4` endpoints, for example in:
 
-```json
-{"event":"phase4_intervention","uri":"/phase4","method":"GET","response_status":200,"waf_status":403,"content_type":"text/html","header_sent":true,"mode":"strict","wanted_action":"deny","actual_action":"connection_abort","reason":"headers_already_sent","intervention":"...","rule_id":"910003"}
-```
+- `tests/modsecurity.t`
+- `tests/modsecurity-proxy.t`
+- `tests/modsecurity-h2.t`
+- `tests/modsecurity-proxy-h2.t`
+- `tests/modsecurity-phase4-*.t`
 
-> Field values depend on the actual request and matched rule.
+Those paths are **test context**, not generic production guidance.
 
-## Limitations / known boundaries
+---
 
-- `phase:4` cannot **guarantee** that the desired block/redirect status still reaches the client as HTTP status.
-- When headers are already sent, only degraded handling is possible (`log_only` or `connection_abort`).
-- Content-type scoping is critical; out-of-scope responses are not hard-enforced.
+## 13) Known limits / no false promises
 
-## Operator guidance
+- `phase:4` cannot **guarantee** clean 301/302/401/403 delivery once headers are already sent.
+- For late interventions, only downgraded handling is possible (`log_only` or `connection_abort`).
+- `strict` is not “guaranteed block status”; it can mean connection termination.
 
-1. Do not treat `phase:4` as the sole hard access-control mechanism.
-2. Prefer earlier phases for hard block/redirect decisions.
-3. Enable and monitor `modsecurity_phase4_log`.
-4. Keep `modsecurity_phase4_content_types_file` narrowly scoped to sensitive MIME types.
-5. Use `strict` only if connection aborts are operationally acceptable.
+---
+
+## 14) Operator checklist
+
+1. Place hard block/redirect decisions in earlier phases whenever possible.
+2. Start with `safe` unless you have a clear need for `strict`.
+3. Use `strict` only when connection abort side effects are acceptable.
+4. Enable `modsecurity_phase4_log` and monitor `actual_action` + `reason` fields.
+5. Keep content-type scope narrow and review it regularly.
+

@@ -75,4 +75,9 @@ unlike($log, qr/Hello minimal|Hello safe|Hello strict/, 'no response body data i
 
 my @lines = grep { length $_ } split /\n/, $log;
 ok(@lines >= 1, 'phase4 log has one or more json lines');
-ok(!grep { $_ !~ /^\{.*\}\r?$/ } @lines, 'each log line is a single JSON object line');
+my @bad_lines = grep { $_ !~ /^\{.*\}\r?$/ } @lines;
+note('phase4.log lines=' . scalar(@lines));
+if (@bad_lines) {
+    diag('non-json-lines: ' . join(' || ', map { my $x = $_; $x =~ s/\r/\\r/g; $x } @bad_lines));
+}
+ok(scalar(@bad_lines) == 0, 'each log line is a single JSON object line');

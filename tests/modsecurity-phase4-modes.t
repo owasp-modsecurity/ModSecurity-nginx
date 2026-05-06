@@ -59,7 +59,7 @@ $t->write_file('/m', 'Hello minimal');
 $t->write_file('/s', 'Hello safe');
 $t->write_file('/x', 'Hello strict');
 $t->run();
-$t->plan(12);
+$t->plan(11);
 
 like(http_get('/m'), qr/Hello minimal/, 'minimal no fake deny');
 like(http_get('/s'), qr/Hello safe/, 'safe no fake deny');

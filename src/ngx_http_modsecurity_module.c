@@ -585,7 +585,7 @@ ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_mod
     ngx_file_info_t fi;
     u_char *buf, *p, *line, *end;
     ssize_t n;
-    if (ngx_file_info((char *)path->data, &fi) == NGX_FILE_ERROR) {
+    if (ngx_file_info(path->data, &fi) == NGX_FILE_ERROR) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno, "modsecurity_phase4_content_types_file \"%V\" stat() failed", path);
         return NGX_CONF_ERROR;
     }

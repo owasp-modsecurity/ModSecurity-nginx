@@ -329,7 +329,7 @@ ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *ds
     size_t i, extra = 0; u_char *d;
     if (src == NULL || src->data == NULL) { dst->len=0; dst->data=(u_char*)""; return; }
     for (i = 0; i < src->len; i++) if (src->data[i] < 0x20 || src->data[i] == '"' || src->data[i] == '\\') extra++;
-    dst->data = ngx_pnalloc(pool, src->len + extra + 1); if (dst->data == NULL) { dst->len=0; return; }
+    dst->data = ngx_pnalloc(pool, src->len + extra + 1); if (dst->data == NULL) { dst->len=0; dst->data=(u_char*)""; return; }
     d = dst->data;
     for (i = 0; i < src->len; i++) {
         u_char c = src->data[i];
@@ -354,7 +354,12 @@ ngx_http_modsecurity_extract_rule_id(ngx_pool_t *pool, ngx_str_t *intervention, 
             if (j > i + 4 && j < intervention->len && intervention->data[j] == '"') {
                 rule_id->len = j - (i + 4);
                 rule_id->data = ngx_pnalloc(pool, rule_id->len);
-                if (rule_id->data != NULL) ngx_memcpy(rule_id->data, intervention->data + i + 4, rule_id->len);
+                if (rule_id->data == NULL) {
+                    rule_id->len = 0;
+                    rule_id->data = (u_char *)"";
+                    return;
+                }
+                ngx_memcpy(rule_id->data, intervention->data + i + 4, rule_id->len);
                 return;
             }
         }

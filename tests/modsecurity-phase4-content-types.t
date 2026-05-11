@@ -15,6 +15,9 @@ Application/JSON; charset=utf-8   # inline comment
 TEXT/HTML
 text/plain
 application/xml
+application/vnd.api+json
+application/problem+json
+application/x.custom_type
 CT
 
 $t->write_file_expand('nginx.conf', <<'EOC');
@@ -75,7 +78,7 @@ $t->write_file('/unknown', 'HIT UNKNOWN');
 $t->write_file('/emptytype', 'HIT EMPTY');
 
 $t->run();
-$t->plan(8);
+$t->plan(9);
 
 is(http_get('/json'), '', 'json in-scope + strict => abort after headers sent');
 like(http_get('/unknown'), qr/HIT UNKNOWN/, 'unknown content-type not in scope => no hard action');
@@ -87,3 +90,4 @@ like($log, qr/"actual_action":"connection_abort"/, 'strict in-scope abort logged
 like($log, qr/"reason":"content_type_not_in_scope"/, 'out-of-scope reason logged');
 like($log, qr/"event":"phase4_intervention"/, 'json lines event present');
 unlike($log, qr/HIT JSON|HIT UNKNOWN|HIT EMPTY/, 'no response body data in log');
+like($log, qr/"content_type":"application\/json"/, 'application/json remains valid');

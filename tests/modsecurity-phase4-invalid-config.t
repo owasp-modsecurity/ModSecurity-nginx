@@ -7,7 +7,7 @@ use Test::Nginx;
 
 # this test verifies parser rejects invalid entries/wildcards at config load
 my $t = Test::Nginx->new()->has(qw/http/);
-$t->write_file('phase4-invalid.conf', "text/*\napplication/json\ninvalid type\n");
+$t->write_file('phase4-invalid.conf', "text/*\n*/json\ntext/html bad\napplication/problem+json\n");
 
 $t->write_file_expand('nginx.conf', <<'EOC');
 %%TEST_GLOBALS%%

@@ -192,6 +192,15 @@ EOF
 			select undef, undef, undef, 0.1;
 			print $client 'AND-THIS';
 
+		} elsif ($uri =~ m{^/phase4\?what=(redirect301|redirect302|block401|block403)$}) {
+			print $client <<"EOF";
+HTTP/1.1 200 OK
+Content-Type: text/html
+Connection: close
+
+phase4 trigger
+EOF
+
 		} else {
 
 			print $client <<"EOF";

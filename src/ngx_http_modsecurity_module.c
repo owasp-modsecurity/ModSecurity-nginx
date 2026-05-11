@@ -545,13 +545,18 @@ ngx_conf_set_phase4_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_http_modsecurity_phase4_validate_content_type(u_char *s, size_t len)
 {
-    size_t i;
+    size_t i, slash = (size_t)-1;
     if (len == 0 || ngx_strchr(s, '*') != NULL) return NGX_ERROR;
     for (i = 0; i < len; i++) {
         u_char c = s[i];
-        if (!(isalnum((unsigned char)c) || c == '/' || c == '.' || c == '+' || c == '-' )) return NGX_ERROR;
+        if (c == '/') {
+            if (slash != (size_t)-1 || i == 0 || i + 1 >= len) return NGX_ERROR;
+            slash = i;
+            continue;
+        }
+        if (!(isalnum((unsigned char)c) || c == '-' || c == '.' || c == '_' || c == '+')) return NGX_ERROR;
     }
-    return (ngx_strchr(s, '/') != NULL) ? NGX_OK : NGX_ERROR;
+    return (slash != (size_t)-1) ? NGX_OK : NGX_ERROR;
 }
 
 static char *
@@ -580,7 +585,7 @@ ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_mod
     ngx_file_info_t fi;
     u_char *buf, *p, *line, *end;
     ssize_t n;
-    if (ngx_file_info((char *)path->data, &fi) == NGX_FILE_ERROR) {
+    if (ngx_file_info(path->data, &fi) == NGX_FILE_ERROR) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno, "modsecurity_phase4_content_types_file \"%V\" stat() failed", path);
         return NGX_CONF_ERROR;
     }

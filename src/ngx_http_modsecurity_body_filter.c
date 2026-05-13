@@ -254,7 +254,13 @@ static ngx_int_t
 ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurity_conf_t *mcf, const char *wanted, const char *actual, const char *reason)
 {
     u_char *p;
-    ngx_str_t euri, emethod, ect, elog, erule, raw_log, slog;
+    ngx_str_t euri;
+    ngx_str_t emethod;
+    ngx_str_t ect;
+    ngx_str_t elog;
+    ngx_str_t erule;
+    ngx_str_t raw_log;
+    ngx_str_t slog;
     const char *mode = "safe";
     const char *header_sent = r->header_sent ? "true" : "false";
     ngx_http_modsecurity_ctx_t *ctx = ngx_http_modsecurity_get_module_ctx(r);
@@ -365,20 +371,22 @@ ngx_http_modsecurity_extract_rule_id(ngx_pool_t *pool, ngx_str_t *intervention, 
     rule_id->len = 0;
     if (intervention == NULL || intervention->data == NULL) return;
     for (i = 0; i + 4 < intervention->len; i++) {
-        if (ngx_strncasecmp(intervention->data + i, (u_char *)"id \"", 4) == 0) {
-            size_t j = i + 4;
-            while (j < intervention->len && intervention->data[j] >= '0' && intervention->data[j] <= '9') j++;
-            if (j > i + 4 && j < intervention->len && intervention->data[j] == '"') {
-                rule_id->len = j - (i + 4);
-                rule_id->data = ngx_pnalloc(pool, rule_id->len);
-                if (rule_id->data == NULL) {
-                    rule_id->len = 0;
-                    rule_id->data = (u_char *)"";
-                    return;
-                }
-                ngx_memcpy(rule_id->data, intervention->data + i + 4, rule_id->len);
-                return;
-            }
+        size_t j;
+
+        if (ngx_strncasecmp(intervention->data + i, (u_char *)"id \"", 4) != 0) continue;
+
+        j = i + 4;
+        while (j < intervention->len && intervention->data[j] >= '0' && intervention->data[j] <= '9') j++;
+        if (j <= i + 4 || j >= intervention->len || intervention->data[j] != '"') continue;
+
+        rule_id->len = j - (i + 4);
+        rule_id->data = ngx_pnalloc(pool, rule_id->len);
+        if (rule_id->data == NULL) {
+            rule_id->len = 0;
+            rule_id->data = (u_char *)"";
+            return;
         }
+        ngx_memcpy(rule_id->data, intervention->data + i + 4, rule_id->len);
+        return;
     }
 }

@@ -343,6 +343,23 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          * r->request_body_in_single_buf = 1;
          */
         r->request_body_in_single_buf = 1;
+        /*
+         * SECURITY NOTE: request_body_in_persistent_file forces all request
+         * bodies to be written to disk as plaintext temporary files regardless
+         * of the client_body_buffer_size setting. Sensitive data in POST bodies
+         * (passwords, tokens, PII) will be written to the directory specified
+         * by client_body_temp_path (default: a prefix/client_body_temp).
+         *
+         * To reduce exposure, set client_body_temp_path to a tmpfs/ramfs mount
+         * in your nginx configuration, for example:
+         *   client_body_temp_path /dev/shm/nginx_body 1 2;
+         * Ensure that directory is mode 0700 owned by the nginx worker user.
+         *
+         * Additionally, set a strict client_body_buffer_size to limit the
+         * maximum size of data written to disk per request:
+         *   client_max_body_size 10m;
+         *   client_body_buffer_size 256k;
+         */
         r->request_body_in_persistent_file = 1;
         if (!r->request_body_in_file_only) {
             // If the above condition fails, then the flag below will have been

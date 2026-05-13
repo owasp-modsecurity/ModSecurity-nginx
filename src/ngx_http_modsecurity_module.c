@@ -545,7 +545,8 @@ ngx_conf_set_phase4_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 static ngx_int_t
 ngx_http_modsecurity_phase4_validate_content_type(u_char *s, size_t len)
 {
-    size_t i, slash = (size_t)-1;
+    size_t i;
+    size_t slash = (size_t)-1;
     if (len == 0 || ngx_strchr(s, '*') != NULL) return NGX_ERROR;
     for (i = 0; i < len; i++) {
         u_char c = s[i];
@@ -578,12 +579,69 @@ ngx_http_modsecurity_phase4_set_default_content_types(ngx_conf_t *cf, ngx_http_m
     return NGX_CONF_OK;
 }
 
+static ngx_int_t
+ngx_http_modsecurity_phase4_push_content_type(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf,
+    u_char *line, u_char *end, ngx_str_t *path)
+{
+    ngx_str_t *ct;
+
+    ngx_strlow(line, line, end - line);
+    if (ngx_http_modsecurity_phase4_validate_content_type(line, end - line) != NGX_OK) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid content-type entry in modsecurity_phase4_content_types_file \"%V\": \"%s\"", path, line);
+        return NGX_ERROR;
+    }
+
+    ct = ngx_array_push(mcf->phase4_content_types);
+    if (ct == NULL) {
+        return NGX_ERROR;
+    }
+    ct->len = end - line;
+    ct->data = ngx_pnalloc(cf->pool, ct->len);
+    if (ct->data == NULL) {
+        return NGX_ERROR;
+    }
+    ngx_memcpy(ct->data, line, ct->len);
+
+    return NGX_OK;
+}
+
+static void
+ngx_http_modsecurity_phase4_trim_line(u_char **line, u_char **end)
+{
+    while (*line < *end && isspace((unsigned char)**line)) {
+        (*line)++;
+    }
+
+    while (*end > *line && isspace((unsigned char)*((*end) - 1))) {
+        (*end)--;
+    }
+
+    **end = '\0';
+}
+
+static void
+ngx_http_modsecurity_phase4_strip_inline_comment(u_char *line)
+{
+    u_char *hash = (u_char *) ngx_strchr(line, '#');
+    u_char *semi = (u_char *) ngx_strchr(line, ';');
+
+    if (hash && (!semi || hash < semi)) {
+        *hash = '\0';
+    }
+    if (semi) {
+        *semi = '\0';
+    }
+}
+
 static char *
 ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf, ngx_str_t *path)
 {
     ngx_file_t file;
     ngx_file_info_t fi;
-    u_char *buf, *p, *line, *end;
+    u_char *buf;
+    u_char *p;
+    u_char *line;
+    u_char *end;
     ssize_t n;
     if (ngx_file_info(path->data, &fi) == NGX_FILE_ERROR) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno, "modsecurity_phase4_content_types_file \"%V\" stat() failed", path);
@@ -592,7 +650,8 @@ ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_mod
     buf = ngx_pnalloc(cf->pool, ngx_file_size(&fi) + 1);
     if (buf == NULL) return NGX_CONF_ERROR;
     ngx_memzero(&file, sizeof(file));
-    file.name = *path; file.log = cf->log;
+    file.name = *path;
+    file.log = cf->log;
     file.fd = ngx_open_file(path->data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
     if (file.fd == NGX_INVALID_FILE) return NGX_CONF_ERROR;
     n = ngx_read_file(&file, buf, ngx_file_size(&fi), 0);
@@ -603,27 +662,25 @@ ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_mod
     if (mcf->phase4_content_types == NULL) return NGX_CONF_ERROR;
     for (p = buf, line = buf; p <= buf + n; p++) {
         if (p == buf + n || *p == '\n' || *p == '\r') {
-            *p = '\0'; end = p;
-            while (line < end && isspace((unsigned char)*line)) line++;
-            while (end > line && isspace((unsigned char)*(end-1))) *(--end) = '\0';
-            if (line[0] && line[0] != '#') {
-                u_char *hash = (u_char *)ngx_strchr(line, '#');
-                u_char *semi = (u_char *)ngx_strchr(line, ';');
-                if (hash && (!semi || hash < semi)) *hash = '\0';
-                if (semi) *semi = '\0';
-                end = line + ngx_strlen(line);
-                while (end > line && isspace((unsigned char)*(end-1))) *(--end) = '\0';
-                ngx_strlow(line, line, end - line);
-                if (ngx_http_modsecurity_phase4_validate_content_type(line, end-line) != NGX_OK) {
-                    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid content-type entry in modsecurity_phase4_content_types_file \"%V\": \"%s\"", path, line);
-                    return NGX_CONF_ERROR;
-                }
-                ngx_str_t *ct = ngx_array_push(mcf->phase4_content_types);
-                if (ct == NULL) return NGX_CONF_ERROR;
-                ct->len = end - line;
-                ct->data = ngx_pnalloc(cf->pool, ct->len);
-                if (ct->data == NULL) return NGX_CONF_ERROR;
-                ngx_memcpy(ct->data, line, ct->len);
+            *p = '\0';
+            end = p;
+
+            ngx_http_modsecurity_phase4_trim_line(&line, &end);
+            if (line[0] == '\0' || line[0] == '#') {
+                line = p + 1;
+                continue;
+            }
+
+            ngx_http_modsecurity_phase4_strip_inline_comment(line);
+            end = line + ngx_strlen(line);
+            ngx_http_modsecurity_phase4_trim_line(&line, &end);
+            if (line[0] == '\0') {
+                line = p + 1;
+                continue;
+            }
+
+            if (ngx_http_modsecurity_phase4_push_content_type(cf, mcf, line, end, path) != NGX_OK) {
+                return NGX_CONF_ERROR;
             }
             line = p + 1;
         }

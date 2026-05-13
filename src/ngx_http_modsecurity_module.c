@@ -208,6 +208,10 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
         ngx_table_elt_t *location = NULL;
         location = ngx_list_push(&r->headers_out.headers);
+        if (location == NULL) {
+            free(intervention.url);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
         ngx_str_set(&location->key, "Location");
         location->value = a;
         r->headers_out.location = location;
@@ -217,6 +221,8 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         ngx_http_modsecurity_store_ctx_header(r, &location->key, &location->value);
 #endif
 
+        free(intervention.url);
+        intervention.url = NULL;
         return intervention.status;
     }
 

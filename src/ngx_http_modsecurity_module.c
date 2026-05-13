@@ -41,9 +41,25 @@ static void ngx_http_modsecurity_cleanup_rules(void *data);
 /*
  * PCRE malloc/free workaround, based on
  * https://github.com/openresty/lua-nginx-module/blob/master/src/ngx_http_lua_pcrefix.c
+ *
+ * WARNING: This workaround swaps the global pcre_malloc and pcre_free function
+ * pointers, which are process-global state in PCRE1. In a multi-threaded nginx
+ * configuration (e.g. using thread_pool directives), concurrent requests can
+ * race on these globals, resulting in memory allocated from one pool being freed
+ * via another pool, causing heap corruption.
+ *
+ * This block is compiled only when building against PCRE1 (not PCRE2).
+ * Building nginx with PCRE2 (--with-pcre2 or linking against libpcre2) avoids
+ * this issue entirely because PCRE2 does not use global allocator pointers.
+ * It is strongly recommended to build nginx with PCRE2 when using ModSecurity.
  */
 
 #if !(NGX_PCRE2)
+#if (NGX_THREADS)
+#warning "ModSecurity-nginx: building with PCRE1 and nginx thread pools enabled. \
+The PCRE1 global malloc/free pointer workaround is not thread-safe. \
+Build nginx with PCRE2 to eliminate this race condition."
+#endif
 static void *(*old_pcre_malloc)(size_t);
 static void (*old_pcre_free)(void *ptr);
 static ngx_pool_t *ngx_http_modsec_pcre_pool = NULL;

@@ -168,7 +168,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 /* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
         is_request_processed = chain->buf->last_buf;
 
-        if (is_request_processed) {
+        if (!is_request_processed) {
+            continue;
+        }
+
+        {
             ngx_pool_t *old_pool;
 
             old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);

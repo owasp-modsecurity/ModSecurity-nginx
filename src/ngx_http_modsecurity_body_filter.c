@@ -168,7 +168,11 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 /* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
         is_request_processed = chain->buf->last_buf;
 
-        if (is_request_processed) {
+        if (!is_request_processed) {
+            continue;
+        }
+
+        {
             ngx_pool_t *old_pool;
 
             old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
@@ -185,11 +189,12 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                 }
                 return ret;
             }
-            else if (ret < 0) {
+            if (ret < 0) {
                 ret = ngx_http_modsecurity_phase4_handle_intervention(r, mcf);
-                if (ret == NGX_ERROR) return NGX_ERROR;
+                if (ret == NGX_ERROR) {
+                    return NGX_ERROR;
+                }
                 return ngx_http_next_body_filter(r, in);
-
             }
         }
     }
@@ -286,7 +291,8 @@ ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurit
 static ngx_str_t
 ngx_http_modsecurity_normalize_content_type(ngx_pool_t *pool, ngx_str_t in)
 {
-    ngx_str_t out; size_t i;
+    ngx_str_t out;
+    size_t i;
     u_char *semi;
     out = in;
     if (out.data == NULL || out.len == 0) return out;
@@ -326,10 +332,21 @@ ngx_http_modsecurity_sanitize_intervention(ngx_pool_t *pool, ngx_str_t in)
 static void
 ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *dst)
 {
-    size_t i, extra = 0; u_char *d;
+    size_t i;
+    size_t extra = 0;
+    u_char *d;
     if (src == NULL || src->data == NULL) { dst->len=0; dst->data=(u_char*)""; return; }
-    for (i = 0; i < src->len; i++) if (src->data[i] < 0x20 || src->data[i] == '"' || src->data[i] == '\\') extra++;
-    dst->data = ngx_pnalloc(pool, src->len + extra + 1); if (dst->data == NULL) { dst->len=0; dst->data=(u_char*)""; return; }
+    for (i = 0; i < src->len; i++) {
+        if (src->data[i] < 0x20 || src->data[i] == '"' || src->data[i] == '\\') {
+            extra++;
+        }
+    }
+    dst->data = ngx_pnalloc(pool, src->len + extra + 1);
+    if (dst->data == NULL) {
+        dst->len = 0;
+        dst->data = (u_char *)"";
+        return;
+    }
     d = dst->data;
     for (i = 0; i < src->len; i++) {
         u_char c = src->data[i];

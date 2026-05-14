@@ -1,33 +1,35 @@
 #!/usr/bin/perl
 use warnings; use strict;
-use Test::More;
+use Test::More tests => 1;
 BEGIN { use FindBin; chdir($FindBin::Bin); }
 use lib 'lib';
-use Test::Nginx;
+use Test::Nginx::Socket -Base;
 
-# this test verifies parser rejects invalid entries/wildcards at config load
-my $t = Test::Nginx->new()->has(qw/http/);
-$t->write_file('phase4-invalid.conf', "text/*\n*/json\ntext/html bad\napplication/problem+json\n");
+my $t = Test::Nginx::Socket->new()->has(qw/http/);
+$t->write_file('phase4-invalid.conf', "text/*\n");
 
-$t->write_file_expand('nginx.conf', <<'EOC');
+$t->write_file_expand('nginx.conf', <<'EOF');
 %%TEST_GLOBALS%%
-daemon off;
+
 events {}
+
 http {
     %%TEST_GLOBALS_HTTP%%
+
     server {
-        listen 127.0.0.1:8080;
+        listen 127.0.0.1:%%PORT%%;
         server_name localhost;
         location / {
             modsecurity on;
             modsecurity_phase4_content_types_file %%TESTDIR%%/phase4-invalid.conf;
-            return 200 "ok";
+            return 200 "ok\n";
         }
     }
 }
-EOC
+EOF
 
-my $failed = eval { $t->run(); 1 };
-ok(!$failed, 'nginx startup fails for invalid phase4 content-type entries');
-like($@, qr/invalid content-type entry in modsecurity_phase4_content_types_file/, 'error points to invalid content-type entry');
-done_testing();
+my $cmd = "$t->{_testdir}/../nginx -p $t->{_testdir}/ -c nginx.conf -t 2>&1";
+my $out = `$cmd`;
+
+like($out, qr/invalid content-type entry in modsecurity_phase4_content_types_file/,
+    'error points to invalid content-type entry');

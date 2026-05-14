@@ -7,6 +7,8 @@ use Test::Nginx;
 
 my $t = Test::Nginx->new()->has(qw/http/);
 $t->write_file('phase4-invalid.conf', "text/*\n");
+mkdir($t->testdir() . '/logs') unless -d $t->testdir() . '/logs';
+$t->write_file('logs/error.log', '');
 
 $t->write_file_expand('nginx.conf', <<'EOF');
 %%TEST_GLOBALS%%
@@ -17,7 +19,7 @@ http {
     %%TEST_GLOBALS_HTTP%%
 
     server {
-        listen 127.0.0.1:%%PORT%%;
+        listen 127.0.0.1:19849;
         server_name localhost;
         location / {
             modsecurity on;

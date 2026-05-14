@@ -27,6 +27,7 @@ http {
 }
 EOC
 
-# Expected: nginx config test/start should fail with clear config error
-ok(1, 'manual verification test: start should fail for wildcard/invalid content-type entries');
+my $failed = eval { $t->run(); 1 };
+ok(!$failed, 'nginx startup fails for invalid phase4 content-type entries');
+like($@, qr/invalid content-type entry in modsecurity_phase4_content_types_file/, 'error points to invalid content-type entry');
 done_testing();

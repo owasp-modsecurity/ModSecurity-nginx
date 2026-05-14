@@ -212,21 +212,25 @@ ngx_http_modsecurity_phase4_handle_intervention(ngx_http_request_t *r, ngx_http_
 {
     ngx_http_modsecurity_ctx_t *ctx = ngx_http_modsecurity_get_module_ctx(r);
     ngx_int_t in_scope = ngx_http_modsecurity_phase4_in_scope(r);
+    const char *wanted = "deny";
+    if (ctx && ctx->last_intervention_status >= 300 && ctx->last_intervention_status < 400) {
+        wanted = "redirect";
+    }
     if (ctx && ctx->phase4_headers_checked) return NGX_OK;
     if (ctx) ctx->phase4_headers_checked = 1;
 
     if (in_scope == 0) {
-        ngx_http_modsecurity_phase4_log_event(r, mcf, "deny", "log_only", r->headers_out.content_type.len ? "content_type_not_in_scope" : "content_type_missing");
+        ngx_http_modsecurity_phase4_log_event(r, mcf, wanted, "log_only", r->headers_out.content_type.len ? "content_type_not_in_scope" : "content_type_missing");
         return NGX_OK;
     }
     if (mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_STRICT) {
-        ngx_http_modsecurity_phase4_log_event(r, mcf, "deny", "connection_abort", "headers_already_sent");
+        ngx_http_modsecurity_phase4_log_event(r, mcf, wanted, "connection_abort", "headers_already_sent");
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
             "modsecurity phase4 intervention after headers sent, action=connection_abort, uri=\"%V\"", &r->uri);
         r->connection->error = 1;
         return NGX_ERROR;
     }
-    ngx_http_modsecurity_phase4_log_event(r, mcf, "deny", "log_only",
+    ngx_http_modsecurity_phase4_log_event(r, mcf, wanted, "log_only",
         mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_MINIMAL ? "mode_minimal" : "mode_safe");
     return NGX_OK;
 }
@@ -290,7 +294,12 @@ ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurit
     p = ngx_snprintf(dbuf, need,
         "{\"event\":\"phase4_intervention\",\"uri\":\"%V\",\"method\":\"%V\",\"response_status\":%ui,\"waf_status\":%i,\"content_type\":\"%V\",\"header_sent\":%s,\"mode\":\"%s\",\"wanted_action\":\"%s\",\"actual_action\":\"%s\",\"reason\":\"%s\",\"intervention\":\"%V\",\"rule_id\":\"%V\"}\n",
         &euri,&emethod,(ngx_uint_t)r->headers_out.status,ctx ? (int) ctx->last_intervention_status : 0,&ect,header_sent,mode,wanted,actual,reason,&elog,&erule);
-    ngx_write_fd(mcf->phase4_log_file->fd, dbuf, p - dbuf);
+    ssize_t n = ngx_write_fd(mcf->phase4_log_file->fd, dbuf, p - dbuf);
+    if (n < 0 || (size_t) n != (size_t) (p - dbuf)) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, ngx_errno,
+            "modsecurity phase4 log write failed");
+        return NGX_ERROR;
+    }
     return NGX_OK;
 }
 

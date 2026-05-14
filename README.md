@@ -45,7 +45,7 @@ Further information about nginx third-party add-ons support are available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds four new directives and they are:
+It adds eight directives and they are:
 
 modsecurity
 -----------
@@ -174,6 +174,31 @@ be able to find correlations between access log and error log entries
 using the same unique identificator.
 
 String can contain variables.
+
+
+modsecurity_phase4_mode
+------------------------
+**syntax:** *modsecurity_phase4_mode minimal | safe | strict*
+
+**context:** *http, server, location*
+
+Controls how phase 4 interventions are handled when response headers were already sent.
+
+modsecurity_phase4_content_types_file
+--------------------------------------
+**syntax:** *modsecurity_phase4_content_types_file &lt;path&gt;*
+
+**context:** *http, server, location*
+
+Loads the list of response content types that are in scope for phase 4 handling from a file.
+
+modsecurity_phase4_log
+----------------------
+**syntax:** *modsecurity_phase4_log &lt;path&gt;*
+
+**context:** *http, server, location*
+
+Sets the file used for phase 4 JSON event logging.
 
 modsecurity_use_error_log
 -----------

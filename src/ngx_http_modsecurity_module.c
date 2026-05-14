@@ -46,10 +46,12 @@ static void ngx_http_modsecurity_cleanup_rules(void *data);
 static ngx_http_variable_t ngx_http_modsecurity_vars[] = {
 
     { ngx_string("modsecurity_intervention"), NULL,
-      ngx_http_modsecurity_intervention_variable, 0, 0, 0 },
+      ngx_http_modsecurity_intervention_variable,
+      0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
     { ngx_string("modsecurity_triggered_rules"), NULL,
-      ngx_http_modsecurity_triggered_rules_variable, 0, 0, 0 },
+      ngx_http_modsecurity_triggered_rules_variable,
+      0, NGX_HTTP_VAR_NOCACHEABLE, 0 },
 
     ngx_http_null_variable
 };
@@ -592,15 +594,11 @@ ngx_http_modsecurity_intervention_variable(ngx_http_request_t *r,
     static u_char                one  = '1';
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
-    if (ctx == NULL) {
-        v->not_found = 1;
-        return NGX_OK;
-    }
 
-    v->data = ctx->intervention_triggered ? &one : &zero;
+    v->data = (ctx != NULL && ctx->intervention_triggered) ? &one : &zero;
     v->len = 1;
     v->valid = 1;
-    v->no_cacheable = 0;
+    v->no_cacheable = 1;
     v->not_found = 0;
 
     return NGX_OK;
@@ -629,6 +627,11 @@ ngx_http_modsecurity_triggered_rules_variable(ngx_http_request_t *r,
     if (size == 0) {
         v->not_found = 1;
         return NGX_OK;
+    }
+
+    /* Overflow check */
+    if (size > ((size_t) -1) / (NGX_INT64_LEN + 1)) {
+        return NGX_ERROR;
     }
 
     ids = ngx_pnalloc(r->pool, size * sizeof(int64_t));
@@ -662,7 +665,7 @@ ngx_http_modsecurity_triggered_rules_variable(ngx_http_request_t *r,
     v->data = buf;
     v->len = p - buf;
     v->valid = 1;
-    v->no_cacheable = 0;
+    v->no_cacheable = 1;
     v->not_found = 0;
 
     return NGX_OK;

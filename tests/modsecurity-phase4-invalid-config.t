@@ -3,9 +3,9 @@ use warnings; use strict;
 use Test::More tests => 1;
 BEGIN { use FindBin; chdir($FindBin::Bin); }
 use lib 'lib';
-use Test::Nginx::Socket -Base;
+use Test::Nginx;
 
-my $t = Test::Nginx::Socket->new()->has(qw/http/);
+my $t = Test::Nginx->new()->has(qw/http/);
 $t->write_file('phase4-invalid.conf', "text/*\n");
 
 $t->write_file_expand('nginx.conf', <<'EOF');
@@ -28,7 +28,8 @@ http {
 }
 EOF
 
-my $cmd = "$t->{_testdir}/../nginx -p $t->{_testdir}/ -c nginx.conf -t 2>&1";
+my $cmd = $ENV{TEST_NGINX_BINARY} || ($t->testdir() . '/../nginx');
+$cmd .= " -p " . $t->testdir() . "/ -c nginx.conf -t 2>&1";
 my $out = `$cmd`;
 
 like($out, qr/invalid content-type entry in modsecurity_phase4_content_types_file/,

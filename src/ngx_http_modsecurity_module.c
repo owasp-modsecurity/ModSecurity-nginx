@@ -174,7 +174,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    if (mcf->phase4_log_file != NULL && intervention.log != NULL) {
+    if (mcf->phase4_log_file != NULL && r->header_sent && intervention.log != NULL) {
         size_t l = ngx_strlen(intervention.log);
         u_char *cp = ngx_pnalloc(r->pool, l + 1);
         if (cp != NULL) {

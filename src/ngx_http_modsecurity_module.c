@@ -44,11 +44,6 @@ static char *ngx_http_modsecurity_phase4_set_default_content_types(ngx_conf_t *c
 static char *ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf, ngx_str_t *path);
 static ngx_int_t ngx_http_modsecurity_phase4_validate_content_type(u_char *s, size_t len);
 
-#define NGX_HTTP_MODSEC_PHASE4_MODE_MINIMAL 0
-#define NGX_HTTP_MODSEC_PHASE4_MODE_SAFE 1
-#define NGX_HTTP_MODSEC_PHASE4_MODE_STRICT 2
-
-
 /*
  * PCRE malloc/free workaround, based on
  * https://github.com/openresty/lua-nginx-module/blob/master/src/ngx_http_lua_pcrefix.c
@@ -174,7 +169,12 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     ctx->last_intervention_status = intervention.status;
     ctx->last_intervention_log.len = 0;
     ctx->last_intervention_log.data = NULL;
-    if (intervention.log != NULL) {
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    if (mcf == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    if (mcf->phase4_log_file != NULL && r->header_sent && intervention.log != NULL) {
         size_t l = ngx_strlen(intervention.log);
         u_char *cp = ngx_pnalloc(r->pool, l + 1);
         if (cp != NULL) {
@@ -182,17 +182,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
             cp[l] = '\0';
             ctx->last_intervention_log.data = cp;
             ctx->last_intervention_log.len = l;
-        } else {
-            if (intervention.log != NULL) {
-                free(intervention.log);
-            }
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-    }
-
-    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (mcf == NULL) {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
     // logging to nginx error log can be disable by setting `modsecurity_use_error_log` to off
@@ -653,7 +643,10 @@ ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_mod
     file.name = *path;
     file.log = cf->log;
     file.fd = ngx_open_file(path->data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
-    if (file.fd == NGX_INVALID_FILE) return NGX_CONF_ERROR;
+    if (file.fd == NGX_INVALID_FILE) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno, "modsecurity_phase4_content_types_file \"%V\" open() failed", path);
+        return NGX_CONF_ERROR;
+    }
     n = ngx_read_file(&file, buf, ngx_file_size(&fi), 0);
     ngx_close_file(file.fd);
     if (n < 0) return NGX_CONF_ERROR;

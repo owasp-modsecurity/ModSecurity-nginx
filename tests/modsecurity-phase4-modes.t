@@ -67,7 +67,7 @@ is(http_get('/x'), '', 'strict abort after headers sent');
 
 my $log = $t->read_file('phase4.log');
 like($log, qr/"actual_action":"log_only"/, 'log_only present');
-like($log, qr/"reason":"mode_safe"|"reason":"headers_already_sent"/, 'safe reason present');
+like($log, qr/"reason":"mode_safe"/, 'safe reason present');
 like($log, qr/"actual_action":"connection_abort"/, 'strict action logged');
 like($log, qr/"event":"phase4_intervention"/, 'event field present');
 like($log, qr/"header_sent":true/, 'json boolean header_sent');

@@ -85,7 +85,7 @@ like(http_get('/unknown'), qr/HIT UNKNOWN/, 'unknown content-type not in scope =
 like(http_get('/emptytype'), qr/HIT EMPTY/, 'empty content-type => no hard action');
 
 my $log = $t->read_file('phase4-content-types.log');
-like($log, qr/"content_type":"application\/json"|"content_type":"application\/json"/, 'json content type logged');
+like($log, qr/"content_type":"application\/json"/, 'json content type logged');
 like($log, qr/"actual_action":"connection_abort"/, 'strict in-scope abort logged');
 like($log, qr/"reason":"content_type_not_in_scope"/, 'out-of-scope reason logged');
 like($log, qr/"event":"phase4_intervention"/, 'json lines event present');

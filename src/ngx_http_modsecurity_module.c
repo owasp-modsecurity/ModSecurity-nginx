@@ -22,6 +22,7 @@
 
 #include "ngx_http_modsecurity_common.h"
 #include "stdio.h"
+#include <ctype.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
 
@@ -36,7 +37,12 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
-
+static char *ngx_conf_set_phase4_mode(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_conf_set_phase4_content_types_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_conf_set_phase4_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_http_modsecurity_phase4_set_default_content_types(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf);
+static char *ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf, ngx_str_t *path);
+static ngx_int_t ngx_http_modsecurity_phase4_validate_content_type(u_char *s, size_t len);
 
 /*
  * PCRE malloc/free workaround, based on
@@ -160,10 +166,23 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         dd("nothing to do");
         return 0;
     }
-
+    ctx->last_intervention_status = intervention.status;
+    ctx->last_intervention_log.len = 0;
+    ctx->last_intervention_log.data = NULL;
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    if (mcf->phase4_log_file != NULL && r->header_sent && intervention.log != NULL) {
+        size_t l = ngx_strlen(intervention.log);
+        u_char *cp = ngx_pnalloc(r->pool, l + 1);
+        if (cp != NULL) {
+            ngx_memcpy(cp, intervention.log, l);
+            cp[l] = '\0';
+            ctx->last_intervention_log.data = cp;
+            ctx->last_intervention_log.len = l;
+        }
     }
 
     // logging to nginx error log can be disable by setting `modsecurity_use_error_log` to off
@@ -479,6 +498,189 @@ char *ngx_conf_set_transaction_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
     return NGX_CONF_OK;
 }
 
+static char *
+ngx_conf_set_phase4_mode(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_modsecurity_conf_t *mcf = conf;
+    ngx_str_t *value = cf->args->elts;
+    if (ngx_strcmp(value[1].data, "minimal") == 0) mcf->phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_MINIMAL;
+    else if (ngx_strcmp(value[1].data, "safe") == 0) mcf->phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_SAFE;
+    else if (ngx_strcmp(value[1].data, "strict") == 0) mcf->phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_STRICT;
+    else return "invalid value for modsecurity_phase4_mode (expected minimal|safe|strict)";
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_conf_set_phase4_content_types_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_modsecurity_conf_t *mcf = conf;
+    ngx_str_t *value = cf->args->elts;
+    mcf->phase4_content_types_file = value[1];
+    return ngx_http_modsecurity_phase4_load_content_types_file(cf, mcf, &value[1]);
+}
+
+static char *
+ngx_conf_set_phase4_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_modsecurity_conf_t *mcf = conf;
+    ngx_str_t *value = cf->args->elts;
+    mcf->phase4_log_path = value[1];
+    mcf->phase4_log_file = ngx_conf_open_file(cf->cycle, &mcf->phase4_log_path);
+    if (mcf->phase4_log_file == NULL) {
+        return NGX_CONF_ERROR;
+    }
+    return NGX_CONF_OK;
+}
+
+static ngx_int_t
+ngx_http_modsecurity_phase4_validate_content_type(u_char *s, size_t len)
+{
+    size_t i;
+    size_t slash = (size_t)-1;
+    if (len == 0 || ngx_strchr(s, '*') != NULL) return NGX_ERROR;
+    for (i = 0; i < len; i++) {
+        u_char c = s[i];
+        if (c == '/') {
+            if (slash != (size_t)-1 || i == 0 || i + 1 >= len) return NGX_ERROR;
+            slash = i;
+            continue;
+        }
+        if (!(isalnum((unsigned char)c) || c == '-' || c == '.' || c == '_' || c == '+')) return NGX_ERROR;
+    }
+    return (slash != (size_t)-1) ? NGX_OK : NGX_ERROR;
+}
+
+static char *
+ngx_http_modsecurity_phase4_set_default_content_types(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf)
+{
+    static const char *defs[] = {"text/html","text/plain","application/json","application/xml","text/xml","application/xhtml+xml"};
+    ngx_uint_t i;
+    if (mcf->phase4_content_types != NULL) return NGX_CONF_OK;
+    mcf->phase4_content_types = ngx_array_create(cf->pool, 6, sizeof(ngx_str_t));
+    if (mcf->phase4_content_types == NULL) return NGX_CONF_ERROR;
+    for (i = 0; i < 6; i++) {
+        ngx_str_t *ct = ngx_array_push(mcf->phase4_content_types);
+        if (ct == NULL) return NGX_CONF_ERROR;
+        ct->len = ngx_strlen(defs[i]);
+        ct->data = ngx_pnalloc(cf->pool, ct->len);
+        if (ct->data == NULL) return NGX_CONF_ERROR;
+        ngx_memcpy(ct->data, defs[i], ct->len);
+    }
+    return NGX_CONF_OK;
+}
+
+static ngx_int_t
+ngx_http_modsecurity_phase4_push_content_type(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf,
+    u_char *line, u_char *end, ngx_str_t *path)
+{
+    ngx_str_t *ct;
+
+    ngx_strlow(line, line, end - line);
+    if (ngx_http_modsecurity_phase4_validate_content_type(line, end - line) != NGX_OK) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0, "invalid content-type entry in modsecurity_phase4_content_types_file \"%V\": \"%s\"", path, line);
+        return NGX_ERROR;
+    }
+
+    ct = ngx_array_push(mcf->phase4_content_types);
+    if (ct == NULL) {
+        return NGX_ERROR;
+    }
+    ct->len = end - line;
+    ct->data = ngx_pnalloc(cf->pool, ct->len);
+    if (ct->data == NULL) {
+        return NGX_ERROR;
+    }
+    ngx_memcpy(ct->data, line, ct->len);
+
+    return NGX_OK;
+}
+
+static void
+ngx_http_modsecurity_phase4_trim_line(u_char **line, u_char **end)
+{
+    while (*line < *end && isspace((unsigned char)**line)) {
+        (*line)++;
+    }
+
+    while (*end > *line && isspace((unsigned char)*((*end) - 1))) {
+        (*end)--;
+    }
+
+    **end = '\0';
+}
+
+static void
+ngx_http_modsecurity_phase4_strip_inline_comment(u_char *line)
+{
+    u_char *hash = (u_char *) ngx_strchr(line, '#');
+    u_char *semi = (u_char *) ngx_strchr(line, ';');
+
+    if (hash && (!semi || hash < semi)) {
+        *hash = '\0';
+    }
+    if (semi) {
+        *semi = '\0';
+    }
+}
+
+static char *
+ngx_http_modsecurity_phase4_load_content_types_file(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf, ngx_str_t *path)
+{
+    ngx_file_t file;
+    ngx_file_info_t fi;
+    u_char *buf;
+    u_char *p;
+    u_char *line;
+    u_char *end;
+    ssize_t n;
+    if (ngx_file_info(path->data, &fi) == NGX_FILE_ERROR) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno, "modsecurity_phase4_content_types_file \"%V\" stat() failed", path);
+        return NGX_CONF_ERROR;
+    }
+    buf = ngx_pnalloc(cf->pool, ngx_file_size(&fi) + 1);
+    if (buf == NULL) return NGX_CONF_ERROR;
+    ngx_memzero(&file, sizeof(file));
+    file.name = *path;
+    file.log = cf->log;
+    file.fd = ngx_open_file(path->data, NGX_FILE_RDONLY, NGX_FILE_OPEN, 0);
+    if (file.fd == NGX_INVALID_FILE) {
+        ngx_conf_log_error(NGX_LOG_EMERG, cf, ngx_errno, "modsecurity_phase4_content_types_file \"%V\" open() failed", path);
+        return NGX_CONF_ERROR;
+    }
+    n = ngx_read_file(&file, buf, ngx_file_size(&fi), 0);
+    ngx_close_file(file.fd);
+    if (n < 0) return NGX_CONF_ERROR;
+    buf[n] = '\0';
+    mcf->phase4_content_types = ngx_array_create(cf->pool, 8, sizeof(ngx_str_t));
+    if (mcf->phase4_content_types == NULL) return NGX_CONF_ERROR;
+    for (p = buf, line = buf; p <= buf + n; p++) {
+        if (p == buf + n || *p == '\n' || *p == '\r') {
+            *p = '\0';
+            end = p;
+
+            ngx_http_modsecurity_phase4_trim_line(&line, &end);
+            if (line[0] == '\0' || line[0] == '#') {
+                line = p + 1;
+                continue;
+            }
+
+            ngx_http_modsecurity_phase4_strip_inline_comment(line);
+            end = line + ngx_strlen(line);
+            ngx_http_modsecurity_phase4_trim_line(&line, &end);
+            if (line[0] == '\0') {
+                line = p + 1;
+                continue;
+            }
+
+            if (ngx_http_modsecurity_phase4_push_content_type(cf, mcf, line, end, path) != NGX_OK) {
+                return NGX_CONF_ERROR;
+            }
+            line = p + 1;
+        }
+    }
+    return NGX_CONF_OK;
+}
+
 
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
@@ -517,6 +719,30 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     ngx_string("modsecurity_transaction_id"),
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_1MORE,
     ngx_conf_set_transaction_id,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_phase4_mode"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_phase4_mode,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_phase4_content_types_file"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_phase4_content_types_file,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_phase4_log"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_phase4_log,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
     NULL
@@ -724,6 +950,13 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
     conf->use_error_log = NGX_CONF_UNSET;
+    conf->phase4_mode = NGX_CONF_UNSET_UINT;
+    conf->phase4_content_types = NULL;
+    conf->phase4_content_types_file.len = 0;
+    conf->phase4_content_types_file.data = NULL;
+    conf->phase4_log_file = NULL;
+    conf->phase4_log_path.len = 0;
+    conf->phase4_log_path.data = NULL;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -764,6 +997,9 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
     ngx_conf_merge_value(c->use_error_log, p->use_error_log, 1);
+    ngx_conf_merge_uint_value(c->phase4_mode, p->phase4_mode, NGX_HTTP_MODSEC_PHASE4_MODE_SAFE);
+    ngx_conf_merge_ptr_value(c->phase4_log_file, p->phase4_log_file, NULL);
+    ngx_conf_merge_ptr_value(c->phase4_content_types, p->phase4_content_types, NULL);
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif
@@ -784,6 +1020,9 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     dd("NEW CHILD RULES");
     msc_rules_dump(c->rules_set);
 #endif
+    if (c->phase4_content_types == NULL) {
+        return ngx_http_modsecurity_phase4_set_default_content_types(cf, c);
+    }
     return NGX_CONF_OK;
 }
 

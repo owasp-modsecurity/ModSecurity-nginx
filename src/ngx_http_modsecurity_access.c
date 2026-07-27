@@ -182,6 +182,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             ctx->intervention_triggered = 1;
             return ret;
         }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
 
         const char *http_version;
         switch (r->http_version) {
@@ -230,6 +234,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
+        }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
         /**
@@ -282,6 +290,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
+        }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
     }
 
@@ -403,7 +415,13 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             dd("request body inspection: file -- %s", file_name);
 
-            msc_request_body_from_file(ctx->modsec_transaction, file_name);
+            if (msc_request_body_from_file(ctx->modsec_transaction, file_name) != 1) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ModSecurity: failed to submit file-buffered request "
+                    "body for inspection");
+                ctx->intervention_triggered = 1;
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
 
             already_inspected = 1;
         } else {
@@ -414,8 +432,15 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         {
             u_char *data = chain->buf->pos;
 
-            msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->last - data);
+            if (msc_append_request_body(ctx->modsec_transaction, data,
+                chain->buf->last - data) != 1)
+            {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ModSecurity: failed to append request body chunk "
+                    "for inspection");
+                ctx->intervention_triggered = 1;
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            }
 
             if (chain->buf->last_buf) {
                 break;
@@ -431,7 +456,12 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
             if (ret > 0) {
+                ctx->intervention_triggered = 1;
                 return ret;
+            }
+            else if (ret < 0) {
+                ctx->intervention_triggered = 1;
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
         }
 
@@ -445,16 +475,28 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 /* XXX: once more -- is body can be modified ?  content-length need to be adjusted ? */
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_request_body(ctx->modsec_transaction);
-        ctx->request_body_processed = 1;
+        ret = msc_process_request_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        ctx->request_body_processed = 1;
+
+        if (ret != 1) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: request body phase processing failed");
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
         if (r->error_page) {
             return NGX_DECLINED;
             }
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
+        }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
     }
 

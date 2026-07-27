@@ -174,6 +174,16 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                     &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
 
             }
+
+            /*
+             * msc_process_response_body() is a one-shot finalize. A filter
+             * upstream of us (sub_filter, gzip, ...) may append a trailing
+             * buffer after the last_buf link in the same chain; without this
+             * break we'd loop into it and call msc_append_response_body()
+             * again on an already-finalized transaction. The full chain is
+             * still forwarded below regardless of where we stop inspecting.
+             */
+            break;
         }
     }
     if (!is_request_processed)

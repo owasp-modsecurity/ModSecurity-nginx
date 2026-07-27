@@ -321,11 +321,16 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
             ngx_http_modsecurity_store_ctx_header(r, &name2, &value);
 #endif
 
-            msc_add_n_response_header(ctx->modsec_transaction,
+            if (msc_add_n_response_header(ctx->modsec_transaction,
                 (const unsigned char *) name2.data,
                 name2.len,
                 (const unsigned char *) value.data,
-                value.len);
+                value.len) != 1)
+            {
+                ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                    "ModSecurity: failed to add response header "
+                    "\"%V\" for inspection", &name2);
+            }
         }
     } else {
         connection = "close";
@@ -475,9 +480,15 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             (int) ngx_http_modsecurity_headers_out[i].name.len,
             ngx_http_modsecurity_headers_out[i].name.data);
 
-                ngx_http_modsecurity_headers_out[i].resolver(r,
+                if (ngx_http_modsecurity_headers_out[i].resolver(r,
                     ngx_http_modsecurity_headers_out[i].name,
-                    ngx_http_modsecurity_headers_out[i].offset);
+                    ngx_http_modsecurity_headers_out[i].offset) != 1)
+                {
+                    ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                        "ModSecurity: failed to add response header "
+                        "\"%V\" for inspection",
+                        &ngx_http_modsecurity_headers_out[i].name);
+                }
     }
 
     for (i = 0 ;; i++)
@@ -500,11 +511,16 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         /*
          * Doing this ugly cast here, explanation on the request_header
          */
-        msc_add_n_response_header(ctx->modsec_transaction,
+        if (msc_add_n_response_header(ctx->modsec_transaction,
             (const unsigned char *) data[i].key.data,
             data[i].key.len,
             (const unsigned char *) data[i].value.data,
-            data[i].value.len);
+            data[i].value.len) != 1)
+        {
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                "ModSecurity: failed to add response header \"%V\" "
+                "for inspection", &data[i].key);
+        }
     }
 
     /* prepare extra paramters for msc_process_response_headers() */

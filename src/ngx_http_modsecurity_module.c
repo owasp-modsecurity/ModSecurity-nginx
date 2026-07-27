@@ -201,6 +201,23 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
          *
          */
         ngx_http_clear_location(r);
+
+        /*
+         * The response being replaced by this redirect may already carry
+         * entity headers describing the body we are discarding. A body-less
+         * redirect must not advertise them (RFC 9110 SS15.4 / SS8.3-8.8).
+         */
+        ngx_http_clear_content_length(r);
+        ngx_http_clear_last_modified(r);
+        ngx_http_clear_etag(r);
+        ngx_http_clear_accept_ranges(r);
+        ngx_str_null(&r->headers_out.content_type);
+        r->headers_out.content_type_len = 0;
+        if (r->headers_out.content_encoding) {
+            r->headers_out.content_encoding->hash = 0;
+            r->headers_out.content_encoding = NULL;
+        }
+
         ngx_str_t a = ngx_string("");
 
         a.data = (unsigned char *)intervention.url;
@@ -302,7 +319,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
+    cln = ngx_pool_cleanup_add(r->pool, 0);
     if (cln == NULL)
     {
         dd("failed to create the ModSecurity context cleanup");
@@ -515,7 +532,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_transaction_id"),
-    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_1MORE,
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_transaction_id,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,

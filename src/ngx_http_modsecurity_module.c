@@ -13,6 +13,8 @@
  *
  */
 
+#include <ngx_config.h>
+
 #ifndef MODSECURITY_DDEBUG
 #define MODSECURITY_DDEBUG 0
 #endif
@@ -20,9 +22,12 @@
 
 #include "ngx_http_modsecurity_common.h"
 #include "stdio.h"
-#include <ngx_config.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
+
+#ifdef _MSC_VER
+#define strdup _strdup
+#endif
 
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
@@ -131,7 +136,7 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 }
 
 
-ngx_inline int
+int
 ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log)
 {
     char *log = NULL;
@@ -141,10 +146,11 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     intervention.log = NULL;
     intervention.disruptive = 0;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_http_modsecurity_conf_t  *mcf;
 
     dd("processing intervention");
 
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    ctx = ngx_http_modsecurity_get_module_ctx(r);
     if (ctx == NULL)
     {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
@@ -155,12 +161,19 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         return 0;
     }
 
-    log = intervention.log;
-    if (intervention.log == NULL) {
-        log = "(no log message was specified)";
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    if (mcf == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", log);
+    // logging to nginx error log can be disable by setting `modsecurity_use_error_log` to off
+    if (mcf->use_error_log) {
+        log = intervention.log;
+        if (intervention.log == NULL) {
+          log = "(no log message was specified)";
+        }
+        ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", log);
+    }
 
     if (intervention.log != NULL) {
         free(intervention.log);
@@ -254,7 +267,7 @@ ngx_http_modsecurity_cleanup(void *data)
 }
 
 
-ngx_inline ngx_http_modsecurity_ctx_t *
+ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
     ngx_str_t                          s;
@@ -314,6 +327,27 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     return ctx;
 }
 
+ngx_inline ngx_http_modsecurity_ctx_t *
+ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r)
+{
+    ngx_http_modsecurity_ctx_t *ctx;
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    if (ctx == NULL) {
+        /*
+         * refer <nginx>/src/http/modules/ngx_http_realip_module.c
+         * if module context was reset, the original address
+         * can still be found in the cleanup handler
+         */
+        ngx_pool_cleanup_t *cln;
+        for (cln = r->pool->cleanup; cln; cln = cln->next) {
+            if (cln->handler == ngx_http_modsecurity_cleanup) {
+                ctx = cln->data;
+                break;
+            }
+        }
+    }
+    return ctx;
+}
 
 char *
 ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
@@ -532,6 +566,14 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     0,
     NULL
   },
+  {
+    ngx_string("modsecurity_use_error_log"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
+    ngx_conf_set_flag_slot,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    offsetof(ngx_http_modsecurity_conf_t, use_error_log),
+    NULL
+  },
   ngx_null_command
 };
 
@@ -570,8 +612,7 @@ ngx_module_t ngx_http_modsecurity_module = {
 static ngx_int_t
 ngx_http_modsecurity_init(ngx_conf_t *cf)
 {
-    ngx_http_handler_pt *h_rewrite;
-    ngx_http_handler_pt *h_preaccess;
+    ngx_http_handler_pt *h_access;
     ngx_http_handler_pt *h_log;
     ngx_http_core_main_conf_t *cmcf;
     int rc = 0;
@@ -584,35 +625,19 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
     }
     /**
      *
-     * Seems like we cannot do this very same thing with
-     * NGX_HTTP_FIND_CONFIG_PHASE. it does not seems to
-     * be an array. Our next option is the REWRITE.
-     *
-     * TODO: check if we can hook prior to NGX_HTTP_REWRITE_PHASE phase.
+     * We want to process everything in the NGX_HTTP_ACCESS_PHASE because we need to allow 
+     * ngx_http_limit_*_module to run
      *
      */
-    h_rewrite = ngx_array_push(&cmcf->phases[NGX_HTTP_REWRITE_PHASE].handlers);
-    if (h_rewrite == NULL)
-    {
-        dd("Not able to create a new NGX_HTTP_REWRITE_PHASE handle");
-        return NGX_ERROR;
-    }
-    *h_rewrite = ngx_http_modsecurity_rewrite_handler;
 
-    /**
-     *
-     * Processing the request body on the preaccess phase.
-     *
-     * TODO: check if hook into separated phases is the best thing to do.
-     *
-     */
-    h_preaccess = ngx_array_push(&cmcf->phases[NGX_HTTP_PREACCESS_PHASE].handlers);
-    if (h_preaccess == NULL)
+    h_access = ngx_array_push(&cmcf->phases[NGX_HTTP_ACCESS_PHASE].handlers);
+    if (h_access == NULL)
     {
-        dd("Not able to create a new NGX_HTTP_PREACCESS_PHASE handle");
+        dd("Not able to create a new NGX_HTTP_ACCESS_PHASE handle");
         return NGX_ERROR;
     }
-    *h_preaccess = ngx_http_modsecurity_pre_access_handler;
+    *h_access = ngx_http_modsecurity_access_handler;
+
 
     /**
      * Process the log phase.
@@ -706,6 +731,9 @@ ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf)
                   "%s (rules loaded inline/local/remote: %ui/%ui/%ui)",
                   MODSECURITY_NGINX_WHOAMI, mmcf->rules_inline,
                   mmcf->rules_file, mmcf->rules_remote);
+    ngx_log_error(NGX_LOG_NOTICE, cf->log, 0,
+                  "libmodsecurity3 version %s.%s.%s",
+                  MODSECURITY_MAJOR, MODSECURITY_MINOR, MODSECURITY_PATCHLEVEL);
 
     return NGX_CONF_OK;
 }
@@ -738,6 +766,7 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->enable = NGX_CONF_UNSET;
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
+    conf->use_error_log = NGX_CONF_UNSET;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -768,6 +797,7 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
 
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
+    ngx_conf_merge_value(c->use_error_log, p->use_error_log, 1);
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif

@@ -10,9 +10,10 @@
 
 ngx_feature_name=
 ngx_feature_run=no
-ngx_feature_incs="#include <modsecurity/modsecurity.h>"
+ngx_feature_incs="#include <modsecurity/modsecurity.h>
+#include <stdio.h>"
 ngx_feature_libs="-lmodsecurity"
-ngx_feature_test='printf("hello");'
+ngx_feature_test='msc_init();'
 ngx_modsecurity_opt_I=
 ngx_modsecurity_opt_L=
 
@@ -31,12 +32,18 @@ if [ -n "$MODSECURITY_INC" -o -n "$MODSECURITY_LIB" ]; then
     ngx_modsecurity_opt_I="-I$MODSECURITY_INC"
     ngx_modsecurity_opt_L="-L$MODSECURITY_LIB $YAJL_EXTRA"
 
-    if [ $NGX_RPATH = YES ]; then
-        ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
-    elif [ "$NGX_IGNORE_RPATH" != "YES" -a $NGX_SYSTEM = "Linux" ]; then
-        ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
+    if [ "$NGX_CC_NAME" != msvc ]; then
+        if [ $NGX_RPATH = YES ]; then
+            ngx_feature_libs="-R$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
+        elif [ "$NGX_IGNORE_RPATH" != "YES" -a $NGX_SYSTEM = "Linux" ]; then
+            ngx_feature_libs="-Wl,-rpath,$MODSECURITY_LIB -L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
+        else
+            ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
+        fi
     else
-        ngx_feature_libs="-L$MODSECURITY_LIB -lmodsecurity $YAJL_EXTRA"
+        # Adjust link library arguments to work with MSVC C++ compiler and
+        # output of the Windows port of libModSecurity v3
+        ngx_feature_libs="$MODSECURITY_LIB/libModSecurity.lib $YAJL_EXTRA"
     fi
 
     . auto/feature
@@ -110,11 +117,10 @@ if test -n "$ngx_module_link"; then
 	ngx_module_type=HTTP_FILTER
 	ngx_module_name="$ngx_addon_name"
 	ngx_module_srcs="$ngx_addon_dir/src/ngx_http_modsecurity_module.c \
-            $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.c \
+            $ngx_addon_dir/src/ngx_http_modsecurity_access.c \
             $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.c \
             $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.c \
             $ngx_addon_dir/src/ngx_http_modsecurity_log.c \
-            $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.c \
             "
 	ngx_module_deps="$ngx_addon_dir/src/ddebug.h \
             $ngx_addon_dir/src/ngx_http_modsecurity_common.h \
@@ -141,11 +147,10 @@ else
 	NGX_ADDON_SRCS="\
 	    $NGX_ADDON_SRCS \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_module.c \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_pre_access.c \
+	    $ngx_addon_dir/src/ngx_http_modsecurity_access.c \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_header_filter.c \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_body_filter.c \
 	    $ngx_addon_dir/src/ngx_http_modsecurity_log.c \
-	    $ngx_addon_dir/src/ngx_http_modsecurity_rewrite.c \
 	    "
 
 	NGX_ADDON_DEPS="\

@@ -182,6 +182,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             ctx->intervention_triggered = 1;
             return ret;
         }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
 
         const char *http_version;
         switch (r->http_version) {
@@ -230,6 +234,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
+        }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
         /**
@@ -282,6 +290,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
+        }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
     }
 
@@ -403,6 +415,18 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             dd("request body inspection: file -- %s", file_name);
 
+            /*
+             * msc_request_body_from_file()/msc_append_request_body() return
+             * 0 not only on a genuine failure but also -- indistinguishably,
+             * from the caller's side -- whenever SecRequestBodyLimitAction
+             * is ProcessPartial and the body exceeds SecRequestBodyLimit:
+             * libmodsecurity deliberately truncates at the limit and
+             * reports it the same way (see Transaction::appendRequestBody(),
+             * which is what requestBodyFromFile() delegates to). That is
+             * normal, by-design behavior, not an inspection bypass -- the
+             * truncated content is still evaluated -- so it must not fail
+             * the request closed.
+             */
             msc_request_body_from_file(ctx->modsec_transaction, file_name);
 
             already_inspected = 1;
@@ -414,6 +438,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         {
             u_char *data = chain->buf->pos;
 
+            /* See the comment on msc_request_body_from_file() above: 0 here
+             * means either a real failure or (indistinguishably) a
+             * by-design ProcessPartial truncation, so it must not fail
+             * closed. */
             msc_append_request_body(ctx->modsec_transaction, data,
                 chain->buf->last - data);
 
@@ -431,7 +459,12 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
             if (ret > 0) {
+                ctx->intervention_triggered = 1;
                 return ret;
+            }
+            else if (ret < 0) {
+                ctx->intervention_triggered = 1;
+                return NGX_HTTP_INTERNAL_SERVER_ERROR;
             }
         }
 
@@ -445,16 +478,28 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 /* XXX: once more -- is body can be modified ?  content-length need to be adjusted ? */
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_request_body(ctx->modsec_transaction);
-        ctx->request_body_processed = 1;
+        ret = msc_process_request_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        ctx->request_body_processed = 1;
+
+        if (ret != 1) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: request body phase processing failed");
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
         if (r->error_page) {
             return NGX_DECLINED;
             }
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
+        }
+        else if (ret < 0) {
+            ctx->intervention_triggered = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
     }
 

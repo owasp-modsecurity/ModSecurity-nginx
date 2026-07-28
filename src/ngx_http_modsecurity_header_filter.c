@@ -157,10 +157,10 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
     if (r->headers_out.server == NULL) {
         if (clcf->server_tokens) {
             value.data = (u_char *)ngx_http_server_full_string;
-            value.len = sizeof(ngx_http_server_full_string);
+            value.len = sizeof(ngx_http_server_full_string) - 1;
         } else {
             value.data = (u_char *)ngx_http_server_string;
-            value.len = sizeof(ngx_http_server_string);
+            value.len = sizeof(ngx_http_server_string) - 1;
         }
     } else {
         ngx_table_elt_t *h = r->headers_out.server;
@@ -218,7 +218,7 @@ ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
-    if (r->headers_out.content_length_n > 0)
+    if (r->headers_out.content_length_n >= 0)
     {
         ngx_sprintf((u_char *)buf, "%O%Z", r->headers_out.content_length_n);
         value.data = (unsigned char *)buf;
@@ -303,6 +303,19 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
 
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     ctx = ngx_http_modsecurity_get_module_ctx(r);
+
+#if (NGX_HTTP_V2)
+    /*
+     * Connection and Keep-Alive are forbidden on HTTP/2 (RFC 9113 S8.2.2)
+     * and nginx never emits them on an h2 stream. Synthesizing them here
+     * would make the WAF inspect a header the client never actually
+     * receives, so a RESPONSE_HEADERS:Connection rule would false-positive
+     * on every HTTP/2 response.
+     */
+    if (r->stream) {
+        return 1;
+    }
+#endif
 
     if (r->headers_out.status == NGX_HTTP_SWITCHING_PROTOCOLS) {
         connection = "upgrade";
@@ -516,12 +529,18 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
     /*
      * NGINX always sends HTTP response with HTTP/1.1, except cases when
-     * HTTP V2 module is enabled, and request has been posted with HTTP/2.0.
+     * HTTP V2 module is enabled, and request has been posted with HTTP/2.0,
+     * or the request came in over HTTP/3.
      */
     http_response_ver = "HTTP 1.1";
 #if (NGX_HTTP_V2)
     if (r->stream) {
         http_response_ver = "HTTP 2.0";
+    }
+#endif
+#if defined(nginx_version) && nginx_version >= 1025000
+    if (r->http_version == NGX_HTTP_VERSION_30) {
+        http_response_ver = "HTTP 3.0";
     }
 #endif
 
@@ -533,6 +552,30 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
     if (ret > 0) {
+        if (r->headers_out.location != NULL) {
+            /*
+             * A redirect: process_intervention() already built the Location
+             * header (and cleared the stale entity headers describing the
+             * response we are discarding) directly on r->headers_out.
+             * ngx_http_filter_finalize_request() calls ngx_http_clean_header(),
+             * which memzeroes the *entire* headers_out struct -- Location
+             * included -- before nginx regenerates its own error page, which
+             * would silently drop the redirect. Forward the headers we
+             * already built through the normal chain instead.
+             *
+             * The original response body may already be in flight from the
+             * content handler; content_length_n = 0 and response_replaced
+             * tell the body filter to drop it rather than send it alongside
+             * this redirect.
+             */
+            ctx->intervention_triggered = 1;
+            ctx->response_replaced = 1;
+            r->headers_out.status = ret;
+            ngx_str_null(&r->headers_out.status_line);
+            r->headers_out.content_length_n = 0;
+            r->header_only = 1;
+            return ngx_http_next_header_filter(r);
+        }
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
     }
 

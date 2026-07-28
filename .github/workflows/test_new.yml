@@ -332,12 +332,26 @@ jobs:
       - name: Set up third-party libraries
         working-directory: nginx
         run: |
+          set -euo pipefail
           mkdir objs
           mkdir objs/lib
           cd objs/lib
-          wget -q -O - https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz | tar -xzf -
-          wget -q -O - https://www.zlib.net/fossils/zlib-1.3.2.tar.gz | tar -xzf -
-          wget -q -O - https://www.openssl.org/source/openssl-3.6.2.tar.gz | tar -xzf -
+          # Download to a file (with retries) before extracting, rather than
+          # piping straight into tar: a retried download restarts the
+          # response from byte 0, and a live pipe already mid-consumed by
+          # tar can't rewind -- it would just get a second copy of the file
+          # appended after the truncated first one, corrupting the archive.
+          # A file-based retry cleanly overwrites the previous attempt.
+          for url in \
+            https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz \
+            https://www.zlib.net/fossils/zlib-1.3.2.tar.gz \
+            https://www.openssl.org/source/openssl-3.6.2.tar.gz \
+          ; do
+            archive="$(basename "$url")"
+            wget --tries=3 --retry-connrefused --waitretry=5 -O "$archive" "$url"
+            tar -xzf "$archive"
+            rm "$archive"
+          done
       - name: Get libModSecurity source
         uses: actions/checkout@v6
         with:

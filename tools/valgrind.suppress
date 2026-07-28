@@ -1,0 +1,139 @@
+# Valgrind memcheck + helgrind suppressions for the ModSecurity-nginx soak
+# (tools/soak.sh).
+#
+# nginx core does some startup/event-loop work (cycle init, epoll, sock_ntop,
+# env, crc32 table) that memcheck flags as noise -- it's module-agnostic and
+# matches every nginx build, not something this connector controls.
+#
+# Keep this file small: only add an entry once you've confirmed via
+# --gen-suppressions=all that it is genuine third-party/nginx-core noise, not
+# something the connector or libmodsecurity should actually be freeing. A
+# real leak/race in ngx_http_modsecurity_* must still surface.
+#
+# Regenerate candidates with:
+#   USE_VALGRIND=1 tools/soak.sh <nginx-binary> 30 2
+#   valgrind --gen-suppressions=all ... (rerun interactively to capture)
+
+{
+   nginx-cycle-init-addr1
+   Memcheck:Addr1
+   fun:ngx_init_cycle
+   fun:ngx_master_process_cycle
+   fun:main
+}
+{
+   nginx-cycle-init-addr4
+   Memcheck:Addr4
+   fun:ngx_init_cycle
+   fun:ngx_master_process_cycle
+   fun:main
+}
+{
+   nginx-cycle-init-cond
+   Memcheck:Cond
+   fun:ngx_init_cycle
+   fun:ngx_master_process_cycle
+   fun:main
+}
+{
+   nginx-sock-ntop-cond
+   Memcheck:Cond
+   fun:ngx_vslprintf
+   fun:ngx_snprintf
+   fun:ngx_sock_ntop
+   ...
+}
+{
+   nginx-sock-ntop-addr1
+   Memcheck:Addr1
+   fun:ngx_vslprintf
+   fun:ngx_snprintf
+   fun:ngx_sock_ntop
+   ...
+}
+{
+   nginx-conf-flush
+   Memcheck:Cond
+   fun:ngx_conf_flush_files
+   ...
+}
+{
+   nginx-set-environment-leak
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_set_environment
+   ...
+}
+{
+   nginx-create-pool-leak
+   Memcheck:Leak
+   match-leak-kinds: definite
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_create_pool
+   fun:main
+}
+{
+   nginx-event-init-leak
+   Memcheck:Leak
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_event_process_init
+}
+{
+   nginx-crc32-table
+   Memcheck:Leak
+   match-leak-kinds: possible
+   fun:malloc
+   fun:ngx_alloc
+   fun:ngx_crc32_table_init
+   fun:main
+}
+{
+   nginx-epoll-pwait-sigmask
+   Memcheck:Param
+   epoll_pwait(sigmask)
+   fun:epoll_pwait
+   ...
+}
+{
+   nginx-epoll-ctl
+   Memcheck:Param
+   epoll_ctl(event)
+   fun:epoll_ctl
+   ...
+}
+
+# ---------------------------------------------------------------------------
+# libp11-kit (pulled in transitively via libcurl/openssl) does an invalid
+# pthread_mutex_destroy() in its own atexit handler during process exit --
+# confirmed via --gen-suppressions=all against this exact soak. Runtime/
+# third-party noise at process teardown, not something the connector or
+# nginx core controls.
+# ---------------------------------------------------------------------------
+{
+   libp11-kit-exit-mutex-destroy-worker
+   Helgrind:Misc
+   obj:*/vgpreload_helgrind*
+   obj:*/libp11-kit.so*
+   fun:_dl_call_fini
+   fun:_dl_fini
+   fun:__run_exit_handlers
+   fun:exit
+   fun:ngx_worker_process_exit
+   ...
+}
+{
+   libp11-kit-exit-mutex-destroy-master
+   Helgrind:Misc
+   obj:*/vgpreload_helgrind*
+   obj:*/libp11-kit.so*
+   fun:_dl_call_fini
+   fun:_dl_fini
+   fun:__run_exit_handlers
+   fun:exit
+   fun:ngx_master_process_exit
+   ...
+}

@@ -1,0 +1,29 @@
+# Valgrind memcheck/helgrind soak image for the ModSecurity-nginx connector.
+#
+# Kept separate from the main Dockerfile so the production-shaped build image
+# stays untouched; this just layers valgrind + curl + tools/soak.sh on top.
+#
+# Build (base image first, then this one):
+#   docker build -t modsec-nginx-test .
+#   docker build -f Dockerfile.fuzz -t modsec-nginx-soak .
+#
+# Run:
+#   docker run --rm --cap-add=SYS_PTRACE modsec-nginx-soak /usr/local/nginx/sbin/nginx 60 4
+#   docker run --rm -e USE_VALGRIND=1 --cap-add=SYS_PTRACE modsec-nginx-soak \
+#       /usr/local/nginx/sbin/nginx 120 8
+#   docker run --rm -e USE_HELGRIND=1 --cap-add=SYS_PTRACE modsec-nginx-soak \
+#       /usr/local/nginx/sbin/nginx 120 8
+#
+# See tools/soak.sh for what the soak actually does.
+
+ARG BASE_IMAGE=modsec-nginx-test
+FROM ${BASE_IMAGE}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends valgrind curl && \
+    rm -rf /var/lib/apt/lists/*
+
+COPY tools/soak.sh tools/valgrind.suppress /opt/soak/
+
+ENTRYPOINT ["/opt/soak/soak.sh"]
+CMD ["/usr/local/nginx/sbin/nginx"]

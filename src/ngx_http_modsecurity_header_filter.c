@@ -552,6 +552,30 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
     if (ret > 0) {
+        if (r->headers_out.location != NULL) {
+            /*
+             * A redirect: process_intervention() already built the Location
+             * header (and cleared the stale entity headers describing the
+             * response we are discarding) directly on r->headers_out.
+             * ngx_http_filter_finalize_request() calls ngx_http_clean_header(),
+             * which memzeroes the *entire* headers_out struct -- Location
+             * included -- before nginx regenerates its own error page, which
+             * would silently drop the redirect. Forward the headers we
+             * already built through the normal chain instead.
+             *
+             * The original response body may already be in flight from the
+             * content handler; content_length_n = 0 and response_replaced
+             * tell the body filter to drop it rather than send it alongside
+             * this redirect.
+             */
+            ctx->intervention_triggered = 1;
+            ctx->response_replaced = 1;
+            r->headers_out.status = ret;
+            ngx_str_null(&r->headers_out.status_line);
+            r->headers_out.content_length_n = 0;
+            r->header_only = 1;
+            return ngx_http_next_header_filter(r);
+        }
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
     }
 

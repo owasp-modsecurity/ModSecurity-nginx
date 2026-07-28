@@ -58,6 +58,25 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
+    if (ctx->response_replaced) {
+        /*
+         * The header filter already replaced this response with a
+         * WAF-triggered redirect after the original body started flowing
+         * from the content handler. Drop the original bytes -- they belong
+         * to a response we are no longer sending -- but keep forwarding the
+         * chain (last_buf/flush flags and all) so nginx still sees the
+         * response complete.
+         */
+        ngx_chain_t *cl;
+
+        for (cl = in; cl; cl = cl->next) {
+            cl->buf->pos = cl->buf->last;
+            cl->buf->in_file = 0;
+            cl->buf->file_last = cl->buf->file_pos;
+        }
+        return ngx_http_next_body_filter(r, in);
+    }
+
     if (ctx->intervention_triggered) {
         return ngx_http_next_body_filter(r, in);
     }

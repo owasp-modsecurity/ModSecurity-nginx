@@ -164,9 +164,21 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                 &ngx_http_modsecurity_module, ret);
         }
         else if (ret < 0) {
+            /*
+             * process_intervention() returns -1 specifically when
+             * r->header_sent is already true (it wanted to intervene but
+             * can't safely rewrite headers). By the time the body filter
+             * runs, header_sent is *always* true -- header_filter() already
+             * ran. ngx_http_filter_finalize_request() would call
+             * ngx_http_clean_header() and try to send a fresh status line
+             * and headers anyway, producing nginx's own "header already
+             * sent" alert and a truncated response instead of a clean
+             * abort. NGX_ERROR is the correct signal here: it triggers
+             * ngx_http_terminate_request(), which closes the connection
+             * without attempting to resend anything.
+             */
             ctx->intervention_triggered = 1;
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
+            return NGX_ERROR;
         }
 
 /* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
@@ -195,10 +207,9 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                 return ret;
             }
             else if (ret < 0) {
+                /* See the comment on the identical check above. */
                 ctx->intervention_triggered = 1;
-                return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
-
+                return NGX_ERROR;
             }
         }
     }

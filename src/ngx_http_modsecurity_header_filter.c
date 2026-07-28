@@ -537,9 +537,16 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
     }
     else if (ret < 0) {
+        /*
+         * process_intervention() returns -1 specifically when
+         * r->header_sent is already true. ngx_http_filter_finalize_request()
+         * would try to send a fresh status line and headers anyway via
+         * ngx_http_clean_header(), producing nginx's own "header already
+         * sent" alert. NGX_ERROR triggers ngx_http_terminate_request()
+         * instead, which just closes the connection.
+         */
         ctx->intervention_triggered = 1;
-        return ngx_http_filter_finalize_request(r,
-            &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return NGX_ERROR;
     }
 
     /*

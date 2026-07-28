@@ -415,13 +415,19 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             dd("request body inspection: file -- %s", file_name);
 
-            if (msc_request_body_from_file(ctx->modsec_transaction, file_name) != 1) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "ModSecurity: failed to submit file-buffered request "
-                    "body for inspection");
-                ctx->intervention_triggered = 1;
-                return NGX_HTTP_INTERNAL_SERVER_ERROR;
-            }
+            /*
+             * msc_request_body_from_file()/msc_append_request_body() return
+             * 0 not only on a genuine failure but also -- indistinguishably,
+             * from the caller's side -- whenever SecRequestBodyLimitAction
+             * is ProcessPartial and the body exceeds SecRequestBodyLimit:
+             * libmodsecurity deliberately truncates at the limit and
+             * reports it the same way (see Transaction::appendRequestBody(),
+             * which is what requestBodyFromFile() delegates to). That is
+             * normal, by-design behavior, not an inspection bypass -- the
+             * truncated content is still evaluated -- so it must not fail
+             * the request closed.
+             */
+            msc_request_body_from_file(ctx->modsec_transaction, file_name);
 
             already_inspected = 1;
         } else {
@@ -432,15 +438,12 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         {
             u_char *data = chain->buf->pos;
 
-            if (msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->last - data) != 1)
-            {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "ModSecurity: failed to append request body chunk "
-                    "for inspection");
-                ctx->intervention_triggered = 1;
-                return NGX_HTTP_INTERNAL_SERVER_ERROR;
-            }
+            /* See the comment on msc_request_body_from_file() above: 0 here
+             * means either a real failure or (indistinguishably) a
+             * by-design ProcessPartial truncation, so it must not fail
+             * closed. */
+            msc_append_request_body(ctx->modsec_transaction, data,
+                chain->buf->last - data);
 
             if (chain->buf->last_buf) {
                 break;

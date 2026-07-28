@@ -146,16 +146,20 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         u_char *data = chain->buf->pos;
         int ret;
 
-        if (msc_append_response_body(ctx->modsec_transaction, data,
-            chain->buf->last - data) != 1)
-        {
-            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                "ModSecurity: failed to append response body chunk "
-                "for inspection");
-            ctx->intervention_triggered = 1;
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
-        }
+        /*
+         * msc_append_response_body() returns 0 not only on a genuine
+         * failure but also -- indistinguishably, from the caller's side --
+         * whenever SecResponseBodyLimitAction is ProcessPartial and the
+         * body exceeds SecResponseBodyLimit: libmodsecurity deliberately
+         * truncates at the limit and reports it the same way (see
+         * Transaction::appendResponseBody(), whose own docstring is
+         * "@retval false Operation failed, process partial demanded"). That
+         * is normal, by-design behavior, not an inspection bypass -- the
+         * truncated content is still evaluated -- so it must not fail the
+         * request closed.
+         */
+        msc_append_response_body(ctx->modsec_transaction, data,
+            chain->buf->last - data);
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
         if (ret > 0) {

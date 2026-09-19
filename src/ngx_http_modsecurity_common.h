@@ -124,6 +124,8 @@ typedef struct {
 #endif
 
     ngx_http_complex_value_t  *transaction_id;
+    ngx_flag_t                 skip_req_body_filter;
+    ngx_flag_t                 skip_resp_body_filter;
 } ngx_http_modsecurity_conf_t;
 
 

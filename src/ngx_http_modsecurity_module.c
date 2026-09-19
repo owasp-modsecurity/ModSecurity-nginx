@@ -367,7 +367,7 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (res < 0) {
         dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
-        return strdup(error);
+        return (char *) ngx_pstrdup(cf->pool, &(ngx_str_t){ngx_strlen(error), (u_char *)error});
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -401,7 +401,7 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (res < 0) {
         dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
-        return strdup(error);
+        return (char *) ngx_pstrdup(cf->pool, &(ngx_str_t){ngx_strlen(error), (u_char *)error});
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -440,7 +440,7 @@ ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 
     if (res < 0) {
         dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
-        return strdup(error);
+        return (char *) ngx_pstrdup(cf->pool, &(ngx_str_t){ngx_strlen(error), (u_char *)error});
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -580,7 +580,7 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
     }
     /**
      *
-     * We want to process everything in the NGX_HTTP_ACCESS_PHASE because we need to allow 
+     * We want to process everything in the NGX_HTTP_ACCESS_PHASE because we need to allow
      * ngx_http_limit_*_module to run
      *
      */

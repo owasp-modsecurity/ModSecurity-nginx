@@ -186,6 +186,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");
+            free(intervention.url);
             return -1;
         }
 

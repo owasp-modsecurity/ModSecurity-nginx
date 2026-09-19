@@ -22,6 +22,10 @@
 #include <ngx_core.h>
 #include <ngx_http.h>
 
+#if (NGX_THREADS) && (NGX_PCRE2)
+#include <ngx_thread_pool.h>
+#endif
+
 #include <modsecurity/modsecurity.h>
 #include <modsecurity/transaction.h>
 
@@ -77,10 +81,22 @@ typedef struct {
 } ngx_http_modsecurity_header_t;
 
 
+/*
+ * Holder for the log destination given to libmodsecurity as the log callback
+ * data.  The indirection allows the destination to be redirected to the
+ * thread pool's log once the request -- and thus its connection log -- is
+ * gone.
+ */
+typedef struct {
+    ngx_log_t  *log;
+} ngx_http_modsecurity_msclog_t;
+
+
 typedef struct {
     ngx_http_request_t *r;
     Transaction *modsec_transaction;
     ModSecurityIntervention *delayed_intervention;
+    ngx_http_modsecurity_msclog_t *msclog;
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
@@ -100,6 +116,7 @@ typedef struct {
     unsigned logged:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
+    unsigned msclog_heap:1;
 } ngx_http_modsecurity_ctx_t;
 
 
@@ -124,6 +141,9 @@ typedef struct {
 #endif
 
     ngx_http_complex_value_t  *transaction_id;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_thread_pool_t         *log_thread_pool;
+#endif
 } ngx_http_modsecurity_conf_t;
 
 
@@ -163,8 +183,9 @@ int ngx_http_modsecurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name
 #endif
 
 /* ngx_http_modsecurity_log.c */
-void ngx_http_modsecurity_log(void *log, const void* data);
+void ngx_http_modsecurity_log(void *data, const void* msg);
 ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r);
+ngx_int_t ngx_http_modsecurity_log_phase_handler(ngx_http_request_t *r);
 
 /* ngx_http_modsecurity_access.c */
 ngx_int_t ngx_http_modsecurity_access_handler(ngx_http_request_t *r);

@@ -326,11 +326,19 @@ ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-    if (ctx == NULL) {
+    if (ctx == NULL && (r->internal || r->filter_finalize)) {
         /*
          * refer <nginx>/src/http/modules/ngx_http_realip_module.c
          * if module context was reset, the original address
          * can still be found in the cleanup handler
+         *
+         * r->ctx is only discarded by ngx_http_internal_redirect() and
+         * ngx_http_named_location(), which set r->internal, and by
+         * ngx_http_filter_finalize_request(), which sets r->filter_finalize;
+         * subrequests start with a fresh context array and have internal
+         * set as well.  Every other request still has its context, so the
+         * cleanup list is not walked: the filters run for every response on
+         * the server, including locations where modsecurity is off.
          */
         ngx_pool_cleanup_t *cln;
         for (cln = r->pool->cleanup; cln; cln = cln->next) {

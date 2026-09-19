@@ -326,6 +326,35 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         return NGX_DONE;
     }
 
+    if (mcf->request_body == 0)
+    {
+        int ret = 0;
+
+        /*
+         * Request body inspection is disabled for this location.  Do not
+         * buffer the body here (that lets the content handler stream it,
+         * e.g. proxy_request_buffering off), but still run the
+         * REQUEST_BODY phase so rules that do not depend on the body
+         * (ARGS, REQUEST_HEADERS, ...) execute in their usual phase.
+         */
+        dd("request body inspection disabled by modsecurity_request_body off");
+
+        old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+        msc_process_request_body(ctx->modsec_transaction);
+        ctx->request_body_processed = 1;
+        ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
+        if (r->error_page) {
+            return NGX_DECLINED;
+        }
+        if (ret > 0) {
+            return ret;
+        }
+
+        return NGX_DECLINED;
+    }
+
     if (ctx->body_requested == 0)
     {
         ngx_int_t rc = NGX_OK;

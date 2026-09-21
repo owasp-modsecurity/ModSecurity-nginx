@@ -185,6 +185,60 @@ modsecurity_use_error_log
 
 Turns on or off ModSecurity error log functionality.
 
+# Performance considerations
+
+## Request body
+
+When `modsecurity` is on, the connector reads the **whole** request body in
+nginx's ACCESS phase, before the content handler (for example `proxy_pass`)
+runs. Consequences:
+
+* `proxy_request_buffering off` has no effect in such locations: the body has
+  already been buffered by the time the proxy module sees it.
+* Bodies larger than `client_body_buffer_size` (twice the system page size, 8k
+  on most platforms) are written to a temporary file under
+  `client_body_temp_path`. libmodsecurity then re-opens that file and reads it
+  back into memory in full, because ModSecurity v3 has no
+  `SecRequestBodyInMemoryLimit`: the directive was removed and the rule parser
+  rejects it as a configuration error. The spill therefore costs a write and a
+  read and saves no memory. Raising `client_body_buffer_size` avoids the spill,
+  but nginx allocates that buffer for every request that carries a body (it is
+  trimmed to the body size only when the Content-Length is known and smaller),
+  so a large value multiplies worker memory under concurrency. Size it against
+  the bodies you actually expect, not against `client_max_body_size`, which
+  only decides which requests are accepted, nor against `SecRequestBodyLimit`,
+  which is applied after the connector has already read the body. A
+  tmpfs-backed `client_body_temp_path` keeps the spill off disk, at the price
+  of holding it in RAM.
+* libmodsecurity copies the body into its own buffer even when
+  `SecRequestBodyAccess Off` is set; the copy is made before libmodsecurity
+  returns early from phase 2, so the buffering above is not avoided either.
+
+## Response body
+
+The connector feeds every response buffer to libmodsecurity regardless of
+`SecResponseBodyAccess`. libmodsecurity skips the copy only for responses whose
+Content-Type is not listed in `SecResponseBodyMimeType` (with no such list
+every response is copied), and applies `SecResponseBodyLimit` together with
+`SecResponseBodyLimitAction` once the copy grows past the limit. The connector
+also asks nginx to keep every response body in memory
+(`filter_need_in_memory`), again regardless of `SecResponseBodyAccess`. In
+locations where `modsecurity` is on, a file-backed response (a static file, or
+a proxied response buffered to disk) is therefore read into memory and copied
+through the output chain before it is sent, even when no rule ever looks at
+it. `sendfile` is still used to transmit it, so the cost is the extra read and
+copy rather than the loss of `sendfile`. Each buffer chain is fed to
+ModSecurity before it is forwarded, and phase 4 runs on the chain that carries
+the end of the response, before that chain is passed on. A phase 4 rule can
+therefore still act on the buffers of that last chain, but not on anything the
+preceding calls have already sent to the client.
+
+## Rules loading
+
+Each `modsecurity_rules_file` directive parses and compiles the referenced
+file again. Load a large rule set such as the OWASP Core Rule Set once at the
+`http` level and only toggle `modsecurity on|off` per server or location.
+
 # Contributing
 
 As an open source project we invite (and encourage) anyone from the community to contribute to our project. This may take the form of: new

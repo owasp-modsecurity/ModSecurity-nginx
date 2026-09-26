@@ -196,7 +196,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         }
 
         /**
-         * Not sure if it sane to do this indepent of the phase
+         * Not sure if it sane to do this independent of the phase
          * but, here we go...
          *
          * This code cames from: http/ngx_http_special_response.c
@@ -209,26 +209,33 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         ngx_http_clear_location(r);
         ngx_str_t a = ngx_string("");
 
-        a.data = (unsigned char *)intervention.url;
-        a.len = strlen(intervention.url);
+        a.len = ngx_strlen(intervention.url);
+        a.data = ngx_pnalloc(r->pool, a.len);
+        if (a.data == NULL) {
+            free(intervention.url);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ngx_memcpy(a.data, intervention.url, a.len);
+        free(intervention.url);
+        intervention.url = NULL;
 
         ngx_table_elt_t *location = NULL;
         location = ngx_list_push(&r->headers_out.headers);
         if (location == NULL) {
-            free(intervention.url);
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         ngx_str_set(&location->key, "Location");
         location->value = a;
         r->headers_out.location = location;
         r->headers_out.location->hash = 1;
+#if (nginx_version >= 1023000)
+        r->headers_out.location->next = NULL;
+#endif
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modsecurity_store_ctx_header(r, &location->key, &location->value);
 #endif
 
-        free(intervention.url);
-        intervention.url = NULL;
         return intervention.status;
     }
 

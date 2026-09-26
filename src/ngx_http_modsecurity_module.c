@@ -163,6 +163,12 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL) {
+        if (intervention.log != NULL) {
+            free(intervention.log);
+        }
+        if (intervention.url != NULL) {
+            free(intervention.url);
+        }
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 

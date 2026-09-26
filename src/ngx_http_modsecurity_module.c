@@ -261,7 +261,15 @@ ngx_http_modsecurity_cleanup(void *data)
 
     ctx = (ngx_http_modsecurity_ctx_t *) data;
 
-    msc_transaction_cleanup(ctx->modsec_transaction);
+    if (ctx->modsec_transaction != NULL) {
+        msc_transaction_cleanup(ctx->modsec_transaction);
+        ctx->modsec_transaction = NULL;
+    }
+
+    if (ctx->msclog_heap && ctx->msclog != NULL) {
+        ngx_free(ctx->msclog);
+        ctx->msclog = NULL;
+    }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
@@ -294,20 +302,11 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
 
-    if (mcf->transaction_id) {
-        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
-            return NGX_CONF_ERROR;
-        }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
-
-    } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
-    }
-
-    dd("transaction created");
-
-    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
-
+    /*
+     * Take the cleanup slot before anything that has to be released: from
+     * here on every error return leaves the transaction and the log holder
+     * to ngx_http_modsecurity_cleanup(), which copes with either being NULL.
+     */
     cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (cln == NULL)
     {
@@ -316,6 +315,50 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     }
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    if (mcf->log_thread_pool != NULL) {
+        /*
+         * the holder must outlive the request pool: the logging phase is
+         * processed in a thread after the request is gone
+         */
+        ctx->msclog = ngx_alloc(sizeof(ngx_http_modsecurity_msclog_t),
+                                r->connection->log);
+        ctx->msclog_heap = 1;
+
+    } else
+#endif
+    {
+        ctx->msclog = ngx_palloc(r->pool,
+                                 sizeof(ngx_http_modsecurity_msclog_t));
+    }
+
+    if (ctx->msclog == NULL) {
+        dd("failed to allocate memory for the log holder.");
+        /*
+         * nothing has to be released yet; disarm the cleanup so that the
+         * half-built context stays invisible to
+         * ngx_http_modsecurity_get_module_ctx()
+         */
+        cln->handler = NULL;
+        return NULL;
+    }
+
+    ctx->msclog->log = r->connection->log;
+
+    if (mcf->transaction_id) {
+        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
+            return NGX_CONF_ERROR;
+        }
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, ctx->msclog);
+
+    } else {
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, ctx->msclog);
+    }
+
+    dd("transaction created");
+
+    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
@@ -486,6 +529,34 @@ char *ngx_conf_set_transaction_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 }
 
 
+static char *
+ngx_conf_set_log_thread_pool(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_conf_t  *mcf = conf;
+    ngx_str_t                    *value = cf->args->elts;
+
+    if (mcf->log_thread_pool != NGX_CONF_UNSET_PTR) {
+        return "is duplicate";
+    }
+
+    if (ngx_strcmp(value[1].data, "off") == 0) {
+        mcf->log_thread_pool = NULL;
+        return NGX_CONF_OK;
+    }
+
+    mcf->log_thread_pool = ngx_thread_pool_add(cf, &value[1]);
+    if (mcf->log_thread_pool == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    return NGX_CONF_OK;
+#else
+    return "requires nginx built with --with-threads and PCRE2";
+#endif
+}
+
+
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
@@ -523,6 +594,14 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     ngx_string("modsecurity_transaction_id"),
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_1MORE,
     ngx_conf_set_transaction_id,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_log_thread_pool"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_log_thread_pool,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
     NULL
@@ -613,7 +692,7 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
         dd("Not able to create a new NGX_HTTP_LOG_PHASE handle");
         return NGX_ERROR;
     }
-    *h_log = ngx_http_modsecurity_log_handler;
+    *h_log = ngx_http_modsecurity_log_phase_handler;
 
 
     rc = ngx_http_modsecurity_header_filter_init();
@@ -730,6 +809,9 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
     conf->use_error_log = NGX_CONF_UNSET;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    conf->log_thread_pool = NGX_CONF_UNSET_PTR;
+#endif
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -770,6 +852,9 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
     ngx_conf_merge_value(c->use_error_log, p->use_error_log, 1);
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_conf_merge_ptr_value(c->log_thread_pool, p->log_thread_pool, NULL);
+#endif
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif

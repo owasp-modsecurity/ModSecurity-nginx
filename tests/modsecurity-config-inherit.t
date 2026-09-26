@@ -75,6 +75,15 @@ http {
             proxy_pass http://127.0.0.1:%%PORT_8090%%;
         }
 
+        location /file {
+            modsecurity_rules_file %%TESTDIR%%/rules.conf;
+
+            location /file/nested {
+                proxy_pass http://127.0.0.1:%%PORT_8090%%;
+            }
+            proxy_pass http://127.0.0.1:%%PORT_8090%%;
+        }
+
         location /sibling {
             proxy_pass http://127.0.0.1:%%PORT_8090%%;
         }
@@ -125,10 +134,13 @@ http {
 }
 EOF
 
+$t->write_file('rules.conf',
+	'SecRule ARGS "@streq file" "id:4,phase:1,deny,status:403"');
+
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8090));
 
-$t->plan(22);
+$t->plan(26);
 
 ###############################################################################
 
@@ -148,10 +160,17 @@ like(http_get('/own?a=http'), qr/403/, 'location rules, http rules kept');
 like(http_get('/own/nested?a=own'), qr/403/, 'location rules, nested');
 like(http_get('/own/nested?a=http'), qr/403/, 'location rules, nested, http');
 
+# same with modsecurity_rules_file
+like(http_get('/file?a=file'), qr/403/, 'location rules file');
+like(http_get('/file?a=http'), qr/403/, 'location rules file, http rules kept');
+like(http_get('/file/nested?a=file'), qr/403/, 'location rules file, nested');
+
 # rules of a block don't leak into its siblings nor its parent
 like(http_get('/sibling?a=own'), qr/TEST-OK-IF-YOU-SEE-THIS/,
 	'no leak to sibling location');
 like(http_get('/?a=own'), qr/TEST-OK-IF-YOU-SEE-THIS/, 'no leak to parent');
+like(http_get('/sibling?a=file'), qr/TEST-OK-IF-YOU-SEE-THIS/,
+	'no leak from rules file');
 like(http_get('/?a=server'), qr/TEST-OK-IF-YOU-SEE-THIS/,
 	'no leak from another server');
 

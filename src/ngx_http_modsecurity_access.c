@@ -56,6 +56,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
+    if(mcf->skip_req_body_filter == 1) {
+        dd("Skipping request body filter");
+        return NGX_DECLINED;
+    }
+
     /*
     if (r->method != NGX_HTTP_GET &&
         r->method != NGX_HTTP_POST && r->method != NGX_HTTP_HEAD) {

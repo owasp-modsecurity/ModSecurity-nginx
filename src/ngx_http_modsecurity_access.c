@@ -42,10 +42,32 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 }
 
 
+/*
+ * Maps a ngx_http_modsecurity_process_intervention() result to an access
+ * handler return code. 0 means "nothing to do"; anything else marks the
+ * transaction as finished (so later filters don't re-run the WAF on it) and
+ * yields either the intervention's own status or, for -1 (headers already
+ * sent, cannot intervene), a fail-closed 500.
+ */
+static ngx_inline ngx_int_t
+ngx_http_modsecurity_intervention_rc(ngx_http_modsecurity_ctx_t *ctx,
+    ngx_int_t ret)
+{
+    if (ret == 0) {
+        return 0;
+    }
+
+    ctx->intervention_triggered = 1;
+
+    return (ret > 0) ? ret : NGX_HTTP_INTERNAL_SERVER_ERROR;
+}
+
+
 ngx_int_t
 ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 {
 
+    ngx_int_t                     rc;
     ngx_pool_t                   *old_pool;
     ngx_http_modsecurity_ctx_t   *ctx;
     ngx_http_modsecurity_conf_t  *mcf;
@@ -178,13 +200,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          */
         dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
-        if (ret > 0) {
-            ctx->intervention_triggered = 1;
-            return ret;
-        }
-        else if (ret < 0) {
-            ctx->intervention_triggered = 1;
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        rc = ngx_http_modsecurity_intervention_rc(ctx, ret);
+        if (rc != 0) {
+            return rc;
         }
 
         const char *http_version;
@@ -231,13 +249,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
-        if (ret > 0) {
-            ctx->intervention_triggered = 1;
-            return ret;
-        }
-        else if (ret < 0) {
-            ctx->intervention_triggered = 1;
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        rc = ngx_http_modsecurity_intervention_rc(ctx, ret);
+        if (rc != 0) {
+            return rc;
         }
 
         /**
@@ -287,13 +301,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         if (r->error_page) {
             return NGX_DECLINED;
             }
-        if (ret > 0) {
-            ctx->intervention_triggered = 1;
-            return ret;
-        }
-        else if (ret < 0) {
-            ctx->intervention_triggered = 1;
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        rc = ngx_http_modsecurity_intervention_rc(ctx, ret);
+        if (rc != 0) {
+            return rc;
         }
     }
 
@@ -434,10 +444,8 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         {
             u_char *data = chain->buf->pos;
 
-            /* See the comment on msc_request_body_from_file() above: 0 here
-             * means either a real failure or (indistinguishably) a
-             * by-design ProcessPartial truncation, so it must not fail
-             * closed. */
+            /* Return value deliberately ignored: see the comment on
+             * msc_request_body_from_file() above. */
             msc_append_request_body(ctx->modsec_transaction, data,
                 chain->buf->last - data);
 
@@ -454,13 +462,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              *
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-            if (ret > 0) {
-                ctx->intervention_triggered = 1;
-                return ret;
-            }
-            else if (ret < 0) {
-                ctx->intervention_triggered = 1;
-                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+            rc = ngx_http_modsecurity_intervention_rc(ctx, ret);
+            if (rc != 0) {
+                return rc;
             }
         }
 
@@ -489,13 +493,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         if (r->error_page) {
             return NGX_DECLINED;
             }
-        if (ret > 0) {
-            ctx->intervention_triggered = 1;
-            return ret;
-        }
-        else if (ret < 0) {
-            ctx->intervention_triggered = 1;
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        rc = ngx_http_modsecurity_intervention_rc(ctx, ret);
+        if (rc != 0) {
+            return rc;
         }
     }
 

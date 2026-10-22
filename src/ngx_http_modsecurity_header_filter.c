@@ -538,12 +538,11 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
     else if (ret < 0) {
         /*
-         * process_intervention() returns -1 specifically when
-         * r->header_sent is already true. ngx_http_filter_finalize_request()
-         * would try to send a fresh status line and headers anyway via
-         * ngx_http_clean_header(), producing nginx's own "header already
-         * sent" alert. NGX_ERROR triggers ngx_http_terminate_request()
-         * instead, which just closes the connection.
+         * Defensive: -1 means r->header_sent was already set, which cannot
+         * happen on the ngx_http_send_header() path (it refuses to run the
+         * header filters once headers went out). Should it ever happen,
+         * NGX_ERROR aborts the connection instead of letting
+         * ngx_http_filter_finalize_request() resend headers.
          */
         ctx->intervention_triggered = 1;
         return NGX_ERROR;

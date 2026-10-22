@@ -83,7 +83,7 @@ $t->write_file('leak.txt', ('x' x 8192) . "leakmarker\n");
 $t->write_file('clean.txt', ('x' x 8192) . "\n");
 
 $t->run();
-$t->plan(3);
+$t->plan(4);
 
 ###############################################################################
 
@@ -91,12 +91,13 @@ my $clean = http_get('/clean.txt');
 like($clean, qr/^HTTP\/1\.[01] 200/, 'benign response body passes');
 
 my $leak = http_get('/leak.txt');
-# Whether the connection drops before any bytes go out (a response that fits
-# in one buffer) or mid-transfer after a partial prefix (a larger,
-# multi-buffer response), the leak marker itself is never delivered: it only
-# triggers the deny once msc_process_response_body() has read the full
-# buffered body, which happens strictly before that data is forwarded.
-unlike($leak, qr/leakmarker/, 'leak marker body was not delivered to the client');
+# The body is small enough to arrive in a single buffer, so the deny fires
+# before any of it is forwarded and the connection is dropped after the
+# headers. (With a multi-buffer response the buffers preceding the one that
+# carries last_buf are forwarded before phase 4 runs, so only the tail is
+# withheld.)
+unlike($leak // '', qr/leakmarker/,
+    'leak marker body was not delivered to the client');
 
 my $d = $t->testdir();
 my $errorlog = do {
@@ -104,6 +105,9 @@ my $errorlog = do {
     open my $fh, "<", "$d/error.log" or die "could not open: $!";
     <$fh>;
 };
+# Make sure the body was withheld *because the rule fired*, not because the
+# worker died or the connection was refused for some unrelated reason.
+like($errorlog, qr/\[id "103"\]/, 'phase-4 deny rule fired');
 unlike($errorlog, qr/header already sent/, 'no "header already sent" alert from the deny path');
 
 ###############################################################################

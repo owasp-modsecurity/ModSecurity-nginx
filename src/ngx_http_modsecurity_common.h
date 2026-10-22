@@ -108,6 +108,14 @@ typedef struct {
      * new redirect.
      */
     unsigned response_replaced:1;
+    /*
+     * Set by ngx_http_modsecurity_process_intervention() when the
+     * intervention it just applied was a redirect, i.e. it installed a
+     * Location header on r->headers_out. Callers branch on this rather than
+     * on r->headers_out.location, which the original response may already
+     * have carried.
+     */
+    unsigned intervention_redirect:1;
 } ngx_http_modsecurity_ctx_t;
 
 

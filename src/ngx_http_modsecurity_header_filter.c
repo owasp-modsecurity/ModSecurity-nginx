@@ -304,15 +304,20 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
-#if (NGX_HTTP_V2)
     /*
      * Connection and Keep-Alive are forbidden on HTTP/2 (RFC 9113 S8.2.2)
-     * and nginx never emits them on an h2 stream. Synthesizing them here
-     * would make the WAF inspect a header the client never actually
-     * receives, so a RESPONSE_HEADERS:Connection rule would false-positive
-     * on every HTTP/2 response.
+     * and HTTP/3 (RFC 9114 S4.2), and nginx never emits them there.
+     * Synthesizing them here would make the WAF inspect a header the
+     * client never actually receives, so a RESPONSE_HEADERS:Connection
+     * rule would false-positive on every h2/h3 response.
      */
+#if (NGX_HTTP_V2)
     if (r->stream) {
+        return 1;
+    }
+#endif
+#if defined(nginx_version) && nginx_version >= 1025000
+    if (r->http_version == NGX_HTTP_VERSION_30) {
         return 1;
     }
 #endif
@@ -552,11 +557,13 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
     if (ret > 0) {
-        if (r->headers_out.location != NULL) {
+        if (ctx->intervention_redirect) {
             /*
              * A redirect: process_intervention() already built the Location
              * header (and cleared the stale entity headers describing the
              * response we are discarding) directly on r->headers_out.
+             * (Branch on the ctx flag, not on r->headers_out.location: the
+             * original response may itself have carried a Location.)
              * ngx_http_filter_finalize_request() calls ngx_http_clean_header(),
              * which memzeroes the *entire* headers_out struct -- Location
              * included -- before nginx regenerates its own error page, which

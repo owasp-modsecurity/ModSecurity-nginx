@@ -141,6 +141,37 @@ ngx_http_modsecurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name, ng
 #endif
 
 
+/*
+ * Hands one response header to libmodsecurity, recording it for the sanity
+ * check build and warning if the library refused it. Current libmodsecurity
+ * releases always accept a header (Transaction::addResponseHeader() ends in
+ * an unconditional return 1), so the warning is a belt-and-braces check on
+ * the documented C API contract rather than a path we expect to hit.
+ */
+static ngx_int_t
+ngx_http_modsecurity_add_response_header(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, ngx_str_t *name, ngx_str_t *value)
+{
+    ngx_int_t  rc;
+
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ngx_http_modsecurity_store_ctx_header(r, name, value);
+#endif
+
+    rc = msc_add_n_response_header(ctx->modsec_transaction,
+        (const unsigned char *) name->data, name->len,
+        (const unsigned char *) value->data, value->len);
+
+    if (rc != 1) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            "ModSecurity: failed to add response header \"%V\" "
+            "for inspection", name);
+    }
+
+    return rc;
+}
+
+
 static ngx_int_t
 ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name, off_t offset)
 {
@@ -168,15 +199,7 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
         value.len =  h->value.len;
     }
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ngx_http_modsecurity_store_ctx_header(r, &name, &value);
-#endif
-
-    return msc_add_n_response_header(ctx->modsec_transaction,
-        (const unsigned char *) name.data,
-        name.len,
-        (const unsigned char *) value.data,
-        value.len);
+    return ngx_http_modsecurity_add_response_header(r, ctx, &name, &value);
 }
 
 
@@ -197,15 +220,7 @@ ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, o
         date.len = h->value.len;
     }
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ngx_http_modsecurity_store_ctx_header(r, &name, &date);
-#endif
-
-    return msc_add_n_response_header(ctx->modsec_transaction,
-        (const unsigned char *) name.data,
-        name.len,
-        (const unsigned char *) date.data,
-        date.len);
+    return ngx_http_modsecurity_add_response_header(r, ctx, &name, &date);
 }
 
 
@@ -224,14 +239,7 @@ ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str
         value.data = (unsigned char *)buf;
         value.len = strlen(buf);
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &name, &value);
-#endif
-        return msc_add_n_response_header(ctx->modsec_transaction,
-            (const unsigned char *) name.data,
-            name.len,
-            (const unsigned char *) value.data,
-            value.len);
+        return ngx_http_modsecurity_add_response_header(r, ctx, &name, &value);
     }
 
     return 1;
@@ -248,15 +256,8 @@ ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t
     if (r->headers_out.content_type.len > 0)
     {
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &name, &r->headers_out.content_type);
-#endif
-
-        return msc_add_n_response_header(ctx->modsec_transaction,
-            (const unsigned char *) name.data,
-            name.len,
-            (const unsigned char *) r->headers_out.content_type.data,
-            r->headers_out.content_type.len);
+        return ngx_http_modsecurity_add_response_header(r, ctx, &name,
+            &r->headers_out.content_type);
     }
 
     return 1;
@@ -281,15 +282,7 @@ ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_
     value.data = buf;
     value.len = (int)(p-buf);
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ngx_http_modsecurity_store_ctx_header(r, &name, &value);
-#endif
-
-    return msc_add_n_response_header(ctx->modsec_transaction,
-        (const unsigned char *) name.data,
-        name.len,
-        (const unsigned char *) value.data,
-        value.len);
+    return ngx_http_modsecurity_add_response_header(r, ctx, &name, &value);
 }
 
 
@@ -317,15 +310,7 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
             value.data = buf;
             value.len = strlen((char *)buf);
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-            ngx_http_modsecurity_store_ctx_header(r, &name2, &value);
-#endif
-
-            msc_add_n_response_header(ctx->modsec_transaction,
-                (const unsigned char *) name2.data,
-                name2.len,
-                (const unsigned char *) value.data,
-                value.len);
+            (void) ngx_http_modsecurity_add_response_header(r, ctx, &name2, &value);
         }
     } else {
         connection = "close";
@@ -334,15 +319,7 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
     value.data = (u_char *) connection;
     value.len = strlen(connection);
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ngx_http_modsecurity_store_ctx_header(r, &name, &value);
-#endif
-
-    return msc_add_n_response_header(ctx->modsec_transaction,
-        (const unsigned char *) name.data,
-        name.len,
-        (const unsigned char *) value.data,
-        value.len);
+    return ngx_http_modsecurity_add_response_header(r, ctx, &name, &value);
 }
 
 static ngx_int_t
@@ -355,15 +332,7 @@ ngx_http_modsecurity_resolv_header_transfer_encoding(ngx_http_request_t *r, ngx_
 
         ctx = ngx_http_modsecurity_get_module_ctx(r);
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &name, &value);
-#endif
-
-        return msc_add_n_response_header(ctx->modsec_transaction,
-            (const unsigned char *) name.data,
-            name.len,
-            (const unsigned char *) value.data,
-            value.len);
+        return ngx_http_modsecurity_add_response_header(r, ctx, &name, &value);
     }
 
     return 1;
@@ -382,15 +351,7 @@ ngx_http_modsecurity_resolv_header_vary(ngx_http_request_t *r, ngx_str_t name, o
 
         ctx = ngx_http_modsecurity_get_module_ctx(r);
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &name, &value);
-#endif
-
-        return msc_add_n_response_header(ctx->modsec_transaction,
-            (const unsigned char *) name.data,
-            name.len,
-            (const unsigned char *) value.data,
-            value.len);
+        return ngx_http_modsecurity_add_response_header(r, ctx, &name, &value);
     }
 #endif
 
@@ -475,9 +436,10 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             (int) ngx_http_modsecurity_headers_out[i].name.len,
             ngx_http_modsecurity_headers_out[i].name.data);
 
-                ngx_http_modsecurity_headers_out[i].resolver(r,
-                    ngx_http_modsecurity_headers_out[i].name,
-                    ngx_http_modsecurity_headers_out[i].offset);
+        /* The resolver warns itself if libmodsecurity refused the header. */
+        (void) ngx_http_modsecurity_headers_out[i].resolver(r,
+            ngx_http_modsecurity_headers_out[i].name,
+            ngx_http_modsecurity_headers_out[i].offset);
     }
 
     for (i = 0 ;; i++)
@@ -493,18 +455,8 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             i = 0;
         }
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &data[i].key, &data[i].value);
-#endif
-
-        /*
-         * Doing this ugly cast here, explanation on the request_header
-         */
-        msc_add_n_response_header(ctx->modsec_transaction,
-            (const unsigned char *) data[i].key.data,
-            data[i].key.len,
-            (const unsigned char *) data[i].value.data,
-            data[i].value.len);
+        (void) ngx_http_modsecurity_add_response_header(r, ctx,
+            &data[i].key, &data[i].value);
     }
 
     /* prepare extra paramters for msc_process_response_headers() */

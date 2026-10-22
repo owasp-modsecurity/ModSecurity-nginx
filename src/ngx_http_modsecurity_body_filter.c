@@ -58,7 +58,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
-    if (ctx->intervention_triggered) {
+    if (ctx->intervention_triggered || ctx->response_body_processed) {
         return ngx_http_next_body_filter(r, in);
     }
 
@@ -162,6 +162,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
             msc_process_response_body(ctx->modsec_transaction);
             ngx_http_modsecurity_pcre_malloc_done(old_pool);
+            ctx->response_body_processed = 1;
 
 /* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
    XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
@@ -174,6 +175,13 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
                     &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
 
             }
+
+            /*
+             * msc_process_response_body() is a one-shot finalize: nothing
+             * after last_buf can be inspected any more, so stop here. The
+             * full chain is still forwarded below regardless.
+             */
+            break;
         }
     }
     if (!is_request_processed)

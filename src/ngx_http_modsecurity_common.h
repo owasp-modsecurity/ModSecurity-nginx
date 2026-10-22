@@ -100,6 +100,13 @@ typedef struct {
     unsigned logged:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
+    /*
+     * msc_process_response_body() ran: the response-body phase is a one-shot
+     * finalize, so later body filter invocations for the same transaction
+     * (a subrequest sharing the pool, or nginx re-entering the filter chain
+     * after a finalize) must not append to or re-process it.
+     */
+    unsigned response_body_processed:1;
 } ngx_http_modsecurity_ctx_t;
 
 

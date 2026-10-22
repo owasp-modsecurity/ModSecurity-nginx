@@ -58,6 +58,48 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
+    if (ctx->response_replaced) {
+        /*
+         * The header filter already replaced this response with a
+         * WAF-triggered redirect after the original body started flowing
+         * from the content handler. Drop the original bytes -- they belong
+         * to a response we are no longer sending -- but keep forwarding the
+         * chain (last_buf/flush flags and all) so nginx still sees the
+         * response complete.
+         */
+        ngx_buf_t    *b;
+        ngx_chain_t  *cl, **ll;
+
+        ll = &in;
+
+        for (cl = in; cl; cl = cl->next) {
+            b = cl->buf;
+
+            /*
+             * Empty the buffer and drop its memory/file flags so that it
+             * becomes a special buffer (see ngx_buf_special()). The write
+             * filter rejects a zero-size non-special buffer with "zero
+             * size buf in writer", so a buffer that carries none of
+             * flush/sync/last_buf is unlinked from the chain instead.
+             */
+            b->pos = b->last;
+            b->file_last = b->file_pos;
+            b->in_file = 0;
+            b->temporary = 0;
+            b->memory = 0;
+            b->mmap = 0;
+
+            if (ngx_buf_special(b)) {
+                *ll = cl;
+                ll = &cl->next;
+            }
+        }
+
+        *ll = NULL;
+
+        return ngx_http_next_body_filter(r, in);
+    }
+
     if (ctx->intervention_triggered) {
         return ngx_http_next_body_filter(r, in);
     }

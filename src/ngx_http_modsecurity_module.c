@@ -156,6 +156,9 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
+    /* Reflects only the intervention applied by this call, if any. */
+    ctx->intervention_redirect = 0;
+
     if (msc_intervention(transaction, &intervention) == 0) {
         dd("nothing to do");
         return 0;
@@ -187,13 +190,42 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     if (intervention.url != NULL)
     {
+        u_char  *url;
+        size_t   len;
+
         dd("intervention -- redirecting to: %s with status code: %d", intervention.url, intervention.status);
 
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");
+            free(intervention.url);
             return -1;
         }
+
+        /*
+         * The callers ignore the result for an error_page response (nginx
+         * is already serving the outcome of an earlier intervention), so
+         * do not rewrite that response's headers either.
+         */
+        if (r->error_page)
+        {
+            free(intervention.url);
+            return intervention.status;
+        }
+
+        /*
+         * libmodsecurity hands us a strdup()'d URL. Copy it into the
+         * request pool, since the header outlives this function, and
+         * release the original like intervention.log above.
+         */
+        len = ngx_strlen(intervention.url);
+        url = ngx_pnalloc(r->pool, len);
+        if (url == NULL) {
+            free(intervention.url);
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+        ngx_memcpy(url, intervention.url, len);
+        free(intervention.url);
 
         /**
          * Not sure if it sane to do this indepent of the phase
@@ -207,21 +239,48 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
          *
          */
         ngx_http_clear_location(r);
-        ngx_str_t a = ngx_string("");
 
-        a.data = (unsigned char *)intervention.url;
-        a.len = strlen(intervention.url);
+        /*
+         * The response being replaced by this redirect may already carry
+         * entity headers describing the body we are discarding. A body-less
+         * redirect must not advertise them (RFC 9110 SS15.4 / SS8.3-8.8).
+         */
+        ngx_http_clear_content_length(r);
+        ngx_http_clear_last_modified(r);
+        ngx_http_clear_etag(r);
+        ngx_http_clear_accept_ranges(r);
+        ngx_str_null(&r->headers_out.content_type);
+        r->headers_out.content_type_len = 0;
+        r->headers_out.content_type_lowcase = NULL;
+        r->headers_out.content_type_hash = 0;
+        ngx_str_null(&r->headers_out.charset);
+        if (r->headers_out.content_encoding) {
+            r->headers_out.content_encoding->hash = 0;
+            r->headers_out.content_encoding = NULL;
+        }
+        if (r->headers_out.content_range) {
+            r->headers_out.content_range->hash = 0;
+            r->headers_out.content_range = NULL;
+        }
 
         ngx_table_elt_t *location = NULL;
         location = ngx_list_push(&r->headers_out.headers);
+        if (location == NULL) {
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
         ngx_str_set(&location->key, "Location");
-        location->value = a;
+        location->value.data = url;
+        location->value.len = len;
         r->headers_out.location = location;
         r->headers_out.location->hash = 1;
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modsecurity_store_ctx_header(r, &location->key, &location->value);
 #endif
+
+        /* Let the audit log / phase 5 see the status actually sent. */
+        msc_update_status_code(ctx->modsec_transaction, intervention.status);
+        ctx->intervention_redirect = 1;
 
         return intervention.status;
     }
@@ -308,7 +367,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 
     ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
+    cln = ngx_pool_cleanup_add(r->pool, 0);
     if (cln == NULL)
     {
         dd("failed to create the ModSecurity context cleanup");
@@ -521,7 +580,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_transaction_id"),
-    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_1MORE,
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
     ngx_conf_set_transaction_id,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,

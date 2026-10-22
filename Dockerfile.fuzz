@@ -17,11 +17,36 @@
 # See tools/soak.sh for what the soak actually does.
 
 ARG BASE_IMAGE=modsec-nginx-test
+
+# libmodsecurity JIT-compiles every regex with pcre2, and pcre2's JIT uses
+# vectorised loads that run up to 15 bytes past the end of the subject
+# buffer. That is safe by design, but memcheck reports every one as an
+# invalid read / uninitialised conditional in anonymous JIT code, which no
+# suppression can match (JIT frames carry neither a symbol nor an object):
+# ~200 bogus errors per worker that drown out anything real. The soak
+# image therefore shadows the system libpcre2-8 with a JIT-less build.
+FROM debian:bookworm-slim AS pcre2-nojit
+ARG PCRE2_VERSION=10.42
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends build-essential wget ca-certificates && \
+    rm -rf /var/lib/apt/lists/*
+WORKDIR /build
+RUN wget -q -O - "https://github.com/PCRE2Project/pcre2/releases/download/pcre2-${PCRE2_VERSION}/pcre2-${PCRE2_VERSION}.tar.gz" | tar -xzf - && \
+    cd "pcre2-${PCRE2_VERSION}" && \
+    ./configure --disable-jit --prefix=/usr/local >/dev/null && \
+    make -j"$(nproc)" >/dev/null && \
+    make install >/dev/null
+
 FROM ${BASE_IMAGE}
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends valgrind curl && \
     rm -rf /var/lib/apt/lists/*
+
+# /usr/local/lib precedes the distro library dir in ld.so.conf, so this
+# build is the one nginx + libmodsecurity pick up at run time.
+COPY --from=pcre2-nojit /usr/local/lib/libpcre2-8.so.0* /usr/local/lib/
+RUN ldconfig
 
 COPY tools/soak.sh tools/valgrind.suppress /opt/soak/
 

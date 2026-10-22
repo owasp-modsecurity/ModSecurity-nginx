@@ -4,7 +4,11 @@
 # valgrind/helgrind soak; not intended as a production nginx image.
 FROM debian:bookworm-slim AS builder
 
-ARG NGINX_VERSION=1.29.1
+# nginx git ref to build (a release-x.y.z tag, or master). soak.yml passes
+# the current release of the requested line, resolved by
+# .github/scripts/resolve-nginx-ref.sh exactly as test_new.yml does; the
+# default here is only for local builds without --build-arg.
+ARG NGINX_REF=release-1.29.1
 
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
@@ -37,11 +41,10 @@ RUN ./build.sh && \
 
 # Stage 2: nginx, statically linked against this connector.
 WORKDIR /build
-RUN wget -q -O nginx.tar.gz "https://nginx.org/download/nginx-${NGINX_VERSION}.tar.gz" && \
-    tar -xzf nginx.tar.gz
+RUN git clone --depth 1 --branch "${NGINX_REF}" https://github.com/nginx/nginx.git nginx
 COPY . /build/ModSecurity-nginx
-WORKDIR /build/nginx-${NGINX_VERSION}
-RUN ./configure \
+WORKDIR /build/nginx
+RUN ./auto/configure \
         --with-ld-opt="-Wl,-rpath,/usr/lib" \
         --with-http_v2_module \
         --with-http_auth_request_module \

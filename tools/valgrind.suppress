@@ -13,28 +13,13 @@
 # Regenerate candidates with:
 #   USE_VALGRIND=1 tools/soak.sh <nginx-binary> 30 2
 #   valgrind --gen-suppressions=all ... (rerun interactively to capture)
+# and check which entries actually fire by adding -v to the valgrind
+# command in soak.sh (each log then ends with a used_suppression: list).
+#
+# Note: pcre2's JIT is not suppressible (its frames have neither symbol nor
+# object), which is why Dockerfile.fuzz shadows libpcre2-8 with a JIT-less
+# build instead.
 
-{
-   nginx-cycle-init-addr1
-   Memcheck:Addr1
-   fun:ngx_init_cycle
-   fun:ngx_master_process_cycle
-   fun:main
-}
-{
-   nginx-cycle-init-addr4
-   Memcheck:Addr4
-   fun:ngx_init_cycle
-   fun:ngx_master_process_cycle
-   fun:main
-}
-{
-   nginx-cycle-init-cond
-   Memcheck:Cond
-   fun:ngx_init_cycle
-   fun:ngx_master_process_cycle
-   fun:main
-}
 {
    nginx-sock-ntop-cond
    Memcheck:Cond

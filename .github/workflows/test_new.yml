@@ -269,7 +269,10 @@ jobs:
 
   build-windows:
     name: windows-nginx-${{ matrix.nginx_version }}
-    runs-on: windows-2025
+    # windows-2025 now ships Visual Studio 2026 and CMake 4, with which Conan builds yajl
+    # from source and its configure step fails on CMP0026 (owasp-modsecurity/ModSecurity#3604).
+    # Stay on windows-2022, like test.yml and libModSecurity's own CI, until that is fixed.
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:

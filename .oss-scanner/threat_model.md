@@ -73,7 +73,7 @@ nginx-tests (`/opt/nginx-tests`), the CRS's own detection logic.
   logs.
 - **A reproducer as a `Test::Nginx` test case in the style of `tests/modsecurity*.t` is what
   we need in a report**: the nginx configuration, the rules and the request.
-- The OWASP CRS v4 (latest release) is in `/opt/coreruleset`, and the library's
+- The OWASP CRS v4 (the latest release when the image was built: `git -C /opt/coreruleset describe --tags` shows which one; name it in any report whose result depends on the CRS) is in `/opt/coreruleset`, and the library's
   `modsecurity.conf-recommended` in `/opt/ModSecurity`. Score against that configuration,
   not against a bare `SecRuleEngine On`.
 - The image is built without sanitizers. To build with ASan offline, rebuild nginx with

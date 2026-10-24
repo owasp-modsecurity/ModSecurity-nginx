@@ -335,9 +335,36 @@ jobs:
           mkdir objs
           mkdir objs/lib
           cd objs/lib
-          wget -q -O - https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz | tar -xzf -
-          wget -q -O - https://www.zlib.net/fossils/zlib-1.3.2.tar.gz | tar -xzf -
-          wget -q -O - https://www.openssl.org/source/openssl-3.6.2.tar.gz | tar -xzf -
+          # Download to a file before extracting, rather than piping straight
+          # into tar: a retried download restarts from byte 0, which a pipe
+          # that tar already consumed can't rewind. The retry loop is at the
+          # shell level (one wget attempt per iteration, partial file removed
+          # in between) because wget's own --tries neither retries HTTP 5xx /
+          # DNS failures nor rewrites a partial -O file: it sends a Range
+          # request and appends, which corrupts the archive when the server
+          # ignores Range. -nv keeps wget's errors and one-line summary
+          # without the dot progress meter.
+          for url in \
+            https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.47/pcre2-10.47.tar.gz \
+            https://www.zlib.net/fossils/zlib-1.3.2.tar.gz \
+            https://www.openssl.org/source/openssl-3.6.2.tar.gz \
+          ; do
+            archive="$(basename "$url")"
+            for attempt in 1 2 3; do
+              rm -f "$archive"
+              if wget -nv --tries=1 --timeout=60 -O "$archive" "$url" \
+                 && tar -xzf "$archive"; then
+                break
+              fi
+              if [ "$attempt" -eq 3 ]; then
+                echo "::error::failed to fetch $url after $attempt attempts"
+                exit 1
+              fi
+              echo "fetching $url failed (attempt $attempt), retrying in 5s"
+              sleep 5
+            done
+            rm -f "$archive"
+          done
       - name: Get libModSecurity source
         uses: actions/checkout@v6
         with:

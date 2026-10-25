@@ -309,6 +309,15 @@ jobs:
         run: |
           pip3 install conan --upgrade
           conan profile detect
+      - name: Retry rate-limited Conan downloads
+        shell: pwsh
+        run: |
+          # Conan builds the dependencies without a prebuilt binary from source, and the lmdb
+          # sources come from git.openldap.org, which rate limits CI runners with HTTP 429.
+          # By default Conan gives up after 2 retries, 5 seconds apart.
+          $conf = Join-Path (conan config home) "global.conf"
+          Add-Content $conf "tools.files.download:retry=10"
+          Add-Content $conf "tools.files.download:retry_wait=30"
       - name: Build libModSecurity
         working-directory: nginx/objs/lib/ModSecurity
         shell: cmd

@@ -269,7 +269,10 @@ jobs:
 
   build-windows:
     name: windows-nginx-${{ matrix.nginx_version }}
-    runs-on: windows-2025
+    # windows-2025 now ships Visual Studio 2026 and CMake 4, with which Conan builds yajl
+    # from source and its configure step fails on CMP0026 (owasp-modsecurity/ModSecurity#3604).
+    # Stay on windows-2022, like test.yml and libModSecurity's own CI, until that is fixed.
+    runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
@@ -377,6 +380,15 @@ jobs:
         run: |
           pip3 install conan --upgrade
           conan profile detect
+      - name: Retry rate-limited Conan downloads
+        shell: pwsh
+        run: |
+          # Conan builds the dependencies without a prebuilt binary from source, and the lmdb
+          # sources come from git.openldap.org, which rate limits CI runners with HTTP 429.
+          # By default Conan gives up after 2 retries, 5 seconds apart.
+          $conf = Join-Path (conan config home) "global.conf"
+          Add-Content $conf "tools.files.download:retry=10"
+          Add-Content $conf "tools.files.download:retry_wait=30"
       - name: Build libModSecurity
         working-directory: nginx/objs/lib/ModSecurity
         shell: cmd

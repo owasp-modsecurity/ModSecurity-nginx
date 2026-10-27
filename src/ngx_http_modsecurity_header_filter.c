@@ -422,6 +422,17 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
 /* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
 
+    /*
+     * Subrequests share the parent request's pool, so the cleanup-list
+     * fallback in ngx_http_modsecurity_get_module_ctx() would hand us the
+     * main request's transaction.  Their headers belong to the parent's
+     * content, not to the response the client sees; only inspect the main
+     * request.
+     */
+    if (r != r->main) {
+        return ngx_http_next_header_filter(r);
+    }
+
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
     dd("header filter, recovering ctx: %p", ctx);

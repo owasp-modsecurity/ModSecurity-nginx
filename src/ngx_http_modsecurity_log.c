@@ -45,6 +45,15 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     dd("catching a new _log_ phase handler");
 
     /*
+     * With log_subrequest on, this handler also runs for subrequests, which
+     * share the parent's pool and therefore its transaction; processing the
+     * logging phase there would run phase 5 and the audit log twice.
+     */
+    if (r != r->main) {
+        return NGX_OK;
+    }
+
+    /*
     if (r->method != NGX_HTTP_GET &&
         r->method != NGX_HTTP_POST && r->method != NGX_HTTP_HEAD) {
         dd("ModSecurity is not ready to deal with anything different from " \

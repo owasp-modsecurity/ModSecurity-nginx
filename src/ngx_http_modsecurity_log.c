@@ -24,22 +24,153 @@
 
 
 void
-ngx_http_modsecurity_log(void *log, const void* data)
+ngx_http_modsecurity_log(void *data, const void* msg)
 {
-    const char *msg;
-    if (log == NULL) {
+    ngx_http_modsecurity_msclog_t  *msclog = data;
+
+    if (msclog == NULL || msclog->log == NULL) {
         return;
     }
-    msg = (const char *) data;
 
-    ngx_log_error(NGX_LOG_INFO, (ngx_log_t *)log, 0, "%s", msg);
+    ngx_log_error(NGX_LOG_INFO, msclog->log, 0, "%s", (const char *) msg);
+}
+
+
+static ngx_int_t
+ngx_http_modsecurity_log_transaction(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    ngx_pool_t  *old_pool;
+
+    dd("calling msc_process_logging for %p", ctx);
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+    msc_process_logging(ctx->modsec_transaction);
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+    return NGX_OK;
+}
+
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+
+typedef struct {
+    ngx_pool_t                     *pool;
+    Transaction                    *transaction;
+    ngx_http_modsecurity_msclog_t  *msclog;
+} ngx_http_modsecurity_log_task_t;
+
+
+static void
+ngx_http_modsecurity_log_thread_handler(void *data, ngx_log_t *log)
+{
+    ngx_http_modsecurity_log_task_t  *lt = data;
+
+    /* the request and its connection log may be gone by now */
+    lt->msclog->log = log;
+
+    msc_process_logging(lt->transaction);
+}
+
+
+static void
+ngx_http_modsecurity_log_thread_event_handler(ngx_event_t *ev)
+{
+    ngx_http_modsecurity_log_task_t  *lt = ev->data;
+
+    msc_transaction_cleanup(lt->transaction);
+    ngx_free(lt->msclog);
+    ngx_destroy_pool(lt->pool);
+}
+
+
+static ngx_int_t
+ngx_http_modsecurity_log_offload(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, ngx_thread_pool_t *tp)
+{
+    ngx_pool_t                       *pool;
+    ngx_thread_task_t                *task;
+    ngx_http_modsecurity_log_task_t  *lt;
+
+    pool = ngx_create_pool(512, ngx_cycle->log);
+    if (pool == NULL) {
+        return NGX_ERROR;
+    }
+
+    task = ngx_thread_task_alloc(pool, sizeof(ngx_http_modsecurity_log_task_t));
+    if (task == NULL) {
+        ngx_destroy_pool(pool);
+        return NGX_ERROR;
+    }
+
+    lt = task->ctx;
+    lt->pool = pool;
+    lt->transaction = ctx->modsec_transaction;
+    lt->msclog = ctx->msclog;
+
+    task->handler = ngx_http_modsecurity_log_thread_handler;
+    task->event.data = lt;
+    task->event.handler = ngx_http_modsecurity_log_thread_event_handler;
+
+    ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
+                   "ModSecurity: posting logging to the thread pool");
+
+    if (ngx_thread_task_post(tp, task) != NGX_OK) {
+        ngx_destroy_pool(pool);
+        return NGX_ERROR;
+    }
+
+    /* the task now owns the transaction and the log holder */
+    ctx->modsec_transaction = NULL;
+    ctx->msclog = NULL;
+
+    return NGX_OK;
+}
+
+#endif
+
+
+ngx_int_t
+ngx_http_modsecurity_log_phase_handler(ngx_http_request_t *r)
+{
+    ngx_http_modsecurity_ctx_t   *ctx;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_conf_t  *mcf;
+#endif
+
+    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    if (ctx == NULL || ctx->logged || ctx->modsec_transaction == NULL) {
+        return NGX_OK;
+    }
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    /*
+     * Subrequests do not own a context of their own -- the access phase is
+     * skipped for them -- so their log phase, which runs while the main
+     * request is still being processed, must not detach the main request's
+     * transaction.
+     */
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+
+    if (r == r->main && mcf->log_thread_pool != NULL && ctx->msclog_heap) {
+        if (ngx_http_modsecurity_log_offload(r, ctx, mcf->log_thread_pool)
+            == NGX_OK)
+        {
+            return NGX_OK;
+        }
+
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "ModSecurity: could not post logging to thread pool, "
+                      "processing inline");
+    }
+#endif
+
+    return ngx_http_modsecurity_log_transaction(r, ctx);
 }
 
 
 ngx_int_t
 ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
-    ngx_pool_t                   *old_pool;
     ngx_http_modsecurity_ctx_t   *ctx;
 
     dd("catching a new _log_ phase handler");
@@ -66,10 +197,5 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
         return NGX_OK;
     }
 
-    dd("calling msc_process_logging for %p", ctx);
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-    msc_process_logging(ctx->modsec_transaction);
-    ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-    return NGX_OK;
+    return ngx_http_modsecurity_log_transaction(r, ctx);
 }

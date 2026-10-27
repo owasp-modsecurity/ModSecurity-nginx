@@ -119,6 +119,7 @@ typedef struct {
 
     ngx_flag_t                 enable;
     ngx_flag_t                 use_error_log;
+    ngx_flag_t                 response_body;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_flag_t                 sanity_checks_enabled;
 #endif

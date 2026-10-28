@@ -526,13 +526,44 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 #endif
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-    msc_process_response_headers(ctx->modsec_transaction, status, http_response_ver);
+    ret = msc_process_response_headers(ctx->modsec_transaction, status,
+        http_response_ver);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+    if (ret != 1) {
+        ctx->intervention_triggered = 1;
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: response header phase processing failed");
+        return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
+            NGX_HTTP_INTERNAL_SERVER_ERROR);
+    }
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-    if (r->error_page) {
-        return ngx_http_next_header_filter(r);
+    if (ret < 0) {
+        ctx->intervention_triggered = 1;
+        r->connection->error = 1;
+        return NGX_ERROR;
     }
     if (ret > 0) {
+        /* An error_page response must honor its own response intervention.
+         * Mark the decision before finalization re-enters the filter. */
+        ctx->intervention_triggered = 1;
+        if (ctx->intervention_redirect_location_installed) {
+            ctx->response_replaced = 1;
+            ngx_http_clear_content_length(r);
+            ngx_http_clear_last_modified(r);
+            ngx_http_clear_etag(r);
+            ngx_http_clear_accept_ranges(r);
+            ngx_str_null(&r->headers_out.content_type);
+            r->headers_out.content_type_len = 0;
+            if (r->headers_out.content_encoding != NULL) {
+                r->headers_out.content_encoding->hash = 0;
+                r->headers_out.content_encoding = NULL;
+            }
+            r->headers_out.status = ret;
+            ngx_str_null(&r->headers_out.status_line);
+            r->headers_out.content_length_n = 0;
+            r->header_only = 1;
+            return ngx_http_next_header_filter(r);
+        }
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
     }
 

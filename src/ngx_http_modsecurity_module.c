@@ -36,7 +36,9 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
-
+static char *ngx_conf_set_phase4_mode(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_conf_set_phase4_body_limit(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
+static char *ngx_conf_set_phase4_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf);
 
 /*
  * PCRE malloc/free workaround, based on
@@ -136,121 +138,237 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 }
 
 
-int
-ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log)
+static ngx_int_t
+ngx_http_modsecurity_log_intervention(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, ngx_http_modsecurity_conf_t *mcf,
+    const ModSecurityIntervention *intervention)
 {
-    char *log = NULL;
-    ModSecurityIntervention intervention;
-    intervention.status = 200;
-    intervention.url = NULL;
-    intervention.log = NULL;
-    intervention.disruptive = 0;
-    ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_conf_t  *mcf;
+    size_t len;
 
-    dd("processing intervention");
+    ngx_str_null(&ctx->last_intervention_log);
+    if (mcf->phase4_log_file != NULL && intervention->log != NULL) {
+        len = ngx_strlen(intervention->log);
+        ctx->last_intervention_log.data = ngx_pnalloc(r->pool, len + 1);
+        if (ctx->last_intervention_log.data == NULL) {
+            return NGX_ERROR;
+        }
+        ngx_memcpy(ctx->last_intervention_log.data, intervention->log, len + 1);
+        ctx->last_intervention_log.len = len;
+    }
+    if (mcf->use_error_log) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0, "%s",
+            intervention->log != NULL ? intervention->log :
+            "(no log message was specified)");
+    }
+    return NGX_OK;
+}
 
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
-    if (ctx == NULL)
-    {
+
+static int
+ngx_http_modsecurity_process_intervention_redirect(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx,
+    const ModSecurityIntervention *intervention)
+{
+    ngx_table_elt_t *location;
+    u_char *url;
+    size_t len;
+    size_t i;
+
+    if (r->header_sent) {
+        ctx->intervention_late = 1;
+        ctx->intervention_failed = 0;
+        return NGX_ERROR;
+    }
+    len = ngx_strlen(intervention->url);
+    for (i = 0; i < len; i++) {
+        if (intervention->url[i] == '\r' || intervention->url[i] == '\n') {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: intervention redirect URL contains CR or LF");
+            return NGX_HTTP_BAD_REQUEST;
+        }
+    }
+    url = ngx_pnalloc(r->pool, len);
+    if (url == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
+    ngx_memcpy(url, intervention->url, len);
+    location = ngx_list_push(&r->headers_out.headers);
+    if (location == NULL) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ngx_http_clear_location(r);
+    ngx_str_set(&location->key, "Location");
+    location->value.data = url;
+    location->value.len = len;
+    location->hash = 1;
+    r->headers_out.location = location;
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    if (ngx_http_modsecurity_store_ctx_header(r, &location->key,
+            &location->value) != NGX_OK) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+#endif
+    ctx->intervention_redirect_location_installed = 1;
+    ctx->intervention_failed = 0;
+    return intervention->status;
+}
 
-    if (msc_intervention(transaction, &intervention) == 0) {
-        dd("nothing to do");
+
+/* Native response-limit Reject is not a rule intervention and must never be
+ * downgraded by Safe. A rule log includes its formatted rule metadata, so
+ * matching the entire engine-owned message also excludes a same-msg rule. */
+static ngx_int_t
+ngx_http_modsecurity_is_response_body_limit_rejection(
+    ngx_http_modsecurity_ctx_t *ctx,
+    const ModSecurityIntervention *intervention)
+{
+    static const char expected[] =
+        "Response body limit is marked to reject the request";
+
+    return ctx->phase4_started && intervention->disruptive == 1 &&
+        intervention->status == NGX_HTTP_FORBIDDEN &&
+        intervention->url == NULL && intervention->log != NULL &&
+        strncmp(intervention->log, expected, sizeof(expected)) == 0;
+}
+
+static ngx_int_t
+ngx_http_modsecurity_intervention_failure_status(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    if (r->header_sent) {
+        return NGX_ERROR;
+    }
+    return ctx->intervention_body_limit ? NGX_HTTP_FORBIDDEN :
+        NGX_HTTP_INTERNAL_SERVER_ERROR;
+}
+
+static ngx_int_t
+ngx_http_modsecurity_collect_native_intervention(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, Transaction *transaction,
+    ModSecurityIntervention *intervention)
+{
+    int native_result;
+
+    native_result = msc_intervention(transaction, intervention);
+    if (native_result != 0 && native_result != 1) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: invalid native intervention result");
+        return NGX_ERROR;
+    }
+    if (native_result == 0 || !intervention->disruptive) {
+        ctx->intervention_failed = 0;
+        return NGX_DECLINED;
+    }
+    if (ngx_http_modsecurity_is_response_body_limit_rejection(ctx,
+            intervention)) {
+        ctx->intervention_body_limit = 1;
+        ctx->last_intervention_status = NGX_HTTP_FORBIDDEN;
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: response body limit rejected the response");
+        return NGX_ERROR;
+    }
+    /* Response rules run at EOS. Any other disruptive result while bytes
+     * are being appended is an engine failure, including an uncorrelated
+     * Reject whose native message allocation failed. */
+    if (ctx->phase4_started && !ctx->phase4_processed) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: unexpected intervention during response append");
+        return NGX_ERROR;
+    }
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_modsecurity_defer_late_phase4_intervention(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, ngx_http_modsecurity_conf_t *mcf)
+{
+    if (!ctx->phase4_started || !ctx->phase4_processed || !r->header_sent ||
+        mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_OFF) {
         return 0;
     }
+    /* Safe/Strict record a WAF decision, not an HTTP status replacement.
+     * Do not dispatch that late decision through native status/audit hooks. */
+    ctx->intervention_late = 1;
+    ctx->intervention_failed = 0;
+    return 1;
+}
 
+static void
+ngx_http_modsecurity_reset_intervention(ngx_http_modsecurity_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->intervention_late = 0;
+    ctx->intervention_failed = 0;
+    ctx->intervention_body_limit = 0;
+    ctx->intervention_redirect_location_installed = 0;
+    ctx->last_intervention_status = 0;
+    ngx_str_null(&ctx->last_intervention_log);
+}
+
+int
+ngx_http_modsecurity_process_intervention (Transaction *transaction,
+    ngx_http_request_t *r, ngx_int_t early_log)
+{
+    ModSecurityIntervention intervention;
+    ngx_http_modsecurity_ctx_t *ctx;
+    ngx_http_modsecurity_conf_t *mcf;
+    int result;
+    ngx_int_t native_result;
+
+    ctx = ngx_http_modsecurity_get_module_ctx(r);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (mcf == NULL) {
-        if (intervention.log != NULL) {
-            free(intervention.log);
-        }
-        if (intervention.url != NULL) {
-            free(intervention.url);
-        }
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    ngx_http_modsecurity_reset_intervention(ctx);
+    if (ctx == NULL || mcf == NULL || transaction == NULL) {
+        if (ctx != NULL) ctx->intervention_failed = 1;
+        return r->header_sent ? NGX_ERROR : NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+    ngx_memzero(&intervention, sizeof(intervention));
+    intervention.status = 200;
+    ctx->intervention_failed = 1;
+    native_result = ngx_http_modsecurity_collect_native_intervention(r, ctx,
+        transaction, &intervention);
+    result = native_result == NGX_DECLINED ? 0 :
+        ngx_http_modsecurity_intervention_failure_status(r, ctx);
+    if (native_result != NGX_OK) {
+        goto done;
+    }
+    ctx->last_intervention_status = intervention.status;
+    if (ngx_http_modsecurity_log_intervention(r, ctx, mcf,
+            &intervention) != NGX_OK) {
+        goto done;
+    }
+    if (ngx_http_modsecurity_defer_late_phase4_intervention(r, ctx, mcf)) {
+        goto done;
     }
 
-    // logging to nginx error log can be disable by setting `modsecurity_use_error_log` to off
-    if (mcf->use_error_log) {
-        log = intervention.log;
-        if (intervention.log == NULL) {
-          log = "(no log message was specified)";
-        }
-        ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", log);
-    }
-
-    if (intervention.log != NULL) {
-        free(intervention.log);
-    }
-
-    if (intervention.url != NULL)
-    {
-        dd("intervention -- redirecting to: %s with status code: %d", intervention.url, intervention.status);
-
-        if (r->header_sent)
-        {
-            dd("Headers are already sent. Cannot perform the redirection at this point.");
-            return -1;
-        }
-
-        /**
-         * Not sure if it sane to do this indepent of the phase
-         * but, here we go...
-         *
-         * This code cames from: http/ngx_http_special_response.c
-         * function: ngx_http_send_error_page
-         * src/http/ngx_http_core_module.c
-         * From src/http/ngx_http_core_module.c (line 1910) i learnt
-         * that location->hash should be set to 1.
-         *
-         */
-        ngx_http_clear_location(r);
-        ngx_str_t a = ngx_string("");
-
-        a.data = (unsigned char *)intervention.url;
-        a.len = strlen(intervention.url);
-
-        ngx_table_elt_t *location = NULL;
-        location = ngx_list_push(&r->headers_out.headers);
-        ngx_str_set(&location->key, "Location");
-        location->value = a;
-        r->headers_out.location = location;
-        r->headers_out.location->hash = 1;
-
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &location->key, &location->value);
-#endif
-
-        return intervention.status;
-    }
-
-    if (intervention.status != 200)
-    {
-        /**
-         * FIXME: this will bring proper response code to audit log in case
-         * when e.g. error_page redirect was triggered, but there still won't be another
-         * required pieces like response headers etc.
-         *
-         */
+    if (intervention.url != NULL) {
+        result = ngx_http_modsecurity_process_intervention_redirect(r, ctx,
+            &intervention);
+    } else if (intervention.status != 200) {
         msc_update_status_code(ctx->modsec_transaction, intervention.status);
-
-        if (early_log) {
-            dd("intervention -- calling log handler manually with code: %d", intervention.status);
-            ngx_http_modsecurity_log_handler(r);
-            ctx->logged = 1;
-	}
-
-        if (r->header_sent)
-        {
-            dd("Headers are already sent. Cannot perform the redirection at this point.");
-            return -1;
+        if (early_log && ngx_http_modsecurity_log_handler(r) != NGX_OK) {
+            goto done;
         }
-        dd("intervention -- returning code: %d", intervention.status);
-        return intervention.status;
+        if (r->header_sent) {
+            ctx->intervention_late = 1;
+            ctx->intervention_failed = 0;
+            goto done;
+        }
+        ctx->intervention_failed = 0;
+        result = intervention.status;
+    } else {
+        ctx->intervention_failed = 0;
+        result = 0;
     }
-    return 0;
+
+done:
+    /* libModSecurity owns these allocations until the intervention is read.
+     * NGINX headers and metadata retain only request-pool copies. */
+    if (intervention.log != NULL) free(intervention.log);
+    if (intervention.url != NULL) free(intervention.url);
+    return result;
 }
 
 
@@ -260,15 +378,23 @@ ngx_http_modsecurity_cleanup(void *data)
     ngx_http_modsecurity_ctx_t *ctx;
 
     ctx = (ngx_http_modsecurity_ctx_t *) data;
-
-    msc_transaction_cleanup(ctx->modsec_transaction);
+    if (ctx == NULL) {
+        return;
+    }
+    if (ctx->modsec_transaction != NULL) {
+        msc_transaction_cleanup(ctx->modsec_transaction);
+        ctx->modsec_transaction = NULL;
+    }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
      * Purge stored context headers.  Memory allocated for individual stored header
      * name/value pair will be freed automatically when r->pool is destroyed.
      */
-    ngx_array_destroy(ctx->sanity_headers_out);
+    if (ctx->sanity_headers_out != NULL) {
+        ngx_array_destroy(ctx->sanity_headers_out);
+        ctx->sanity_headers_out = NULL;
+    }
 #endif
 }
 
@@ -281,6 +407,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
+    char                             *transaction_id;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -288,41 +415,58 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         dd("failed to allocate memory for the context.");
         return NULL;
     }
+    ctx->r = r;
 
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
+    if (mmcf == NULL || mcf == NULL) {
+        return NULL;
+    }
+
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
 
     if (mcf->transaction_id) {
-        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
-            return NGX_CONF_ERROR;
+        if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK ||
+            s.len == (size_t) -1 || (s.len != 0 && s.data == NULL)) {
+            return NULL;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+        transaction_id = ngx_pnalloc(r->pool, s.len + 1);
+        if (transaction_id == NULL) {
+            return NULL;
+        }
+        if (s.len != 0) {
+            ngx_memcpy(transaction_id, s.data, s.len);
+        }
+        transaction_id[s.len] = '\0';
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, transaction_id, r->connection->log);
 
     } else {
         ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
     }
 
-    dd("transaction created");
+    if (ctx->modsec_transaction == NULL) {
+        return NULL;
+    }
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
+    if (ctx->sanity_headers_out == NULL) {
+        ngx_http_modsecurity_cleanup(ctx);
+        return NULL;
+    }
+#endif
 
-    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
-
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
+    cln = ngx_pool_cleanup_add(r->pool, 0);
     if (cln == NULL)
     {
         dd("failed to create the ModSecurity context cleanup");
-        return NGX_CONF_ERROR;
+        ngx_http_modsecurity_cleanup(ctx);
+        return NULL;
     }
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
-    if (ctx->sanity_headers_out == NULL) {
-        return NGX_CONF_ERROR;
-    }
-#endif
+    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
     return ctx;
 }
@@ -331,22 +475,25 @@ ngx_inline ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
+    ngx_http_modsecurity_ctx_t *candidate;
+    ngx_pool_cleanup_t *cln;
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
-    if (ctx == NULL) {
-        /*
-         * refer <nginx>/src/http/modules/ngx_http_realip_module.c
-         * if module context was reset, the original address
-         * can still be found in the cleanup handler
-         */
-        ngx_pool_cleanup_t *cln;
-        for (cln = r->pool->cleanup; cln; cln = cln->next) {
-            if (cln->handler == ngx_http_modsecurity_cleanup) {
-                ctx = cln->data;
-                break;
-            }
+    if (ctx != NULL && ctx->r == r) {
+        return ctx;
+    }
+    /* Internal redirects reset module contexts but retain the same request.
+     * Subrequests share its pool, so cleanup recovery must match the owner. */
+    for (cln = r->pool->cleanup; cln; cln = cln->next) {
+        if (cln->handler != ngx_http_modsecurity_cleanup) {
+            continue;
+        }
+        candidate = cln->data;
+        if (candidate != NULL && candidate->r == r) {
+            return candidate;
         }
     }
-    return ctx;
+    return NULL;
 }
 
 char *
@@ -485,6 +632,52 @@ char *ngx_conf_set_transaction_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
     return NGX_CONF_OK;
 }
 
+static char *
+ngx_conf_set_phase4_mode(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_modsecurity_conf_t *mcf = conf;
+    ngx_str_t *value = cf->args->elts;
+    (void) cmd;
+    if (mcf->phase4_mode != NGX_CONF_UNSET_UINT) return "is duplicate";
+    if (ngx_strcmp(value[1].data, "off") == 0) mcf->phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_OFF;
+    else if (ngx_strcmp(value[1].data, "safe") == 0) mcf->phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_SAFE;
+    else if (ngx_strcmp(value[1].data, "strict") == 0) mcf->phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_STRICT;
+    else return "invalid value for modsecurity_phase4_mode (expected off|safe|strict)";
+    return NGX_CONF_OK;
+}
+
+/* Keep legacy configurations parseable; use SecResponseBodyLimit in rules. */
+static char *
+ngx_conf_set_phase4_body_limit(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_modsecurity_conf_t *mcf = conf;
+    ngx_str_t *value = cf->args->elts;
+    ssize_t limit;
+
+    (void) cmd;
+    if (mcf->phase4_body_limit != NGX_CONF_UNSET_SIZE) {
+        return "is duplicate";
+    }
+    limit = ngx_parse_size(&value[1]);
+    if (limit <= 0) {
+        return "invalid value for modsecurity_phase4_body_limit";
+    }
+    mcf->phase4_body_limit = (size_t) limit;
+    return NGX_CONF_OK;
+}
+
+static char *
+ngx_conf_set_phase4_log(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_http_modsecurity_conf_t *mcf = conf;
+    ngx_str_t *value = cf->args->elts;
+    mcf->phase4_log_path = value[1];
+    mcf->phase4_log_file = ngx_conf_open_file(cf->cycle, &mcf->phase4_log_path);
+    if (mcf->phase4_log_file == NULL) {
+        return NGX_CONF_ERROR;
+    }
+    return NGX_CONF_OK;
+}
 
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
@@ -523,6 +716,30 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     ngx_string("modsecurity_transaction_id"),
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_1MORE,
     ngx_conf_set_transaction_id,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_phase4_mode"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_phase4_mode,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_phase4_body_limit"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_phase4_body_limit,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
+    ngx_string("modsecurity_phase4_log"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    ngx_conf_set_phase4_log,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
     NULL
@@ -730,6 +947,11 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
     conf->use_error_log = NGX_CONF_UNSET;
+    conf->phase4_mode = NGX_CONF_UNSET_UINT;
+    conf->phase4_body_limit = NGX_CONF_UNSET_SIZE;
+    conf->phase4_log_file = NGX_CONF_UNSET_PTR;
+    conf->phase4_log_path.len = 0;
+    conf->phase4_log_path.data = NULL;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -770,6 +992,10 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
     ngx_conf_merge_value(c->use_error_log, p->use_error_log, 1);
+    ngx_conf_merge_uint_value(c->phase4_mode, p->phase4_mode, NGX_HTTP_MODSEC_PHASE4_MODE_OFF);
+    ngx_conf_merge_size_value(c->phase4_body_limit, p->phase4_body_limit,
+        NGX_HTTP_MODSEC_PHASE4_BODY_LIMIT_DEFAULT);
+    ngx_conf_merge_ptr_value(c->phase4_log_file, p->phase4_log_file, NULL);
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif

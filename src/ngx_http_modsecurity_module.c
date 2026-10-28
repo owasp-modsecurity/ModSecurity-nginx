@@ -293,6 +293,20 @@ ngx_http_modsecurity_defer_late_phase4_intervention(ngx_http_request_t *r,
     return 1;
 }
 
+static void
+ngx_http_modsecurity_reset_intervention(ngx_http_modsecurity_ctx_t *ctx)
+{
+    if (ctx == NULL) {
+        return;
+    }
+    ctx->intervention_late = 0;
+    ctx->intervention_failed = 0;
+    ctx->intervention_body_limit = 0;
+    ctx->intervention_redirect_location_installed = 0;
+    ctx->last_intervention_status = 0;
+    ngx_str_null(&ctx->last_intervention_log);
+}
+
 int
 ngx_http_modsecurity_process_intervention (Transaction *transaction,
     ngx_http_request_t *r, ngx_int_t early_log)
@@ -305,14 +319,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction,
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (ctx != NULL) {
-        ctx->intervention_late = 0;
-        ctx->intervention_failed = 0;
-        ctx->intervention_body_limit = 0;
-        ctx->intervention_redirect_location_installed = 0;
-        ctx->last_intervention_status = 0;
-        ngx_str_null(&ctx->last_intervention_log);
-    }
+    ngx_http_modsecurity_reset_intervention(ctx);
     if (ctx == NULL || mcf == NULL || transaction == NULL) {
         if (ctx != NULL) ctx->intervention_failed = 1;
         return r->header_sent ? NGX_ERROR : NGX_HTTP_INTERNAL_SERVER_ERROR;

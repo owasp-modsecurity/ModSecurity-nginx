@@ -491,6 +491,9 @@ def unit_program(module: str) -> str:
     ):
         if re.search(rf"\b{helper}\s*\(", module):
             helpers += "\nstatic ngx_int_t\n" + function_definition(module, helper)
+    reset = "ngx_http_modsecurity_reset_intervention"
+    if re.search(rf"\b{reset}\s*\(", module):
+        helpers += "\nstatic void\n" + function_definition(module, reset)
     helpers += "\nint\n" + function_definition(
         module, "ngx_http_modsecurity_process_intervention"
     )

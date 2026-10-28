@@ -6,9 +6,8 @@ BEGIN { use FindBin; chdir($FindBin::Bin); }
 use lib 'lib';
 use Test::Nginx;
 
-# Native off/default late-deny finalization intentionally causes the nginx
-# header-already-sent alert. Audit those alerts explicitly below.
-my $t = Test::Nginx->new()->has(qw/http/)->todo_alerts();
+# A committed response must fail without attempting another HTTP status.
+my $t = Test::Nginx->new()->has(qw/http/);
 $t->write_file_expand('nginx.conf', <<'EOC');
 %%TEST_GLOBALS%%
 daemon off;
@@ -68,11 +67,12 @@ unlike($log, qr/Hello off|Hello default|Hello safe|Hello strict/, 'response body
 
 # Stop first so the explicit alert audit includes all worker output.
 $t->stop();
-my @alerts = $t->read_file('error.log') =~ /^.*\[alert\].*$/gm;
-my $expected_alert = qr/\[alert\].*header already sent\b.*request: "GET \/(?:off|default) HTTP\/1\.[01]"/;
-my @late_alerts = grep { /$expected_alert/ } @alerts;
-is(scalar @late_alerts, 2, 'native off/default each cause one expected late-finalization alert');
-is(scalar(grep { /request: "GET \/off HTTP\/1\.[01]"/ } @late_alerts), 1, 'explicit off has one expected alert');
-is(scalar(grep { /request: "GET \/default HTTP\/1\.[01]"/ } @late_alerts), 1, 'default off has one expected alert');
-my @unexpected_alerts = grep { !/$expected_alert/ } @alerts;
-is(join("\n", @unexpected_alerts), '', 'no unexpected nginx alerts');
+my $error_log = $t->read_file('error.log');
+my @alerts = $error_log =~ /^.*\[alert\].*$/gm;
+is(scalar @alerts, 0, 'no nginx alerts after late intervention');
+unlike($error_log, qr/header already sent\b.*request: "GET \/off HTTP\/1\.[01]"/,
+    'explicit off never attempts a second response header');
+unlike($error_log, qr/header already sent\b.*request: "GET \/default HTTP\/1\.[01]"/,
+    'default off never attempts a second response header');
+is(scalar(() = $error_log =~ /modsecurity phase4 intervention after headers sent, action=connection_abort, uri="\/strict"/g),
+    1, 'strict abort is diagnosed once');

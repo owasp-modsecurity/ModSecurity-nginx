@@ -103,6 +103,33 @@ http {
         location / {
         }
     }
+
+    server {
+        listen       127.0.0.1:8080;
+        server_name  s3;
+        root %%TESTDIR%%/http;
+
+        error_page 404 = /protected-error.txt;
+
+        location = /trigger {
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecAction "id:910501,phase:1,pass,nolog"
+            ';
+            try_files /missing-error-source =404;
+        }
+
+        location = /protected-error.txt {
+            internal;
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecRule REQUEST_HEADERS:X-Phase1-Deny "@streq yes" "id:910502,phase:1,deny,status:451,nolog"
+                SecRule REQUEST_HEADERS:X-Phase2-Deny "@streq yes" "id:910503,phase:2,deny,status:403,nolog"
+            ';
+        }
+    }
 }
 EOF
 
@@ -112,9 +139,11 @@ my $custom_txt = "This is a custom error page.";
 $t->write_file("/index.html", $index_txt);
 mkdir($t->testdir() . '/http');
 $t->write_file("/http/403.html", $custom_txt);
+my $protected_txt = "This is a protected error target.";
+$t->write_file("/http/protected-error.txt", $protected_txt);
 
 $t->run();
-$t->plan(10);
+$t->plan(14);
 
 ###############################################################################
 
@@ -160,13 +189,25 @@ unlike($global, qr/what=other/, 'ModSecurity at server / other not present in au
 like($local, qr/Access denied with code 403/, 'ModSecurity at location / 403 in auditlog');
 like($global, qr/Access denied with code 403/, 'ModSecurity at server / 403 in auditlog');
 
+# The origin runs access processing before try_files redirects to a different
+# protected location. The target must get its own transaction and run P1/P2.
+my $target_allow = http_get_host('s3', '/trigger');
+my $target_p1 = http_get_host('s3', '/trigger', 'X-Phase1-Deny: yes');
+my $target_p2 = http_get_host('s3', '/trigger', 'X-Phase2-Deny: yes');
+like($target_allow, qr/^HTTP\/1\.[01] 200/, 'error-page target allows legitimate request');
+like($target_allow, qr/\Q$protected_txt\E/, 'error-page target delivers legitimate content');
+like($target_p1, qr/^HTTP\/1\.[01] 451/, 'error-page target preserves P1 deny');
+like($target_p2, qr/^HTTP\/1\.[01] 403/, 'error-page target continues from P1 allow to P2 deny');
+
 ###############################################################################
 
 sub http_get_host {
-	my ($host, $url) = @_;
+	my ($host, $url, $headers) = @_;
+	$headers = '' unless defined $headers;
 	return http(<<EOF);
 GET $url HTTP/1.0
 Host: $host
+$headers
 
 EOF
 }

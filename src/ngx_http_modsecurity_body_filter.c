@@ -27,6 +27,7 @@
 #define NGX_HTTP_MODSECURITY_PHASE4_FILE_READ_CHUNK 32768U
 
 static ngx_http_output_body_filter_pt ngx_http_next_body_filter;
+static ngx_int_t ngx_http_modsecurity_process_response_intervention(ngx_http_request_t *r, ngx_http_modsecurity_ctx_t *ctx, ngx_http_modsecurity_conf_t *mcf);
 static ngx_int_t ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurity_conf_t *mcf, const char *wanted, const char *actual, const char *reason);
 static ngx_int_t ngx_http_modsecurity_phase4_handle_intervention(ngx_http_request_t *r, ngx_http_modsecurity_conf_t *mcf);
 static void ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *dst);
@@ -45,16 +46,43 @@ ngx_http_modsecurity_body_filter_init(void)
 }
 
 static ngx_int_t
+ngx_http_modsecurity_phase4_error_gate(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    if (!ctx->phase4_failed) {
+        return NGX_OK;
+    }
+    /* Only the synchronous core-generated error body may pass the gate.
+     * A subsequent flush or data callback cannot resume the failed chain. */
+    if (ctx->phase4_error_emitting && r->filter_finalize) {
+        return NGX_DECLINED;
+    }
+    r->connection->error = 1;
+    return NGX_ERROR;
+}
+
+static ngx_int_t
 ngx_http_modsecurity_response_body_failure(ngx_http_request_t *r,
     ngx_http_modsecurity_ctx_t *ctx)
 {
+    ngx_int_t ret;
+
+    if (ctx->phase4_failed) {
+        r->connection->error = 1;
+        return NGX_ERROR;
+    }
+    ctx->phase4_failed = 1;
     ctx->intervention_triggered = 1;
     if (r->header_sent) {
         r->connection->error = 1;
         return NGX_ERROR;
     }
-    return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
-        NGX_HTTP_INTERNAL_SERVER_ERROR);
+    ctx->phase4_error_emitting = 1;
+    ret = ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
+        ctx->intervention_body_limit ? NGX_HTTP_FORBIDDEN :
+            NGX_HTTP_INTERNAL_SERVER_ERROR);
+    ctx->phase4_error_emitting = 0;
+    return ret;
 }
 
 /* libModSecurity owns response inspection limits in every Phase-4 mode.
@@ -99,13 +127,16 @@ static ngx_int_t
 ngx_http_modsecurity_append_response_body_chunk(
     ngx_http_modsecurity_ctx_t *ctx, u_char *data, size_t bytes)
 {
+    int ret;
+
     if (bytes == 0U) {
         return NGX_OK;
     }
     if (data == NULL || ctx->response_body_bytes_inspected > SIZE_MAX - bytes) {
         return NGX_ERROR;
     }
-    if (msc_append_response_body(ctx->modsec_transaction, data, bytes) < 0) {
+    ret = msc_append_response_body(ctx->modsec_transaction, data, bytes);
+    if (ret != 0 && ret != 1) {
         return NGX_ERROR;
     }
     ctx->response_body_bytes_inspected += bytes;
@@ -137,6 +168,7 @@ ngx_http_modsecurity_append_file_response_body(ngx_http_request_t *r,
     size_t chunk;
     off_t file_offset;
     ssize_t read_count;
+    ngx_int_t ret;
 
     if (buffer == NULL || buffer->file_pos < 0 ||
         buffer->file_last < buffer->file_pos) {
@@ -178,6 +210,12 @@ ngx_http_modsecurity_append_file_response_body(ngx_http_request_t *r,
                 ctx->phase4_file_scratch, chunk) != NGX_OK) {
             return NGX_ERROR;
         }
+        /* Native Reject may return a successful append with a pending
+         * intervention. Collect it before reading the next file chunk. */
+        ret = ngx_http_modsecurity_process_response_intervention(r, ctx, mcf);
+        if (ret != NGX_OK || ctx->intervention_triggered) {
+            return ret;
+        }
         file_offset += (off_t)chunk;
         remaining -= chunk;
     }
@@ -194,6 +232,9 @@ ngx_http_modsecurity_append_response_body_buffer(ngx_http_request_t *r,
     }
     /* Buffers backed by both memory and a file describe the same bytes. */
     if (ngx_buf_in_memory(buffer)) {
+        if (buffer->pos == NULL && buffer->last == NULL) {
+            return NGX_OK;
+        }
         if (buffer->pos == NULL || buffer->last == NULL ||
             buffer->last < buffer->pos) {
             return NGX_ERROR;
@@ -223,6 +264,9 @@ ngx_http_modsecurity_process_response_intervention(ngx_http_request_t *r,
         return ngx_http_modsecurity_response_body_failure(r, ctx);
     }
     if (mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_OFF) {
+        if (r->header_sent) {
+            return ngx_http_modsecurity_response_body_failure(r, ctx);
+        }
         ctx->intervention_triggered = 1;
         /* Retain the native intervention failure path in off. */
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
@@ -325,11 +369,15 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     ngx_http_modsecurity_conf_t *mcf;
     ngx_int_t ret;
 
-    if (in == NULL) {
-        return ngx_http_next_body_filter(r, in);
-    }
     ctx = ngx_http_modsecurity_get_module_ctx(r);
     if (ctx == NULL) {
+        return ngx_http_next_body_filter(r, in);
+    }
+    ret = ngx_http_modsecurity_phase4_error_gate(r, ctx);
+    if (ret != NGX_OK) {
+        return ret == NGX_DECLINED ? ngx_http_next_body_filter(r, in) : ret;
+    }
+    if (in == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
     if (ctx->response_replaced) {
@@ -349,9 +397,13 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ret;
     }
 #endif
+    ctx->phase4_started = 1;
     for (chain = in; chain != NULL; chain = chain->next) {
         ret = ngx_http_modsecurity_append_response_body_buffer(r, ctx, mcf,
             chain->buf);
+        if (ctx->intervention_triggered) {
+            return ret;
+        }
         if (ret != NGX_OK) {
             ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
                 "ModSecurity: response body inspection append failed");
@@ -413,6 +465,7 @@ ngx_http_modsecurity_phase4_handle_intervention(ngx_http_request_t *r,
     }
     if (mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_STRICT) {
         ctx->phase4_strict_abort = 1;
+        ctx->phase4_failed = 1;
         ctx->intervention_triggered = 1;
         r->connection->error = 1;
         ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,

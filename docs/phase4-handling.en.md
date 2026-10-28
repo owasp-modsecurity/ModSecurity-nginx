@@ -11,6 +11,8 @@ This branch adopts the relevant nginx implementation from
 [Easton97-Jens/ModSecurity-conector, commit b0f3bdab429717b5b0311c30c5b4d1153c672ac0](https://github.com/Easton97-Jens/ModSecurity-conector/tree/b0f3bdab429717b5b0311c30c5b4d1153c672ac0/connectors/nginx/src).
 The response-limit ownership update follows
 [commit 820b6975495bdf0f90aca67eee86e27a3b7d329b](https://github.com/Easton97-Jens/ModSecurity-conector/blob/820b6975495bdf0f90aca67eee86e27a3b7d329b/docs/phase4-mode-budget.md).
+Native-result, response completion, and lifecycle corrections follow
+[commit f5523da040bd6325b369269ada074be6ba069c4f](https://github.com/Easton97-Jens/ModSecurity-conector/tree/f5523da040bd6325b369269ada074be6ba069c4f/connectors/nginx/src).
 These changes are adapted to this standalone module and preserve its phase 4
 JSON-lines schema. The source repository's multi-connector runtime and run
 evidence are not imported.
@@ -49,20 +51,26 @@ environment before reloading nginx.
 `off` disables the connector's additional phase 4 intervention policy.
 It **does not disable ModSecurity**, response-body inspection, or phase
 4 rules. Native intervention handling remains active. If a native intervention
-occurs after headers have been committed, response finalization can fail the
-transport; `off` is not a promise to deliver every response.
+occurs after headers have been committed, the affected transport is failed
+without trying to send another HTTP status; `off` is not a promise to deliver
+every response or to reproduce every pre-PR intervention control-flow decision.
 
 For the additional policy in `safe` and `strict`:
 
 | Header state | `safe` | `strict` |
 | --- | --- | --- |
 | Headers not sent | Apply the intervention's status/redirect through the normal path; logged as `deny_status` | Same |
-| Headers already sent | Log the intervention as `log_only` and continue | Log `connection_abort` and terminate the response |
+| Headers already sent | Log the rule intervention as `log_only` and continue if logging succeeds | Log `connection_abort` and terminate the response |
 
-`safe` only downgrades late **interventions**. An engine API failure, invalid
+`safe` only downgrades late **rule interventions**. An engine API failure, invalid
 buffer, failed file read, allocation failure, counter overflow, or final
 processing failure remains a failure. It is not converted into successful
-forwarding.
+forwarding. Native response-limit Reject is not a rule-policy downgrade.
+
+Once a response has failed, later data callbacks and NULL-input flushes cannot
+resume forwarding. Before headers are sent, nginx may render its synchronous
+core error response once; subsequent callbacks retain the failure. Ordinary
+successful downstream `NGX_AGAIN` handling remains unchanged.
 
 `strict` can produce a truncated response or a client/proxy transport error.
 It cannot guarantee a clean 403, 401, 301, or 302 after headers have been sent.
@@ -86,8 +94,11 @@ SecResponseBodyLimitAction ProcessPartial
 The 1 MiB value is an explicit example setting, not a new engine default.
 `ProcessPartial` selects inspection of the portion within the engine limit;
 `Reject` is the alternative engine action when rejection is required. Mode
-selection does not override that engine policy. Any resulting late intervention
-still follows the selected connector mode.
+selection does not override that engine policy. Native Reject is recognized
+by its exact rule-free engine signature while processing a response body. It
+produces 403 before headers are sent, or fails the transport after commitment,
+in all modes including `safe`. It does not produce a `phase4_intervention`
+rule-policy event; a fixed diagnostic is written to the nginx error log.
 
 The deprecated connector setting remains parseable and inherited, but its
 value has no enforcement effect in any valid mode. A successful configuration
@@ -101,12 +112,17 @@ nonfatal engine `ProcessPartial` ingestion is not a connector failure.
 The connector does not globally buffer responses or reorder nginx body
 chains. Memory buffers are inspected directly. File-only buffers are read
 through a bounded 32 KiB scratch buffer, without loading the entire file into
-memory or replacing the original outgoing chain. Genuine processing or I/O
-failures stop the affected response.
+memory or replacing the original outgoing chain. Pending interventions are
+checked after every file chunk so Reject stops further reads immediately.
+Genuine processing or I/O failures stop the affected response.
 
 The response body is finalized once per transaction: a main request uses
 `last_buf`; a subrequest uses `last_in_chain`. Repeated filter calls after
-finalization do not run phase 4 again.
+finalization do not run phase 4 again. Empty memory/EOS buffers with both data
+pointers NULL are valid; a missing single pointer or inverted range remains an
+error. Native byte appends accept only 0/1 (`ProcessPartial` may return 0),
+phase evaluation succeeds only with 1, and native intervention collection
+accepts only 0/1 and honors the disruptive flag.
 
 ## 5) MIME selection belongs to ModSecurity
 
@@ -164,6 +180,12 @@ diagnostics.
 `off` uses native intervention handling and does not produce these dedicated
 policy events. A dedicated intervention event is not a complete inventory of
 all engine, buffer, or I/O errors.
+
+Native audit logging is attempted once, including re-entry, and its return
+value is checked. A failed audit attempt is retained as a failure without
+trying to generate a new HTTP response. Request inspection also preserves
+deny/redirect decisions across `error_page` routing; a new internal target
+location starts its own transaction rather than reusing processed state.
 
 ## 7) Configuration examples and verification
 

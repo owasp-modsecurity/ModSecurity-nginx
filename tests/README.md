@@ -19,7 +19,8 @@ CC=clang python3 -m unittest discover -s tests -p 'test_*runtime.py' -v
 ```
 
 The suites compile the production body-filter functions, request-context
-lookup, and intervention helpers with small NGINX and libModSecurity doubles.
+creation/lookup/cleanup, intervention helpers, and request/audit handlers with
+small NGINX and libModSecurity doubles.
 They check forwarding above the deprecated connector limit in every mode,
 checked accounting, overflow, memory/file buffers, bounded file reads and allocation/read
 errors, finalization at EOS, native failures, late interventions, downstream
@@ -28,6 +29,13 @@ Common connector library. The intervention cases run with sanity checks enabled
 and disabled and cover redirect ownership, status values, and cleanup. These
 are helper behavior tests; they do not replace
 the native HTTP integration tests.
+
+Further regressions exercise invalid native result values, nondisruptive
+outputs, exact native response-limit rejection, valid empty EOS markers,
+failed filter re-entry (including NULL-input flushes), a synchronous core
+error response, and early rejection after a single file chunk. Request tests
+exercise internal target-location isolation, error-page P1/P2 continuation,
+once-only audit logging, failed context creation and custom-ID termination.
 
 ## Native Phase4 integration tests
 
@@ -46,6 +54,9 @@ delivery above the deprecated connector limit in every mode, and engine-owned
 reject the removed `minimal` mode and connector
 MIME directive. Late deny/redirect assertions check transport interruption,
 because headers have already been committed; they do not promise a clean 403.
+Native engine Reject is an error in every mode, including safe; it does not
+emit a rule-policy JSON event or attempt a second response header. The error
+page suite also verifies target-location P1/P2 blocking after internal routing.
 
 A separate GitHub workflow job runs the standalone suite immediately with
 both Linux compilers, independently of the libModSecurity build. The native

@@ -36,6 +36,11 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
+#if defined(MSC_HAVE_GET_TX)
+static ngx_int_t ngx_http_modsecurity_add_variables(ngx_conf_t *cf);
+static ngx_int_t ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data);
+#endif
 
 
 /*
@@ -539,8 +544,24 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
 };
 
 
+#if defined(MSC_HAVE_GET_TX)
+static ngx_http_variable_t ngx_http_modsecurity_vars[] = {
+
+    { ngx_string("msc_tx_"), NULL,
+      ngx_http_modsecurity_tx_variable, 0,
+      NGX_HTTP_VAR_PREFIX|NGX_HTTP_VAR_NOCACHEABLE, 0 },
+
+      ngx_http_null_variable
+};
+#endif
+
+
 static ngx_http_module_t ngx_http_modsecurity_ctx = {
+#if defined(MSC_HAVE_GET_TX)
+    ngx_http_modsecurity_add_variables,    /* preconfiguration */
+#else
     NULL,                                  /* preconfiguration */
+#endif
     ngx_http_modsecurity_init,             /* postconfiguration */
 
     ngx_http_modsecurity_create_main_conf, /* create main configuration */
@@ -628,6 +649,76 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
 
     return NGX_OK;
 }
+
+
+#if defined(MSC_HAVE_GET_TX)
+static ngx_int_t
+ngx_http_modsecurity_add_variables(ngx_conf_t *cf)
+{
+    ngx_http_variable_t  *var, *v;
+
+    for (v = ngx_http_modsecurity_vars; v->name.len; v++) {
+        var = ngx_http_add_variable(cf, &v->name, v->flags);
+        if (var == NULL) {
+            return NGX_ERROR;
+        }
+
+        var->get_handler = v->get_handler;
+        var->data = v->data;
+    }
+
+    return NGX_OK;
+}
+
+
+/* $msc_tx_<name>: value of TX:<name> in this request's transaction */
+static ngx_int_t
+ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
+    ngx_http_variable_value_t *v, uintptr_t data)
+{
+    ngx_str_t                   *name = (ngx_str_t *) data;
+    u_char                      *key;
+    char                        *value;
+    size_t                       len, prefix;
+    ngx_http_modsecurity_ctx_t  *ctx;
+
+    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    if (ctx == NULL || ctx->modsec_transaction == NULL) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    prefix = sizeof("msc_tx_") - 1;
+
+    key = ngx_pnalloc(r->pool, name->len - prefix + 1);
+    if (key == NULL) {
+        return NGX_ERROR;
+    }
+    ngx_cpystrn(key, name->data + prefix, name->len - prefix + 1);
+
+    value = msc_get_tx(ctx->modsec_transaction, (const char *) key);
+    if (value == NULL) {
+        v->not_found = 1;
+        return NGX_OK;
+    }
+
+    len = ngx_strlen(value);
+    v->data = ngx_pnalloc(r->pool, len);
+    if (v->data == NULL) {
+        free(value);
+        return NGX_ERROR;
+    }
+    ngx_memcpy(v->data, value, len);
+    free(value);
+
+    v->len = len;
+    v->valid = 1;
+    v->no_cacheable = 1;
+    v->not_found = 0;
+
+    return NGX_OK;
+}
+#endif
 
 
 static void *

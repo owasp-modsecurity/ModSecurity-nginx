@@ -87,6 +87,16 @@ END
 fi
 
 
+# Optional libmodsecurity APIs; reuses the paths/libs found above.
+ngx_feature="ModSecurity msc_get_tx()"
+ngx_feature_name="MSC_HAVE_GET_TX"
+ngx_feature_incs="#include <modsecurity/transaction.h>
+#include <stdlib.h>"
+ngx_feature_test='free(msc_get_tx(NULL, "x"));'
+. auto/feature
+ngx_feature_name=
+
+
 ngx_addon_name=ngx_http_modsecurity_module
 
 # We must place ngx_http_modsecurity_module after ngx_http_gzip_filter_module

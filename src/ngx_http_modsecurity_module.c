@@ -40,6 +40,7 @@ static void ngx_http_modsecurity_cleanup_rules(void *data);
 static ngx_int_t ngx_http_modsecurity_add_variables(ngx_conf_t *cf);
 static ngx_int_t ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
     ngx_http_variable_value_t *v, uintptr_t data);
+static void ngx_http_modsecurity_flush_tx_variables(ngx_http_request_t *r);
 #endif
 
 
@@ -160,6 +161,11 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
+
+#if defined(MSC_HAVE_GET_TX)
+    /* called after every phase, which may have changed TX */
+    ngx_http_modsecurity_flush_tx_variables(r);
+#endif
 
     if (msc_intervention(transaction, &intervention) == 0) {
         dd("nothing to do");
@@ -679,7 +685,7 @@ ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
     ngx_str_t                   *name = (ngx_str_t *) data;
     u_char                      *key;
     char                        *value;
-    size_t                       len, prefix;
+    size_t                       len, prefix, i;
     int                          rc;
     ngx_http_modsecurity_ctx_t  *ctx;
 
@@ -708,6 +714,21 @@ ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
         return NGX_ERROR;
     }
 
+    /*
+     * TX values often hold decoded user input; never let them carry
+     * CR/LF/NUL into headers (add_header, proxy_set_header, ...).
+     */
+    for (i = 0; i < len; i++) {
+        if (value[i] == CR || value[i] == LF || value[i] == '\0') {
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                          "ModSecurity: \"$%V\" is empty, the TX value "
+                          "contains CR, LF or NUL", name);
+            msc_free(value);
+            v->not_found = 1;
+            return NGX_OK;
+        }
+    }
+
     v->data = ngx_pnalloc(r->pool, len);
     if (v->data == NULL) {
         msc_free(value);
@@ -722,6 +743,35 @@ ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
     v->not_found = 0;
 
     return NGX_OK;
+}
+
+
+/*
+ * NGX_HTTP_VAR_NOCACHEABLE is not enough: access_log reads variables with
+ * ngx_http_get_indexed_variable(), which returns any value cached earlier
+ * (e.g. by proxy_set_header). Drop cached $msc_tx_* values so later
+ * readers see what the rules set since.
+ */
+static void
+ngx_http_modsecurity_flush_tx_variables(ngx_http_request_t *r)
+{
+    ngx_uint_t                  i;
+    ngx_http_variable_t        *v;
+    ngx_http_core_main_conf_t  *cmcf;
+
+    cmcf = ngx_http_get_module_main_conf(r, ngx_http_core_module);
+    v = cmcf->variables.elts;
+
+    /*
+     * ponytail: scans every indexed variable after each phase; cache the
+     * $msc_tx_* indices once if configs ever hold thousands of variables
+     */
+    for (i = 0; i < cmcf->variables.nelts; i++) {
+        if (v[i].get_handler == ngx_http_modsecurity_tx_variable) {
+            r->variables[i].valid = 0;
+            r->variables[i].not_found = 0;
+        }
+    }
 }
 #endif
 

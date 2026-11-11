@@ -191,12 +191,24 @@ $msc_tx_*name*
 -----------
 The value of the ModSecurity `TX:name` variable in the current request's
 transaction, e.g. one set by `setvar:tx.name=value`. The name is
-case-insensitive, as in rules. The variable is empty when ModSecurity is off
-for the request or the TX variable is not set.
+case-insensitive, as in rules. The variable is empty when ModSecurity did not
+run for the request or the TX variable is not set.
 
 The value is read when nginx evaluates the variable, so it only reflects
-rules from phases that have already run: `proxy_set_header` sees values from
-phases 1 and 2, while `access_log` sees values from every phase.
+rules from phases that have already run:
+
+* `proxy_set_header` and `add_header` see values set in phases 1 and 2.
+* `access_log` sees values set in phases 1 to 4. Phase 5 rules run after
+  the access log line is written.
+
+The transaction belongs to the original request: after an internal
+redirect (`error_page`, `try_files`, ...) or in a subrequest, the variable
+still returns its values, even in a location with `modsecurity off`. This
+lets the access log of a blocked request record why it was blocked.
+
+TX values can contain user input. A value containing CR, LF or NUL is
+treated as empty (and logged as a warning) so it cannot inject headers;
+other content is passed as is, so escape it where your use requires.
 
 ```nginx
 modsecurity_rules '

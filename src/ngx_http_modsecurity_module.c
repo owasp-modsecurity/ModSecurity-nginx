@@ -680,6 +680,7 @@ ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
     u_char                      *key;
     char                        *value;
     size_t                       len, prefix;
+    int                          rc;
     ngx_http_modsecurity_ctx_t  *ctx;
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
@@ -696,20 +697,24 @@ ngx_http_modsecurity_tx_variable(ngx_http_request_t *r,
     }
     ngx_cpystrn(key, name->data + prefix, name->len - prefix + 1);
 
-    value = msc_get_tx(ctx->modsec_transaction, (const char *) key);
-    if (value == NULL) {
+    rc = msc_get_tx(ctx->modsec_transaction, (const char *) key,
+                    &value, &len);
+    if (rc == 0) {
         v->not_found = 1;
         return NGX_OK;
     }
 
-    len = ngx_strlen(value);
+    if (rc < 0) {
+        return NGX_ERROR;
+    }
+
     v->data = ngx_pnalloc(r->pool, len);
     if (v->data == NULL) {
-        free(value);
+        msc_free(value);
         return NGX_ERROR;
     }
     ngx_memcpy(v->data, value, len);
-    free(value);
+    msc_free(value);
 
     v->len = len;
     v->valid = 1;

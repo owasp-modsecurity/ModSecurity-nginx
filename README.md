@@ -209,8 +209,8 @@ log_format waf '$remote_addr "$request" tag=$msc_tx_waf_tag '
 access_log logs/waf.log waf;
 ```
 
-Requires a libmodsecurity version that provides `msc_get_tx()`; against
-older versions the variable is not available.
+Requires a libmodsecurity version that provides `msc_get_tx()` (it defines
+`MSC_HAVE_GET_TX`); against older versions the variable is not available.
 
 # Contributing
 

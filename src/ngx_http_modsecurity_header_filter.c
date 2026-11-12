@@ -157,10 +157,10 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
     if (r->headers_out.server == NULL) {
         if (clcf->server_tokens) {
             value.data = (u_char *)ngx_http_server_full_string;
-            value.len = sizeof(ngx_http_server_full_string);
+            value.len = sizeof(ngx_http_server_full_string) - 1;
         } else {
             value.data = (u_char *)ngx_http_server_string;
-            value.len = sizeof(ngx_http_server_string);
+            value.len = sizeof(ngx_http_server_string) - 1;
         }
     } else {
         ngx_table_elt_t *h = r->headers_out.server;
@@ -214,15 +214,14 @@ ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
     ngx_str_t value;
-    char buf[NGX_INT64_LEN+2];
+    char buf[NGX_INT64_LEN + 1];
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
     if (r->headers_out.content_length_n > 0)
     {
-        ngx_sprintf((u_char *)buf, "%O%Z", r->headers_out.content_length_n);
+        value.len = (int)(ngx_sprintf((u_char *)buf, "%O", r->headers_out.content_length_n) - (u_char *)buf);
         value.data = (unsigned char *)buf;
-        value.len = strlen(buf);
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modsecurity_store_ctx_header(r, &name, &value);

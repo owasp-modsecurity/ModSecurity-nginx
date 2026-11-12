@@ -1,0 +1,78 @@
+name: Valgrind soak
+
+# Manual/scheduled only, not on every PR: a memcheck/helgrind soak runs
+# 10-50x slower than native. See tools/soak.sh.
+on:
+  workflow_dispatch:
+    inputs:
+      duration:
+        description: Seconds per soak run
+        default: "120"
+      concurrency:
+        description: Concurrent traffic workers
+        default: "8"
+      nginx_version:
+        description: nginx to build (1.28.x / 1.29.x / 1.30.x or release-x.y.z)
+        default: "1.29.x"
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC
+
+permissions:
+  contents: read
+
+# Keyed on the event too, so a manual dispatch does not cancel an in-flight
+# scheduled run (or vice versa): these runs are never superseded by a newer
+# commit the way PR runs are.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  soak:
+    name: memcheck + helgrind soak
+    runs-on: ubuntu-latest
+    env:
+      NGINX_VERSION: ${{ inputs.nginx_version || '1.29.x' }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Same resolution as test_new.yml, so the soak tracks the current
+      # release of the requested nginx line instead of a pinned tarball.
+      - name: Resolve nginx ref
+        id: nginx_ref
+        run: bash .github/scripts/resolve-nginx-ref.sh
+
+      # Build once, soak twice: the image build (libmodsecurity + nginx +
+      # connector from source) dominates the job, so the two tools share it
+      # and run back to back rather than each rebuilding in its own job.
+      - name: Build base image
+        env:
+          NGINX_REF: ${{ steps.nginx_ref.outputs.ref }}
+        run: docker build --build-arg NGINX_REF="$NGINX_REF" -t modsec-nginx-test .
+
+      - name: Build soak image
+        run: docker build -f Dockerfile.fuzz -t modsec-nginx-soak .
+
+      - name: Run memcheck soak
+        env:
+          DURATION: ${{ inputs.duration || '120' }}
+          CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        run: |
+          docker run --rm --cap-add=SYS_PTRACE \
+            -e USE_VALGRIND=1 \
+            modsec-nginx-soak /usr/local/nginx/sbin/nginx \
+            "$DURATION" "$CONCURRENCY"
+
+      - name: Run helgrind soak
+        if: ${{ !cancelled() }} # still run if memcheck failed
+        env:
+          DURATION: ${{ inputs.duration || '120' }}
+          CONCURRENCY: ${{ inputs.concurrency || '8' }}
+        run: |
+          docker run --rm --cap-add=SYS_PTRACE \
+            -e USE_HELGRIND=1 \
+            modsec-nginx-soak /usr/local/nginx/sbin/nginx \
+            "$DURATION" "$CONCURRENCY"

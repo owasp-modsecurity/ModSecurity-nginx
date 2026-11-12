@@ -100,6 +100,22 @@ typedef struct {
     unsigned logged:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
+    /*
+     * Set when the header filter replaces an already-populated response with
+     * a WAF-triggered redirect (see ngx_http_modsecurity_header_filter()).
+     * The original response body may already be flowing through the output
+     * chain; the body filter must drop it rather than send it alongside the
+     * new redirect.
+     */
+    unsigned response_replaced:1;
+    /*
+     * Set by ngx_http_modsecurity_process_intervention() when the
+     * intervention it just applied was a redirect, i.e. it installed a
+     * Location header on r->headers_out. Callers branch on this rather than
+     * on r->headers_out.location, which the original response may already
+     * have carried.
+     */
+    unsigned intervention_redirect:1;
 } ngx_http_modsecurity_ctx_t;
 
 

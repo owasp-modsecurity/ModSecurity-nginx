@@ -1,3 +1,83 @@
+Unreleased
+----------
+
+  - feat: add off (default), safe and strict Phase 4 intervention modes.
+    Safe and strict explicitly enable the additional connector policy; off
+    leaves ModSecurity response inspection and native interventions active.
+    [PR #377 - @Easton97-Jens]
+  - feat: handle late deny and redirect interventions explicitly. After
+    headers are sent, safe logs and continues when event logging succeeds;
+    strict terminates the response. A late intervention cannot replace an HTTP
+    status or body already sent.
+    [PR #377 - @Easton97-Jens]
+  - feat: add optional JSON-lines events with requested and actual actions,
+    response and WAF status, mode, reason, content type and rule ID. Redact
+    engine intervention messages and omit response-body bytes from the event.
+    [PR #377 - @Easton97-Jens]
+  - fix: inherit Phase 4 configuration and log files from http/server blocks
+    into nested locations, with validation of mode and size arguments.
+    [PR #377 - @Easton97-Jens]
+  - fix: leave response MIME selection and inspection limits to libModSecurity
+    through SecResponseBodyAccess, SecResponseBodyMimeType,
+    SecResponseBodyMimeTypesClear, SecResponseBodyLimit and
+    SecResponseBodyLimitAction. Earlier revisions of this PR used a connector
+    MIME-file directive and minimal mode; these are no longer supported.
+    Retain modsecurity_phase4_body_limit as a deprecated,
+    ignored compatibility setting with positive-value validation.
+    [PR #377 - @Easton97-Jens]
+  - fix: inspect memory and file-backed response buffers, reading file data
+    in bounded 32 KiB chunks while preserving the outgoing chain. Check byte
+    accounting, engine results, allocations and file reads; genuine errors
+    remain failures in every mode, including safe.
+    [PR #377 - @Easton97-Jens]
+  - fix: finalize response-body processing once per transaction and respect
+    main-request/subrequest ownership and end-of-stream markers. Correct
+    response-header error handling, redirect ownership, cleanup and internal
+    redirect recovery.
+    [PR #377 - @Easton97-Jens]
+  - fix: distinguish redirect and deny actions in events, escape JSON fields,
+    detect log-write failures, pass the correct NGINX integer type for WAF
+    status and normalize logged content types with fixed ASCII whitespace.
+    [PR #377 - @Easton97-Jens]
+  - fix: validate native intervention and body-append return values as closed
+    0/1 contracts, respect nondisruptive results, release owned outputs on
+    every path and propagate early audit-log failures.
+    [PR #377 - @Easton97-Jens]
+  - fix: retain native response-limit Reject in every mode, including safe.
+    Emit 403 before headers or stop the committed response; never downgrade
+    the engine limit into a rule-policy event. Collect file interventions
+    after each chunk while preserving ProcessPartial and the outgoing chain.
+    [PR #377 - @Easton97-Jens]
+  - fix: keep response failures terminal across data and NULL-input filter
+    re-entry, permitting only one synchronous core error response. Accept
+    valid empty memory/EOS buffers without repeating phase completion.
+    [PR #377 - @Easton97-Jens]
+  - fix: preserve request-phase deny/redirect decisions across error_page
+    routing and start a fresh transaction for an internal target location.
+    Check request-phase, file-ingestion and append results independently.
+    [PR #377 - @Easton97-Jens]
+  - fix: attempt native audit logging once and retain failed native results
+    across re-entry without attempting another client response.
+    [PR #377 - @Easton97-Jens]
+  - fix: return NULL for transaction/context creation failures, release
+    partially created native owners, make cleanup idempotent and terminate
+    length-delimited custom transaction IDs before passing them to the SDK.
+    [PR #377 - @Easton97-Jens]
+  - test: extend regressions for modes, log inheritance, engine MIME selection,
+    Reject/ProcessPartial limits, large responses, file buffers, overflow,
+    subrequests, redirects, processing failures and proxy/HTTP/2 fixtures.
+    [PR #377 - @Easton97-Jens]
+  - ci: run the GCC/Clang Phase 4 helper tests in test_new.yml and disable
+    credential persistence for all ten checkouts in that workflow. Keep the
+    native Linux/Windows matrix there and remove the duplicate legacy
+    Windows job from test.yml. Integrate upstream dependency-download retry
+    fixes without restoring the removed job or credential persistence.
+    [PR #377 - @Easton97-Jens]
+  - docs: document Phase 4 timing limits, mode behavior, logging and engine
+    policy in English, with off/safe/strict and MIME-selection examples.
+    Remove the German translation and correct the README directive count.
+    [PR #377 - @Easton97-Jens]
+
 v1.0.4 - 2025-May-21
 --------------------
 

@@ -10,6 +10,22 @@ on:
 permissions: {}
 
 jobs:
+  phase4-unit-tests:
+    permissions:
+      contents: read
+    runs-on: ubuntu-22.04
+    strategy:
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: "/usr/bin/${{ matrix.compiler }}"
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Run standalone connector helper regressions
+        run: python3 -m unittest discover -s tests -p 'test_*runtime.py' -v
+
   build-linux:
     name: linux-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}
     permissions:
@@ -18,9 +34,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        os: [ubuntu-24.04,ubuntu-26.04]
         compiler: [gcc, clang]
-        nginx_version: ["1.30.x", "1.29.x", "1.28.x"]
+        nginx_version: ["1.31.x", "1.30.x", "1.29.x"]
     env:
         NGINX_VERSION: ${{ matrix.nginx_version }}
         CC: "/usr/bin/${{ matrix.compiler }}"
@@ -34,6 +50,7 @@ jobs:
       - name: Get libModSecurity source
         uses: actions/checkout@v6
         with:
+          persist-credentials: false
           repository: owasp-modsecurity/ModSecurity
           path: ModSecurity
           submodules: recursive
@@ -45,8 +62,9 @@ jobs:
           ./configure --without-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: ModSecurity-nginx
           fetch-depth: 1
       - name: Resolve latest Nginx version
@@ -55,8 +73,9 @@ jobs:
         run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
 
       - name: Get Nginx source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx
           ref: ${{ steps.nginx_ref.outputs.ref }}
           path: nginx
@@ -73,8 +92,9 @@ jobs:
           grep '#define NGINX_VERSION' src/core/nginx.h || true
 
       - name: Get Nginx tests
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx-tests
           path: nginx/test
           fetch-depth: 0
@@ -271,12 +291,12 @@ jobs:
     name: windows-nginx-${{ matrix.nginx_version }}
     # windows-2025 now ships Visual Studio 2026 and CMake 4, with which Conan builds yajl
     # from source and its configure step fails on CMP0026 (owasp-modsecurity/ModSecurity#3604).
-    # Stay on windows-2022, like test.yml and libModSecurity's own CI, until that is fixed.
+    # Stay on windows-2022, like libModSecurity's own CI, until that is fixed.
     runs-on: windows-2022
     strategy:
       fail-fast: false
       matrix:
-        nginx_version: ["1.30.x", "1.29.x", "1.28.x"]
+        nginx_version: ["1.31.x", "1.30.x", "1.29.x"]
     env:
       NGINX_VERSION: ${{ matrix.nginx_version }}
     defaults:
@@ -291,8 +311,9 @@ jobs:
           msystem: UCRT64
           path-type: inherit
       - name: Get ModSecurity-nginx workflow scripts
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: ModSecurity-nginx
           fetch-depth: 1
       - name: Resolve latest Nginx version
@@ -301,8 +322,9 @@ jobs:
         run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
 
       - name: Get Nginx source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx
           ref: ${{ steps.nginx_ref.outputs.ref }}
           path: nginx
@@ -319,8 +341,9 @@ jobs:
           grep '#define NGINX_VERSION' src/core/nginx.h || true
 
       - name: Get Nginx tests
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx-tests
           path: nginx/test
           fetch-depth: 0
@@ -369,8 +392,9 @@ jobs:
             rm -f "$archive"
           done
       - name: Get libModSecurity source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: owasp-modsecurity/ModSecurity
           submodules: recursive
           path: nginx/objs/lib/ModSecurity
@@ -395,8 +419,9 @@ jobs:
         run: |
           vcbuild.bat
       - name: Get ModSecurity-nginx source code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: nginx/objs/lib/ModSecurity-nginx
       - name: Copy ModSecurity-nginx tests to nginx/test
         working-directory: nginx/test

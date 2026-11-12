@@ -22,6 +22,20 @@
 
 #include "ngx_http_modsecurity_common.h"
 
+
+static ngx_int_t
+ngx_http_modsecurity_request_failure(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    ctx->intervention_failed = 1;
+    ctx->intervention_triggered = 1;
+    if (r->header_sent) {
+        r->connection->error = 1;
+        return NGX_ERROR;
+    }
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+}
+
 void
 ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
@@ -67,9 +81,17 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 
     dd("catching a new _access_ phase handler");
 
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    /* Internal redirects clear the current location's module context.
+     * Cleanup recovery belongs to finalization, not access initialization. */
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    if (ctx != NULL && ctx->r != r) {
+        ctx = NULL;
+    }
+    if (ctx != NULL && ctx->intervention_failed) {
+        return ngx_http_modsecurity_request_failure(r, ctx);
+    }
 
-    dd("recovering ctx: %p", ctx);
+    dd("current location ctx: %p", ctx);
 
     if (ctx == NULL)
     {
@@ -164,8 +186,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             client_addr, client_port,
             server_addr, server_port);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
-        if (ret != 1){
-            dd("Was not able to extract connection information.");
+        if (ret != 1) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: connection phase processing failed");
+            return ngx_http_modsecurity_request_failure(r, ctx);
         }
         /**
          *
@@ -178,6 +202,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          */
         dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
+        if (ret < 0) {
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
@@ -222,11 +249,19 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
+        ret = msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        if (ret != 1) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: URI phase processing failed");
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
 
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
+        if (ret < 0) {
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
@@ -272,13 +307,18 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          */
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_request_headers(ctx->modsec_transaction);
+        ret = msc_process_request_headers(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        if (ret != 1) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: request headers phase processing failed");
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
         dd("Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
-        if (r->error_page) {
-            return NGX_DECLINED;
-            }
+        if (ret < 0) {
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
         if (ret > 0) {
             ctx->intervention_triggered = 1;
             return ret;
@@ -399,7 +439,12 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             dd("request body inspection: file -- %s", file_name);
 
-            msc_request_body_from_file(ctx->modsec_transaction, file_name);
+            ret = msc_request_body_from_file(ctx->modsec_transaction, file_name);
+            if (ret != 1) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ModSecurity: request body file processing failed");
+                return ngx_http_modsecurity_request_failure(r, ctx);
+            }
 
             already_inspected = 1;
         } else {
@@ -410,8 +455,14 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         {
             u_char *data = chain->buf->pos;
 
-            msc_append_request_body(ctx->modsec_transaction, data,
+            ret = msc_append_request_body(ctx->modsec_transaction, data,
                 chain->buf->last - data);
+            /* Direct append zero is the engine's ProcessPartial result. */
+            if (ret != 0 && ret != 1) {
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ModSecurity: request body append failed");
+                return ngx_http_modsecurity_request_failure(r, ctx);
+            }
 
             if (chain->buf->last_buf) {
                 break;
@@ -426,7 +477,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              *
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
+            if (ret < 0) {
+                return ngx_http_modsecurity_request_failure(r, ctx);
+            }
             if (ret > 0) {
+                ctx->intervention_triggered = 1;
                 return ret;
             }
         }
@@ -441,15 +496,21 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 /* XXX: once more -- is body can be modified ?  content-length need to be adjusted ? */
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_request_body(ctx->modsec_transaction);
-        ctx->request_body_processed = 1;
+        ret = msc_process_request_body(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        if (ret != 1) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: request body phase processing failed");
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
+        ctx->request_body_processed = 1;
 
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-        if (r->error_page) {
-            return NGX_DECLINED;
-            }
+        if (ret < 0) {
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
         }
     }

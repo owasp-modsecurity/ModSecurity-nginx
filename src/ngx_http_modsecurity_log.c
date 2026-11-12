@@ -41,35 +41,36 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
     ngx_pool_t                   *old_pool;
     ngx_http_modsecurity_ctx_t   *ctx;
+    int                          result;
 
-    dd("catching a new _log_ phase handler");
-
-    /*
-    if (r->method != NGX_HTTP_GET &&
-        r->method != NGX_HTTP_POST && r->method != NGX_HTTP_HEAD) {
-        dd("ModSecurity is not ready to deal with anything different from " \
-            "POST, GET or HEAD");
-        return NGX_OK;
+    if (r == NULL || r->connection == NULL) {
+        return NGX_ERROR;
     }
-    */
     ctx = ngx_http_modsecurity_get_module_ctx(r);
-
-    dd("recovering ctx: %p", ctx);
-
     if (ctx == NULL) {
-        dd("ModSecurity not enabled or error occurred");
         return NGX_OK;
     }
-
     if (ctx->logged) {
-        dd("already logged earlier");
-        return NGX_OK;
+        return ctx->native_logging_failed ? NGX_ERROR : NGX_OK;
     }
 
-    dd("calling msc_process_logging for %p", ctx);
+    /* Claim the attempt before a native callback can re-enter this handler. */
+    ctx->logged = 1;
+    ctx->native_logging_failed = 1;
+    if (ctx->modsec_transaction == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: native logging transaction is unavailable");
+        return NGX_ERROR;
+    }
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-    msc_process_logging(ctx->modsec_transaction);
+    result = msc_process_logging(ctx->modsec_transaction);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
+    if (result != 1) {
+        /* The log phase cannot replace the response or retry the audit sink. */
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: native logging phase processing failed");
+        return NGX_ERROR;
+    }
+    ctx->native_logging_failed = 0;
     return NGX_OK;
 }

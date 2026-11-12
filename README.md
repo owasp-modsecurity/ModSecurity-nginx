@@ -41,8 +41,9 @@ needs to match the version of nginx you're compiling this for.
 If libmodsecurity is not installed in the system library path or in
 `/usr/local/modsecurity`, point the build at it with the `MODSECURITY_INC` and
 `MODSECURITY_LIB` environment variables (and `YAJL_LIB` if libyajl is in a
-non-standard location). Set `NGX_IGNORE_RPATH=YES` to avoid embedding the
-library path in the resulting binary.
+non-standard location). On Linux, set `NGX_IGNORE_RPATH=YES` to avoid
+embedding the library path in the resulting binary. On platforms where nginx
+uses `-R` (such as Solaris), the path is always embedded.
 
 For building on Windows with MSVC, see [win32/README.md](win32/README.md).
 
@@ -136,6 +137,11 @@ server {
     }
 }
 ```
+
+The `SecDebugLog` directory must already exist and be writable by nginx,
+otherwise the rules fail to load. The debug log contains request data, so keep
+the directory and file unreadable by unprivileged users (see the
+[Hardening Notes](SECURITY.md#hardening-notes)).
 
 modsecurity_transaction_id
 --------------------------

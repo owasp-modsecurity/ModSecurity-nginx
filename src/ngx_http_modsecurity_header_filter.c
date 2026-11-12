@@ -533,7 +533,19 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
     if (ret > 0) {
+        ctx->intervention_triggered = 1;
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
+    }
+    else if (ret < 0) {
+        /*
+         * Defensive: -1 means r->header_sent was already set, which cannot
+         * happen on the ngx_http_send_header() path (it refuses to run the
+         * header filters once headers went out). Should it ever happen,
+         * NGX_ERROR aborts the connection instead of letting
+         * ngx_http_filter_finalize_request() resend headers.
+         */
+        ctx->intervention_triggered = 1;
+        return NGX_ERROR;
     }
 
     /*

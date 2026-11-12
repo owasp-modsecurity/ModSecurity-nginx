@@ -277,6 +277,7 @@ ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
     ngx_str_t                          s;
+    u_char                            *id;
     ngx_pool_cleanup_t                *cln;
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
@@ -292,37 +293,68 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
+    if (ctx->sanity_headers_out == NULL) {
+        return NULL;
+    }
+#endif
+
+    /*
+     * Take the cleanup slot before creating the transaction it will own.
+     * ngx_pool_cleanup_add() leaves the handler NULL and ngx_destroy_pool()
+     * skips such slots, so a failure after this point can neither leak a
+     * live transaction nor run ngx_http_modsecurity_cleanup() on a
+     * half-initialised ctx. The ctx is only published once it is armed.
+     */
+    cln = ngx_pool_cleanup_add(r->pool, 0);
+    if (cln == NULL)
+    {
+        dd("failed to create the ModSecurity context cleanup");
+        return NULL;
+    }
+
     dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
 
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
-            return NGX_CONF_ERROR;
+            return NULL;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+
+        /*
+         * ngx_http_complex_value() does not NUL-terminate a value that
+         * contains variables, but libmodsecurity takes a C string.
+         */
+        id = ngx_pnalloc(r->pool, s.len + 1);
+        if (id == NULL) {
+            return NULL;
+        }
+        ngx_memcpy(id, s.data, s.len);
+        id[s.len] = '\0';
+
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) id, r->connection->log);
 
     } else {
         ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
     }
 
+    /*
+     * A NULL transaction here would make every later msc_* call inspect
+     * nothing (fail-open) while the request/response is still forwarded.
+     * Fail closed instead: the caller turns a NULL ctx into a 500.
+     */
+    if (ctx->modsec_transaction == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: failed to create transaction");
+        return NULL;
+    }
+
     dd("transaction created");
 
-    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
-
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
-    if (cln == NULL)
-    {
-        dd("failed to create the ModSecurity context cleanup");
-        return NGX_CONF_ERROR;
-    }
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
-    if (ctx->sanity_headers_out == NULL) {
-        return NGX_CONF_ERROR;
-    }
-#endif
+    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
     return ctx;
 }

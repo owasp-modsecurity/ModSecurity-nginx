@@ -185,6 +185,45 @@ modsecurity_use_error_log
 
 Turns on or off ModSecurity error log functionality.
 
+# Variables
+
+$msc_tx_*name*
+-----------
+The value of the ModSecurity `TX:name` variable in the current request's
+transaction, e.g. one set by `setvar:tx.name=value`. The name is
+case-insensitive, as in rules. The variable is empty when ModSecurity did not
+run for the request or the TX variable is not set.
+
+The value is read when nginx evaluates the variable, so it only reflects
+rules from phases that have already run:
+
+* `proxy_set_header` and `add_header` see values set in phases 1 and 2.
+* `access_log` sees values set in phases 1 to 4. Phase 5 rules run after
+  the access log line is written.
+
+The transaction belongs to the original request: after an internal
+redirect (`error_page`, `try_files`, ...) or in a subrequest, the variable
+still returns its values, even in a location with `modsecurity off`. This
+lets the access log of a blocked request record why it was blocked.
+
+TX values can contain user input. A value containing CR, LF or NUL is
+treated as empty (and logged as a warning) so it cannot inject headers;
+other content is passed as is, so escape it where your use requires.
+
+```nginx
+modsecurity_rules '
+    SecRuleEngine On
+    SecRule REQUEST_URI "@beginsWith /admin" "id:1,phase:1,pass,nolog,setvar:tx.waf_tag=admin"
+';
+
+log_format waf '$remote_addr "$request" tag=$msc_tx_waf_tag '
+               'score=$msc_tx_blocking_inbound_anomaly_score';
+access_log logs/waf.log waf;
+```
+
+Requires a libmodsecurity version that provides `msc_get_tx()` (it defines
+`MSC_HAVE_GET_TX`); against older versions the variable is not available.
+
 # Contributing
 
 As an open source project we invite (and encourage) anyone from the community to contribute to our project. This may take the form of: new

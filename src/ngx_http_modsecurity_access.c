@@ -147,26 +147,20 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 #endif
 
         ngx_str_t s;
-        u_char addr[NGX_SOCKADDR_STRLEN];
-        s.len = NGX_SOCKADDR_STRLEN;
-        s.data = addr;
+        u_char server_addr[NGX_SOCKADDR_STRLEN + 1];
+        s.len = 0;
+        s.data = server_addr;
         if (ngx_connection_local_sockaddr(r->connection, &s, 0) != NGX_OK) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
-
-        const char *server_addr = ngx_str_to_char(s, r->pool);
-        if (server_addr == (char*)-1) {
-            return NGX_HTTP_INTERNAL_SERVER_ERROR;
-        }
+        server_addr[s.len] = '\0'; // ngx_str_t is not null terminated, so we have insert \0 manually
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        ret = msc_process_connection(ctx->modsec_transaction,
+        msc_process_connection(ctx->modsec_transaction,
             client_addr, client_port,
-            server_addr, server_port);
+            (const char *) server_addr, server_port);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
-        if (ret != 1){
-            dd("Was not able to extract connection information.");
-        }
+
         /**
          *
          * FIXME: Check how we can finalize a request without crash nginx.

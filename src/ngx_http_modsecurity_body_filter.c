@@ -39,8 +39,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
+    ngx_http_modsecurity_conf_t *mcf = NULL;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ngx_http_modsecurity_conf_t *mcf;
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
@@ -50,7 +50,19 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+
+    if (mcf == NULL){
+        dd("failed to get configuration");
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    if (mcf->skip_resp_body_filter) {
+        dd("Skipping response body filter");
+        return ngx_http_next_body_filter(r, in);
+    }
+
+    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
 
     dd("body filter, recovering ctx: %p", ctx);
 
@@ -63,8 +75,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (mcf != NULL && mcf->sanity_checks_enabled != NGX_CONF_UNSET)
+    if (mcf->sanity_checks_enabled != NGX_CONF_UNSET)
     {
 #if 0
         dd("dumping stored ctx headers");

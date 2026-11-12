@@ -45,7 +45,7 @@ Further information about nginx third-party add-ons support are available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds four new directives and they are:
+It adds seven new directives and they are:
 
 modsecurity
 -----------
@@ -191,6 +191,60 @@ As an open source project we invite (and encourage) anyone from the community to
 functionality, bug fixes, bug reports, beginners user support, and anything else that you
 are willing to help with. Thank you.
 
+modsecurity_skip_req_body_filter
+-----------------
+**syntax:** *modsecurity_skip_req_body_filter on | off*
+
+**context:** *http, server, location*
+
+**default:** *off*
+
+Allows to skip the caching of the request body and subsequently its inspection.
+Useful in cases, where `SecRequestBodyAccess` or `ctl:requestBodyAccess` is set, due to, e.g. encrypted data, as the caching causes an unneeded memory overhead.
+
+
+```nginx
+server {
+    modsecurity on;
+    modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+
+    location / {
+        root /var/www/html;
+    }
+
+    location = /special/unchecked/path {
+        # skip the inspection of the request body
+        modsecurity_skip_req_body_filter on;
+    }
+}
+```
+
+modsecurity_skip_resp_body_filter
+-----------------
+**syntax:** *modsecurity_skip_resp_body_filter on | off*
+
+**context:** *http, server, location*
+
+**default:** *off*
+
+Allows to skip the caching of the request body and subsequently its inspection.
+Useful in cases, where `SecResponseBodyAccess` is set, due to, e.g. encrypted data, as the caching causes an unneeded memory overhead.
+
+```nginx
+server {
+    modsecurity on;
+    modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+
+    location / {
+        root /var/www/html;
+    }
+
+    location = /special/unchecked/path {
+        # skip the inspection of the response body
+        modsecurity_skip_resp_body_filter on;
+    }
+}
+```
 
 ## Providing Patches
 

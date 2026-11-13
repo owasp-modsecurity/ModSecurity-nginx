@@ -45,7 +45,7 @@ Further information about nginx third-party add-ons support are available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds four new directives and they are:
+It adds the following directives:
 
 modsecurity
 -----------
@@ -184,6 +184,62 @@ modsecurity_use_error_log
 **default:** *on*
 
 Turns on or off ModSecurity error log functionality.
+
+modsecurity_response_body
+-------------------------
+**syntax:** *modsecurity_response_body on | off*
+
+**context:** *http, server, location*
+
+**default:** *on*
+
+Controls whether the connector buffers response bodies and hands them to
+ModSecurity.  It does not enable inspection on its own: whether the body is
+inspected at all is still decided by `SecResponseBodyAccess` and
+`SecResponseBodyMimeType`.
+
+When turned off the connector no longer asks nginx to keep the response body
+in memory, so with `sendfile` enabled file buffers are sent straight from the
+file instead of being read into memory first, and it no longer copies the
+response buffers into ModSecurity.  The setting of the main request's location at
+the time ModSecurity processes the response headers applies to the whole
+response, including subrequests (SSI includes, `add_after_body`,
+`auth_request`) and an `error_page` served after a ModSecurity intervention.
+
+ModSecurity still runs phase 4 on the last buffer, but against an empty body
+(ModSecurity itself skips phase 4 altogether when `SecResponseBodyAccess` is
+`Off` or the response Content-Type is not listed in
+`SecResponseBodyMimeType`):
+
+* `RESPONSE_BODY` is empty and `RESPONSE_CONTENT_LENGTH` is `0`.
+* Rules that look for content in the response body silently stop matching.
+  This includes the OWASP CRS outbound data leakage rules
+  (`RESPONSE-95x-*.conf`) that inspect `RESPONSE_BODY`.
+* Rules that match on the absence of content now match on every response,
+  for instance `RESPONSE_BODY "!@contains </html>"`, `RESPONSE_BODY "@rx ^$"`
+  or `RESPONSE_CONTENT_LENGTH "@lt 100"`.  If such a rule is disruptive, it
+  fires after the response header has already been passed on, so the client
+  gets an empty or truncated response instead of the error page.
+* The audit log has no part E (response body).
+* Phase 4 rules that do not look at the body, for instance rules on
+  `RESPONSE_STATUS` or on variables set in earlier phases, keep working.
+
+Turning it off is recommended for locations serving static files or large
+downloads, and wherever `SecResponseBodyAccess Off` is in use: ModSecurity
+still copies the response bodies of the configured MIME types and the
+connector has no way to query that setting, so this directive is the only
+way to avoid the cost.
+
+```nginx
+server {
+    sendfile on;
+    modsecurity on;
+    modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+    location /static/ {
+        modsecurity_response_body off;
+    }
+}
+```
 
 # Contributing
 

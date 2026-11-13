@@ -143,14 +143,17 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     int is_request_processed = 0;
     for (; chain != NULL; chain = chain->next)
     {
-        u_char *data = chain->buf->pos;
         int ret;
 
-        msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-        if (ret > 0) {
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, ret);
+        if (ctx->response_body) {
+            u_char *data = chain->buf->pos;
+
+            msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);
+            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
+            if (ret > 0) {
+                return ngx_http_filter_finalize_request(r,
+                    &ngx_http_modsecurity_module, ret);
+            }
         }
 
 /* XXX: chain->buf->last_buf || chain->buf->last_in_chain */

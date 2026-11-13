@@ -411,6 +411,7 @@ ngx_int_t
 ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
+    ngx_http_modsecurity_conf_t *mcf;
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
@@ -448,12 +449,16 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         return ngx_http_next_header_filter(r);
     }
 
-    /*
-     * Lets ask nginx to keep the response body in memory
-     *
-     * FIXME: I don't see a reason to keep it `1' when SecResponseBody is disabled.
-     */
-    r->filter_need_in_memory = 1;
+    mcf = ngx_http_get_module_loc_conf(r->main, ngx_http_modsecurity_module);
+    ctx->response_body = mcf->response_body;
+
+    if (ctx->response_body) {
+        /*
+         * Ask nginx to keep the response body in memory so that the body
+         * filter can feed it to ModSecurity.
+         */
+        r->filter_need_in_memory = 1;
+    }
 
     ctx->processed = 1;
     /*

@@ -57,6 +57,7 @@ http {
         modsecurity on;
         modsecurity_rules '
             SecRuleEngine On
+            SecRule ARGS:what "@streq ok" "id:90,phase:1,pass,log"
             SecRule ARGS:what "@streq bad" "id:91,phase:1,deny,status:403,log,auditlog"
             SecRule RESPONSE_HEADERS:X-Fallback "@streq yes" "id:92,phase:3,log,auditlog,pass"
             SecRule ARGS:what "@streq precond" "id:93,phase:1,log,auditlog,pass"
@@ -64,8 +65,11 @@ http {
             SecAuditLogParts ABH
             SecAuditLog %%TESTDIR%%/audit.txt
             SecAuditLogType Serial
-            SecAuditLogStorageDir %%TESTDIR%%/
         ';
+
+        error_log %%TESTDIR%%/msc.log info;
+
+        error_page 403 /denied.html;
 
         location / {
             try_files $uri /fallback;
@@ -74,6 +78,10 @@ http {
         location = /fallback {
             internal;
             add_header X-Fallback yes;
+        }
+
+        location = /denied.html {
+            internal;
         }
 
         location /named {
@@ -93,6 +101,7 @@ http {
 EOF
 
 $t->write_file('fallback', 'FALLBACK');
+$t->write_file('denied.html', 'DENIED');
 mkdir($t->testdir() . '/static');
 $t->write_file('static/precond.html', 'PRECOND');
 $t->run();
@@ -101,8 +110,9 @@ $t->plan(8);
 ###############################################################################
 
 like(http_get('/missing?what=ok'), qr/FALLBACK/, 'try_files fallback served');
-like(http_get('/missing?what=bad'), qr/^HTTP.*403/, 'phase 1 deny before try_files');
 like(http_get('/named/missing?what=ok'), qr/NAMED/, 'named location served');
+like(http_get('/missing?what=bad'), qr/^HTTP.*403.*DENIED/s,
+	'phase 1 deny, error_page served');
 
 # a failed precondition makes the not modified filter call
 # ngx_http_filter_finalize_request(), which discards the module contexts
@@ -124,10 +134,17 @@ my $audit = do {
     <$fh>;
 };
 
-like($audit, qr/\[id "92"\]/, 'phase 3 ran after internal redirect (ctx recovered)');
-like($audit, qr/\[id "91"\]/, 'deny audited');
+my $log = $t->read_file('msc.log');
+
+# a request whose context is lost after the redirect gets a second
+# transaction, which runs phase 1 again
+
+my @p1 = ($log =~ /\[id "90"\]/g);
+is(scalar @p1, 2, 'phase 1 ran once per redirected request (ctx recovered)');
 my @p3 = ($audit =~ /\[id "92"\]/g);
-is(scalar @p3, 2, 'phase 3 logged once per redirected request');
+is(scalar @p3, 2, 'phase 3 ran once per redirected request');
+my @deny = ($audit =~ /\[id "91"\]/g);
+is(scalar @deny, 1, 'deny audited once across error_page redirect');
 like($audit, qr/\[id "93"\]/, 'logging phase ran after filter finalization');
 
 ###############################################################################

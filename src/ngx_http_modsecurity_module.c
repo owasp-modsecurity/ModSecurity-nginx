@@ -29,6 +29,10 @@
 #define strdup _strdup
 #endif
 
+#if (NGX_THREADS) && (NGX_PCRE2)
+#define NGX_HTTP_MODSECURITY_LOG_MAX_PENDING  128
+#endif
+
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);
@@ -266,10 +270,12 @@ ngx_http_modsecurity_cleanup(void *data)
         ctx->modsec_transaction = NULL;
     }
 
-    if (ctx->msclog_heap && ctx->msclog != NULL) {
-        ngx_free(ctx->msclog);
-        ctx->msclog = NULL;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    if (ctx->log_task != NULL) {
+        ngx_free(ctx->log_task);
+        ctx->log_task = NULL;
     }
+#endif
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
@@ -288,7 +294,11 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_pool_cleanup_t                *cln;
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
+    ngx_http_modsecurity_msclog_t     *msclog;
     ngx_http_modsecurity_main_conf_t  *mmcf;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_log_task_t   *lt;
+#endif
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -300,12 +310,16 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
+    if (ctx->sanity_headers_out == NULL) {
+        return NGX_CONF_ERROR;
+    }
+#endif
 
     /*
-     * Take the cleanup slot before anything that has to be released: from
-     * here on every error return leaves the transaction and the log holder
-     * to ngx_http_modsecurity_cleanup(), which copes with either being NULL.
+     * The cleanup is armed, and the ctx published, only once the
+     * transaction exists.
      */
     cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (cln == NULL)
@@ -313,59 +327,45 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         dd("failed to create the ModSecurity context cleanup");
         return NGX_CONF_ERROR;
     }
-    cln->handler = ngx_http_modsecurity_cleanup;
-    cln->data = ctx;
-
-#if (NGX_THREADS) && (NGX_PCRE2)
-    if (mcf->log_thread_pool != NULL) {
-        /*
-         * the holder must outlive the request pool: the logging phase is
-         * processed in a thread after the request is gone
-         */
-        ctx->msclog = ngx_alloc(sizeof(ngx_http_modsecurity_msclog_t),
-                                r->connection->log);
-        ctx->msclog_heap = 1;
-
-    } else
-#endif
-    {
-        ctx->msclog = ngx_palloc(r->pool,
-                                 sizeof(ngx_http_modsecurity_msclog_t));
-    }
-
-    if (ctx->msclog == NULL) {
-        dd("failed to allocate memory for the log holder.");
-        /*
-         * nothing has to be released yet; disarm the cleanup so that the
-         * half-built context stays invisible to
-         * ngx_http_modsecurity_get_module_ctx()
-         */
-        cln->handler = NULL;
-        return NULL;
-    }
-
-    ctx->msclog->log = r->connection->log;
 
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, ctx->msclog);
+    }
+
+    msclog = &ctx->msclog;
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    if (mmcf->log_thread_pool_used) {
+        lt = ngx_calloc(sizeof(ngx_http_modsecurity_log_task_t),
+                        r->connection->log);
+        if (lt == NULL) {
+            return NULL;
+        }
+
+        ctx->log_task = lt;
+        msclog = &lt->msclog;
+    }
+#endif
+
+    msclog->log = r->connection->log;
+
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
+
+    if (mcf->transaction_id) {
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, msclog);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, ctx->msclog);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, msclog);
     }
 
     dd("transaction created");
 
-    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
+    cln->handler = ngx_http_modsecurity_cleanup;
+    cln->data = ctx;
 
-#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-    ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
-    if (ctx->sanity_headers_out == NULL) {
-        return NGX_CONF_ERROR;
-    }
-#endif
+    ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
 
     return ctx;
 }
@@ -532,17 +532,46 @@ char *ngx_conf_set_transaction_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 static char *
 ngx_conf_set_log_thread_pool(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
+    ngx_str_t                         *value;
 #if (NGX_THREADS) && (NGX_PCRE2)
-    ngx_http_modsecurity_conf_t  *mcf = conf;
-    ngx_str_t                    *value = cf->args->elts;
+    ngx_int_t                          n;
+    ngx_http_modsecurity_conf_t       *mcf = conf;
+    ngx_http_modsecurity_main_conf_t  *mmcf;
+#endif
+
+    value = cf->args->elts;
+
+#if (NGX_THREADS) && (NGX_PCRE2)
 
     if (mcf->log_thread_pool != NGX_CONF_UNSET_PTR) {
         return "is duplicate";
     }
 
     if (ngx_strcmp(value[1].data, "off") == 0) {
+        if (cf->args->nelts > 2) {
+            goto invalid;
+        }
+
         mcf->log_thread_pool = NULL;
+        mcf->log_max_pending = 0;
         return NGX_CONF_OK;
+    }
+
+    mcf->log_max_pending = NGX_HTTP_MODSECURITY_LOG_MAX_PENDING;
+
+    if (cf->args->nelts > 2) {
+        if (ngx_strncmp(value[2].data, "max_pending=", 12) != 0) {
+            goto invalid;
+        }
+
+        n = ngx_atoi(value[2].data + 12, value[2].len - 12);
+        if (n == NGX_ERROR || n == 0) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "invalid max_pending value \"%V\"", &value[2]);
+            return NGX_CONF_ERROR;
+        }
+
+        mcf->log_max_pending = n;
     }
 
     mcf->log_thread_pool = ngx_thread_pool_add(cf, &value[1]);
@@ -550,9 +579,25 @@ ngx_conf_set_log_thread_pool(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
+    mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
+    mmcf->log_thread_pool_used = 1;
+
     return NGX_CONF_OK;
+
+invalid:
+
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                       "invalid parameter \"%V\"", &value[2]);
+    return NGX_CONF_ERROR;
+
 #else
+
+    if (cf->args->nelts == 2 && ngx_strcmp(value[1].data, "off") == 0) {
+        return NGX_CONF_OK;
+    }
+
     return "requires nginx built with --with-threads and PCRE2";
+
 #endif
 }
 
@@ -600,7 +645,7 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
   },
   {
     ngx_string("modsecurity_log_thread_pool"),
-    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE12,
     ngx_conf_set_log_thread_pool,
     NGX_HTTP_LOC_CONF_OFFSET,
     0,
@@ -811,6 +856,7 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->use_error_log = NGX_CONF_UNSET;
 #if (NGX_THREADS) && (NGX_PCRE2)
     conf->log_thread_pool = NGX_CONF_UNSET_PTR;
+    conf->log_max_pending = NGX_CONF_UNSET_UINT;
 #endif
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
@@ -854,6 +900,7 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(c->use_error_log, p->use_error_log, 1);
 #if (NGX_THREADS) && (NGX_PCRE2)
     ngx_conf_merge_ptr_value(c->log_thread_pool, p->log_thread_pool, NULL);
+    ngx_conf_merge_uint_value(c->log_max_pending, p->log_max_pending, 0);
 #endif
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);

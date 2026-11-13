@@ -187,7 +187,7 @@ Turns on or off ModSecurity error log functionality.
 
 modsecurity_log_thread_pool
 ---------------------------
-**syntax:** *modsecurity_log_thread_pool &lt;name&gt; | off*
+**syntax:** *modsecurity_log_thread_pool &lt;name&gt; [max_pending=&lt;number&gt;] | off*
 
 **context:** *http, server, location*
 
@@ -197,13 +197,26 @@ Runs the LOGGING phase (phase 5) rules and the audit log write in the named
 nginx `thread_pool` instead of on the worker's event loop, so that audit log
 I/O no longer stalls the other connections handled by the worker. The
 transaction is detached from the request when the task is posted and is
-cleaned up once the task completes.
+cleaned up once the task completes. Whether a request is offloaded is decided
+by the configuration of the location the request is finally logged in.
+
+Each posted task keeps the complete transaction in memory until it has run,
+including the buffered request and response bodies, up to
+`SecRequestBodyLimit` and `SecResponseBodyLimit`. The optional `max_pending`
+parameter limits the number of logging tasks a worker has posted, to any pool,
+and not yet completed (default 128); a request that finds the limit reached is
+logged on the event loop, as without this directive, and a warning is written
+at most once every 10 seconds. Size it so that `max_pending` times the per-request
+memory fits the worker's budget, and keep the thread pool's `max_queue` at or
+above it, since nginx logs a `queue overflow` error for every task the pool
+refuses.
 
 This directive requires nginx built with `--with-threads` and with PCRE2;
-builds using the original PCRE library refuse it at configuration time,
-because there the connector has to swap the process-global `pcre_malloc` and
-`pcre_free` pointers around every libmodsecurity call, which is not
-thread-safe.
+other builds refuse it at configuration time, except for
+`modsecurity_log_thread_pool off`, which is accepted everywhere. Builds using
+the original PCRE library are excluded because there the connector has to swap
+the process-global `pcre_malloc` and `pcre_free` pointers around every
+libmodsecurity call, which is not thread-safe.
 
 Rule messages emitted during phase 5 are written using the thread pool's log,
 which is the main context `error_log` at its configured level, rather than the
@@ -216,7 +229,9 @@ be used with this directive, because those writers are not thread-safe. Any
 thread.
 
 The logging performed early by a disruptive intervention stays synchronous, as
-does everything up to phase 4 and the logging phase of subrequests.
+does everything up to phase 4. The logging phase runs once per transaction, for
+the main request; with `log_subrequest on`, the log phase of a subrequest does
+not process it.
 
 The feature is experimental, and it needs a libmodsecurity that supports
 processing transactions concurrently -- the way the threaded Apache MPMs use
@@ -231,19 +246,19 @@ it. Two caveats are worth knowing about:
 
 Logging tasks that are still queued when a worker shuts down are still run --
 the pool's exit task queues behind them -- so their audit log entries are
-written, but their completion handler does not run, and the transaction, the
-log holder and the task pool are released only by the exiting process. Because
-the worker waits for the whole queue to drain, a thread blocked on a contended
-audit log can delay shutdown beyond `worker_shutdown_timeout`, which does not
-apply to thread pools.
+written, but their completion handler does not run, and the transaction and
+the task are released only by the exiting process. Because the worker waits
+for the whole queue to drain, a thread blocked on a contended audit log can
+delay shutdown beyond `worker_shutdown_timeout`, which does not apply to
+thread pools.
 
 ```nginx
-thread_pool modsec threads=4;
+thread_pool modsec threads=4 max_queue=128;
 
 http {
     modsecurity on;
     modsecurity_rules_file /etc/modsecurity/main.conf;
-    modsecurity_log_thread_pool modsec;
+    modsecurity_log_thread_pool modsec max_pending=128;
 }
 ```
 

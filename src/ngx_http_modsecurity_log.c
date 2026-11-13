@@ -53,11 +53,9 @@ ngx_http_modsecurity_log_transaction(ngx_http_request_t *r,
 
 #if (NGX_THREADS) && (NGX_PCRE2)
 
-typedef struct {
-    ngx_pool_t                     *pool;
-    Transaction                    *transaction;
-    ngx_http_modsecurity_msclog_t  *msclog;
-} ngx_http_modsecurity_log_task_t;
+/* logging tasks of this worker posted and not yet completed */
+static ngx_uint_t  ngx_http_modsecurity_log_pending;
+static time_t      ngx_http_modsecurity_log_inline_warned;
 
 
 static void
@@ -66,7 +64,7 @@ ngx_http_modsecurity_log_thread_handler(void *data, ngx_log_t *log)
     ngx_http_modsecurity_log_task_t  *lt = data;
 
     /* the request and its connection log may be gone by now */
-    lt->msclog->log = log;
+    lt->msclog.log = log;
 
     msc_process_logging(lt->transaction);
 }
@@ -78,50 +76,43 @@ ngx_http_modsecurity_log_thread_event_handler(ngx_event_t *ev)
     ngx_http_modsecurity_log_task_t  *lt = ev->data;
 
     msc_transaction_cleanup(lt->transaction);
-    ngx_free(lt->msclog);
-    ngx_destroy_pool(lt->pool);
+    ngx_free(lt);
+
+    ngx_http_modsecurity_log_pending--;
 }
 
 
 static ngx_int_t
 ngx_http_modsecurity_log_offload(ngx_http_request_t *r,
-    ngx_http_modsecurity_ctx_t *ctx, ngx_thread_pool_t *tp)
+    ngx_http_modsecurity_ctx_t *ctx, ngx_http_modsecurity_conf_t *mcf)
 {
-    ngx_pool_t                       *pool;
-    ngx_thread_task_t                *task;
     ngx_http_modsecurity_log_task_t  *lt;
 
-    pool = ngx_create_pool(512, ngx_cycle->log);
-    if (pool == NULL) {
-        return NGX_ERROR;
+    if (ngx_http_modsecurity_log_pending >= mcf->log_max_pending) {
+        return NGX_DECLINED;
     }
 
-    task = ngx_thread_task_alloc(pool, sizeof(ngx_http_modsecurity_log_task_t));
-    if (task == NULL) {
-        ngx_destroy_pool(pool);
-        return NGX_ERROR;
-    }
+    lt = ctx->log_task;
 
-    lt = task->ctx;
-    lt->pool = pool;
     lt->transaction = ctx->modsec_transaction;
-    lt->msclog = ctx->msclog;
 
-    task->handler = ngx_http_modsecurity_log_thread_handler;
-    task->event.data = lt;
-    task->event.handler = ngx_http_modsecurity_log_thread_event_handler;
+    lt->task.ctx = lt;
+    lt->task.handler = ngx_http_modsecurity_log_thread_handler;
+    lt->task.event.data = lt;
+    lt->task.event.handler = ngx_http_modsecurity_log_thread_event_handler;
 
     ngx_log_debug0(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
                    "ModSecurity: posting logging to the thread pool");
 
-    if (ngx_thread_task_post(tp, task) != NGX_OK) {
-        ngx_destroy_pool(pool);
+    if (ngx_thread_task_post(mcf->log_thread_pool, &lt->task) != NGX_OK) {
         return NGX_ERROR;
     }
 
-    /* the task now owns the transaction and the log holder */
+    /* the task now owns the transaction and itself */
     ctx->modsec_transaction = NULL;
-    ctx->msclog = NULL;
+    ctx->log_task = NULL;
+
+    ngx_http_modsecurity_log_pending++;
 
     return NGX_OK;
 }
@@ -137,30 +128,35 @@ ngx_http_modsecurity_log_phase_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_conf_t  *mcf;
 #endif
 
+    /*
+     * subrequests share the main request's pool, so the cleanup scan in
+     * ngx_http_modsecurity_get_module_ctx() would return its context
+     */
+    if (r != r->main) {
+        return NGX_OK;
+    }
+
     ctx = ngx_http_modsecurity_get_module_ctx(r);
     if (ctx == NULL || ctx->logged || ctx->modsec_transaction == NULL) {
         return NGX_OK;
     }
 
 #if (NGX_THREADS) && (NGX_PCRE2)
-    /*
-     * Subrequests do not own a context of their own -- the access phase is
-     * skipped for them -- so their log phase, which runs while the main
-     * request is still being processed, must not detach the main request's
-     * transaction.
-     */
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    if (r == r->main && mcf->log_thread_pool != NULL && ctx->msclog_heap) {
-        if (ngx_http_modsecurity_log_offload(r, ctx, mcf->log_thread_pool)
-            == NGX_OK)
-        {
+    if (mcf->log_thread_pool != NULL && ctx->log_task != NULL) {
+        if (ngx_http_modsecurity_log_offload(r, ctx, mcf) == NGX_OK) {
             return NGX_OK;
         }
 
-        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
-                      "ModSecurity: could not post logging to thread pool, "
-                      "processing inline");
+        if (ngx_time() - ngx_http_modsecurity_log_inline_warned >= 10) {
+            ngx_http_modsecurity_log_inline_warned = ngx_time();
+
+            ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                          "ModSecurity: could not post logging to thread "
+                          "pool, %ui tasks pending, processing inline",
+                          ngx_http_modsecurity_log_pending);
+        }
     }
 #endif
 

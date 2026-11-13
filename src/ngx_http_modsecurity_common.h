@@ -92,11 +92,29 @@ typedef struct {
 } ngx_http_modsecurity_msclog_t;
 
 
+#if (NGX_THREADS) && (NGX_PCRE2)
+
+/*
+ * Heap-allocated so that it can outlive the request: owned by the request's
+ * context until the logging task is posted, by the task afterwards.
+ */
+typedef struct {
+    ngx_thread_task_t               task;
+    Transaction                    *transaction;
+    ngx_http_modsecurity_msclog_t   msclog;
+} ngx_http_modsecurity_log_task_t;
+
+#endif
+
+
 typedef struct {
     ngx_http_request_t *r;
     Transaction *modsec_transaction;
     ModSecurityIntervention *delayed_intervention;
-    ngx_http_modsecurity_msclog_t *msclog;
+    ngx_http_modsecurity_msclog_t msclog;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_log_task_t *log_task;
+#endif
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
@@ -116,7 +134,6 @@ typedef struct {
     unsigned logged:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
-    unsigned msclog_heap:1;
 } ngx_http_modsecurity_ctx_t;
 
 
@@ -126,6 +143,9 @@ typedef struct {
     ngx_uint_t                 rules_inline;
     ngx_uint_t                 rules_file;
     ngx_uint_t                 rules_remote;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_flag_t                 log_thread_pool_used;
+#endif
 } ngx_http_modsecurity_main_conf_t;
 
 
@@ -143,6 +163,7 @@ typedef struct {
     ngx_http_complex_value_t  *transaction_id;
 #if (NGX_THREADS) && (NGX_PCRE2)
     ngx_thread_pool_t         *log_thread_pool;
+    ngx_uint_t                 log_max_pending;
 #endif
 } ngx_http_modsecurity_conf_t;
 

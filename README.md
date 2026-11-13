@@ -201,13 +201,28 @@ inspected at all is still decided by `SecResponseBodyAccess` and
 When turned off the connector no longer asks nginx to keep the response body
 in memory, so with `sendfile` enabled file buffers are sent straight from the
 file instead of being read into memory first, and it no longer copies the
-response buffers into ModSecurity.  `RESPONSE_BODY` is therefore empty and
-`RESPONSE_CONTENT_LENGTH` is `0`, as both are derived from the bytes the
-connector appended.  The connector still runs the response body phase on the
-last buffer, so phase 4 rules that do not need the body (for instance rules on
-`RESPONSE_STATUS`) keep working.  Note that ModSecurity itself skips phase 4
-altogether when `SecResponseBodyAccess` is `Off` or the response Content-Type
-is not listed in `SecResponseBodyMimeType`.
+response buffers into ModSecurity.  The setting of the location whose response
+headers were passed to ModSecurity applies to the whole response, including
+subrequests (SSI includes, `add_after_body`) and an `error_page` served after
+a ModSecurity intervention.
+
+ModSecurity still runs phase 4 on the last buffer, but against an empty body
+(ModSecurity itself skips phase 4 altogether when `SecResponseBodyAccess` is
+`Off` or the response Content-Type is not listed in
+`SecResponseBodyMimeType`):
+
+* `RESPONSE_BODY` is empty and `RESPONSE_CONTENT_LENGTH` is `0`.
+* Rules that look for content in the response body silently stop matching.
+  This includes the OWASP CRS outbound data leakage rules
+  (`RESPONSE-95x-*.conf`) that inspect `RESPONSE_BODY`.
+* Rules that match on the absence of content now match on every response,
+  for instance `RESPONSE_BODY "!@contains </html>"`, `RESPONSE_BODY "@rx ^$"`
+  or `RESPONSE_CONTENT_LENGTH "@lt 100"`.  If such a rule is disruptive, it
+  fires after the response header has already been passed on, so the client
+  gets an empty or truncated response instead of the error page.
+* The audit log has no part E (response body).
+* Phase 4 rules that do not look at the body, for instance rules on
+  `RESPONSE_STATUS` or on variables set in earlier phases, keep working.
 
 Turning it off is recommended for locations serving static files or large
 downloads, and wherever `SecResponseBodyAccess Off` is in use: ModSecurity

@@ -290,7 +290,7 @@ ngx_http_modsecurity_cleanup(void *data)
 ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
-    ngx_str_t                          s;
+    ngx_str_t                          s = ngx_null_string;
     ngx_pool_cleanup_t                *cln;
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;

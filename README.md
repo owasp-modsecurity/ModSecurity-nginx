@@ -201,10 +201,10 @@ inspected at all is still decided by `SecResponseBodyAccess` and
 When turned off the connector no longer asks nginx to keep the response body
 in memory, so with `sendfile` enabled file buffers are sent straight from the
 file instead of being read into memory first, and it no longer copies the
-response buffers into ModSecurity.  The setting of the location whose response
-headers were passed to ModSecurity applies to the whole response, including
-subrequests (SSI includes, `add_after_body`) and an `error_page` served after
-a ModSecurity intervention.
+response buffers into ModSecurity.  The setting of the main request's location at
+the time ModSecurity processes the response headers applies to the whole
+response, including subrequests (SSI includes, `add_after_body`,
+`auth_request`) and an `error_page` served after a ModSecurity intervention.
 
 ModSecurity still runs phase 4 on the last buffer, but against an empty body
 (ModSecurity itself skips phase 4 altogether when `SecResponseBodyAccess` is

@@ -34,7 +34,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->has(qw/http ssi/);
+my $t = Test::Nginx->new()->has(qw/http ssi auth_request/);
 
 $t->write_file_expand('nginx.conf', <<'EOF');
 
@@ -107,6 +107,20 @@ http {
             return 200 "included MARKER";
         }
 
+        location /auth/ {
+            sendfile off;
+            auth_request /auth-off;
+            modsecurity_rules '
+                SecAuditLog %%TESTDIR%%/audit-auth.txt
+            ';
+        }
+
+        location = /auth-off {
+            sendfile off;
+            modsecurity_response_body off;
+            return 204;
+        }
+
         location /deny/ {
             modsecurity_response_body off;
             modsecurity_rules '
@@ -147,17 +161,17 @@ http {
 
 EOF
 
-for my $d (qw{inspect skip inherit inherit/nested ssi deny on off}) {
+for my $d (qw{inspect skip inherit inherit/nested ssi auth deny on off}) {
 	mkdir($t->testdir() . '/' . $d);
 }
-for my $d (qw{inspect skip inherit/nested on off}) {
+for my $d (qw{inspect skip inherit/nested auth on off}) {
 	$t->write_file("/$d/page", 'the body has a MARKER in it');
 }
 $t->write_file('/ssi/page', 'main <!--# include virtual="/include" --> end');
 $t->write_file('/deny/page', 'not sent');
 
 $t->run();
-$t->plan(36);
+$t->plan(39);
 
 ###############################################################################
 
@@ -171,6 +185,8 @@ like(get_srvoff('/off/page'), qr/MARKER in it/,
 	'server off: body delivered intact');
 like(http_get('/ssi/page'), qr/main included MARKER end/,
 	'off with SSI include: body delivered');
+like(http_get('/auth/page'), qr/MARKER in it/,
+	'auth_request into off: body delivered');
 like(http_get('/deny/page'), qr/403 Forbidden.*error page MARKER/s,
 	'off with error_page: error page delivered');
 
@@ -180,6 +196,7 @@ my $nested = read_file($t->testdir() . '/audit-nested.txt');
 my $srvon = read_file($t->testdir() . '/audit-srv-on.txt');
 my $srvoff = read_file($t->testdir() . '/audit-srv-off.txt');
 my $ssi = read_file($t->testdir() . '/audit-ssi.txt');
+my $auth = read_file($t->testdir() . '/audit-auth.txt');
 my $deny = read_file($t->testdir() . '/audit-deny.txt');
 
 like($inspect, qr/\[id "41"\]/, 'default: RESPONSE_BODY rule matched');
@@ -201,6 +218,11 @@ like($srvoff, qr/\[id "42"\]/, 'server off: phase 4 still ran');
 unlike($ssi, qr/\[id "41"\]/,
 	'off with SSI include: included body not fed to ModSecurity');
 like($ssi, qr/\[id "42"\]/, 'off with SSI include: phase 4 ran');
+
+# the auth subrequest reaches the header filter before the main request does.
+like($auth, qr/\[id "41"\]/,
+	'auth_request into off: RESPONSE_BODY rule matched');
+like($auth, qr/\[id "42"\]/, 'auth_request into off: phase 4 ran');
 
 # the error page is served from a location left at the default "on" after the
 # header filter already ran for the "off" location.

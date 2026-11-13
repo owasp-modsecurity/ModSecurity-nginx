@@ -299,10 +299,6 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
     }
     */
 
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
-
-    dd("recovering ctx: %p", ctx);
-
     if (ctx == NULL)
     {
         dd("ctx is null; Nothing we can do, returning an error.");

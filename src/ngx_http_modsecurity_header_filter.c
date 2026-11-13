@@ -450,14 +450,12 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (mcf == NULL || mcf->response_body) {
+    ctx->response_body = mcf->response_body;
+
+    if (ctx->response_body) {
         /*
          * Ask nginx to keep the response body in memory so that the body
-         * filter can feed it to ModSecurity.  With sendfile enabled this
-         * makes the copy filter read file buffers (static files, upstream
-         * responses spooled to disk) into memory instead of sending them
-         * straight from the file, so skip it when the operator turned
-         * response body inspection off.
+         * filter can feed it to ModSecurity.
          */
         r->filter_need_in_memory = 1;
     }

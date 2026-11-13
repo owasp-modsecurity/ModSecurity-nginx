@@ -100,6 +100,7 @@ typedef struct {
     unsigned logged:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
+    unsigned response_body:1;
 } ngx_http_modsecurity_ctx_t;
 
 

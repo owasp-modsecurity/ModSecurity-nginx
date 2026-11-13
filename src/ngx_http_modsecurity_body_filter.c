@@ -39,8 +39,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
 {
     ngx_chain_t *chain = in;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_conf_t *mcf;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    ngx_http_modsecurity_conf_t *mcf;
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
     ngx_uint_t i = 0;
@@ -62,9 +62,8 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         return ngx_http_next_body_filter(r, in);
     }
 
-    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf != NULL && mcf->sanity_checks_enabled != NGX_CONF_UNSET)
     {
 #if 0
@@ -146,7 +145,7 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     {
         int ret;
 
-        if (mcf == NULL || mcf->response_body) {
+        if (ctx->response_body) {
             u_char *data = chain->buf->pos;
 
             msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);

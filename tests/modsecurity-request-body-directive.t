@@ -44,6 +44,12 @@ http {
             SecRequestBodyAccess On
             SecRule REQUEST_BODY "@rx BAD BODY" "id:11,phase:2,deny,log,status:403"
             SecRule ARGS:what "@streq badarg" "id:12,phase:2,deny,log,status:403"
+            SecRule ARGS:what "@streq badarg" "id:13,phase:3,deny,log,status:418"
+            SecRule REQUEST_HEADERS:Content-Type "^(?:application(?:/soap\\+|/)|text/)xml" "id:200000,phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=XML"
+            SecRule REQUEST_HEADERS:Content-Type "^application/json" "id:200001,phase:1,t:none,t:lowercase,pass,nolog,ctl:requestBodyProcessor=JSON"
+            SecRule REQBODY_ERROR "!@eq 0" "id:200002,phase:2,t:none,log,deny,status:400"
+            SecRule MULTIPART_STRICT_ERROR "!@eq 0" "id:200003,phase:2,t:none,log,deny,status:400"
+            SecRule MULTIPART_UNMATCHED_BOUNDARY "@eq 1" "id:200004,phase:2,t:none,log,deny,status:400"
         ';
 
         location /inspect {
@@ -72,6 +78,31 @@ http {
             proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
 
+        location /redirect {
+            modsecurity_request_body off;
+            try_files /nonexistent @inspect;
+        }
+
+        location @inspect {
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+
+        location /errorpage {
+            modsecurity_request_body off;
+            error_page 403 /denied;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+
+        location /denied {
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+
+        location /skipxml {
+            modsecurity_request_body off;
+            modsecurity_rules 'SecRuleRemoveById 200000';
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+
         location /parent {
             modsecurity_request_body off;
 
@@ -91,7 +122,7 @@ EOF
 
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
-$t->plan(12);
+$t->plan(21);
 
 ###############################################################################
 
@@ -104,6 +135,30 @@ like(http_post('/nobuffer', 'VERY BAD BODY'), qr/LEN=13/, 'off + proxy_request_b
 like(http_post('/parent/child', 'VERY BAD BODY'), qr/LEN=13/, 'off inherited by nested location');
 like(http_post('/parent/on', 'VERY BAD BODY'), qr/^HTTP.*403/, 'on overrides inherited off');
 like(http_post('/parent/on', 'GOOD BODY'), qr/LEN=9/, 'on overrides inherited off, good body passes');
+
+like(http_post('/inspect?what=badarg', 'GOOD BODY'), qr/^HTTP.*403/,
+	'on: phase 2 deny skips response phase');
+like(http_post('/redirect', 'VERY BAD BODY'), qr/LEN=13/,
+	'off redirected to on: first location applies, body not inspected');
+like(http_post('/errorpage?what=badarg', 'VERY BAD BODY'),
+	qr/^HTTP.*403.*TEST-OK/s, 'off: phase 2 deny with error_page');
+
+my $mp = "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n"
+	. "VERY BAD BODY\r\n--XyZ--\r\n";
+my $mplen = length($mp);
+
+like(http_post('/inspect', '{"a":', 'application/json'),
+	qr/^HTTP.*400/, 'on: invalid JSON rejected');
+like(http_post('/skip', '{"a":"VERY BAD BODY"}', 'application/json'),
+	qr/LEN=21/, 'off: JSON body passes');
+like(http_post('/inspect', $mp, 'multipart/form-data; boundary=XyZ'),
+	qr/^HTTP.*403/, 'on: multipart body inspected');
+like(http_post('/skip', $mp, 'multipart/form-data; boundary=XyZ'),
+	qr/LEN=$mplen/, 'off: multipart body passes');
+like(http_post('/inspect', '<a>', 'text/xml'),
+	qr/^HTTP.*400/, 'on: invalid XML rejected');
+like(http_post('/skipxml', '<a>VERY BAD BODY</a>', 'text/xml'),
+	qr/LEN=20/, 'off: XML body passes without XML processor');
 
 # the upstream must see the beginning of the request body before the client
 # has sent all of it, otherwise the body is still being buffered by nginx
@@ -123,12 +178,13 @@ like(http_read($s, 5), qr/^HTTP.*403/,
 ###############################################################################
 
 sub http_post {
-	my ($url, $body) = @_;
+	my ($url, $body, $type) = @_;
 	my $len = length($body);
+	$type = 'application/x-www-form-urlencoded' unless defined $type;
 	return http(<<EOF);
 POST $url HTTP/1.0
 Host: localhost
-Content-Type: application/x-www-form-urlencoded
+Content-Type: $type
 Content-Length: $len
 
 $body

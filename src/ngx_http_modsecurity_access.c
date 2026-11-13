@@ -305,12 +305,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    if (ctx->request_body_processed) {
-        // should we use r->internal or r->filter_finalize?
+    if (ctx->intervention_triggered) {
         return NGX_DECLINED;
     }
 
-    if (ctx->intervention_triggered) {
+    if (ctx->request_body_processed) {
         return NGX_DECLINED;
     }
 
@@ -322,36 +321,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         return NGX_DONE;
     }
 
-    if (mcf->request_body == 0)
-    {
-        int ret = 0;
-
-        /*
-         * Request body inspection is disabled for this location.  Do not
-         * buffer the body here (that lets the content handler stream it,
-         * e.g. proxy_request_buffering off), but still run the
-         * REQUEST_BODY phase so rules that do not depend on the body
-         * (ARGS, REQUEST_HEADERS, ...) execute in their usual phase.
-         */
+    if (mcf->request_body == 0) {
         dd("request body inspection disabled by modsecurity_request_body off");
 
-        old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_request_body(ctx->modsec_transaction);
-        ctx->request_body_processed = 1;
-        ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-        if (r->error_page) {
-            return NGX_DECLINED;
-        }
-        if (ret > 0) {
-            return ret;
-        }
-
-        return NGX_DECLINED;
-    }
-
-    if (ctx->body_requested == 0)
+    } else if (ctx->body_requested == 0)
     {
         ngx_int_t rc = NGX_OK;
 
@@ -399,13 +372,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
     if (ctx->waiting_more_body == 0)
     {
         int ret = 0;
-        int already_inspected = 0;
+        ngx_chain_t *chain = NULL;
 
         dd("request body is ready to be processed");
 
         r->write_event_handler = ngx_http_core_run_phases;
-
-        ngx_chain_t *chain = r->request_body->bufs;
 
         /**
          * TODO: Speed up the analysis by sending chunk while they arrive.
@@ -416,7 +387,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          * function.
          */
 
-        if (r->request_body->temp_file != NULL) {
+        if (mcf->request_body == 0 || r->request_body == NULL) {
+            dd("request body is not inspected");
+
+        } else if (r->request_body->temp_file != NULL) {
             ngx_str_t file_path = r->request_body->temp_file->file.name;
             const char *file_name = ngx_str_to_char(file_path, r->pool);
             if (file_name == (char*)-1) {
@@ -429,13 +403,12 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             dd("request body inspection: file -- %s", file_name);
 
             msc_request_body_from_file(ctx->modsec_transaction, file_name);
-
-            already_inspected = 1;
         } else {
             dd("inspection request body in memory.");
+            chain = r->request_body->bufs;
         }
 
-        while (chain && !already_inspected)
+        while (chain)
         {
             u_char *data = chain->buf->pos;
 
@@ -456,6 +429,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
             if (ret > 0) {
+                ctx->intervention_triggered = 1;
                 return ret;
             }
         }
@@ -477,8 +451,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
         if (r->error_page) {
             return NGX_DECLINED;
-            }
+        }
         if (ret > 0) {
+            ctx->intervention_triggered = 1;
             return ret;
         }
     }

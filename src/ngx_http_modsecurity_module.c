@@ -727,7 +727,6 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
      * set by ngx_pcalloc():
      *
      *     conf->enable = 0;
-     *     conf->request_body = 0;
      *     conf->sanity_checks_enabled = 0;
      *     conf->rules_set = NULL;
      *     conf->pool = NULL;

@@ -123,11 +123,41 @@ ngx_http_modsecurity_rules_error_free(const char *error)
     if (error == NULL) {
         return;
     }
-#if defined(MODSECURITY_CHECK_VERSION) && (MODSECURITY_VERSION_NUM >= 30130100)
+#if defined(MODSECURITY_CHECK_VERSION)
+#if MODSECURITY_VERSION_NUM >= 30130100
     msc_rules_error_cleanup(error);
 #else
     free((void *) error);
 #endif
+#else
+    free((void *) error);
+#endif
+}
+
+/*
+ * Copy a libmodsecurity error message into cf->pool, NUL-terminated as
+ * ngx_conf_handler() prints it with "%s", and release the original.
+ */
+static char *
+ngx_http_modsecurity_rules_error(ngx_conf_t *cf, const char *error)
+{
+    size_t   len;
+    u_char  *rv;
+
+    if (error == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    len = ngx_strlen(error);
+    rv = ngx_pnalloc(cf->pool, len + 1);
+
+    if (rv != NULL) {
+        ngx_cpystrn(rv, (u_char *) error, len + 1);
+    }
+
+    ngx_http_modsecurity_rules_error_free(error);
+
+    return rv != NULL ? (char *) rv : NGX_CONF_ERROR;
 }
 
 /*
@@ -392,6 +422,10 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (res < 0) {
+        if (error == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
         dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
         rv = strdup(error);
         ngx_http_modsecurity_rules_error_free(error);
@@ -429,6 +463,10 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (res < 0) {
+        if (error == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
         dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
         rv = strdup(error);
         ngx_http_modsecurity_rules_error_free(error);
@@ -471,6 +509,10 @@ ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (res < 0) {
+        if (error == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
         dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
         rv = strdup(error);
         ngx_http_modsecurity_rules_error_free(error);
@@ -786,10 +828,7 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_http_core_loc_conf_t *clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
 #endif
     int rules;
-    size_t len;
-    char *rv;
     const char *error = NULL;
-    ngx_pool_t *old_pool;
 
     dd("merging loc config [%s] - parent: '%p' child: '%p'",
         ngx_str_to_char(clcf->name, cf->pool), parent,
@@ -811,32 +850,10 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     dd("CHILD RULES");
     msc_rules_dump(c->rules_set);
 #endif
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
     rules = msc_rules_merge(c->rules_set, p->rules_set, &error);
-    ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (rules < 0) {
-        if (error == NULL) {
-            /* libmodsecurity could not even allocate the message */
-            return NGX_CONF_ERROR;
-        }
-
-        /*
-         * ngx_conf_handler() prints the returned message with "%s", so the
-         * copy has to be NUL-terminated -- note that ngx_pstrdup() would
-         * not be usable here, it does not append the terminator.
-         */
-        len = ngx_strlen(error);
-        rv = ngx_pnalloc(cf->pool, len + 1);
-
-        if (rv != NULL) {
-            ngx_memcpy(rv, error, len);
-            rv[len] = '\0';
-        }
-
-        ngx_http_modsecurity_rules_error_free(error);
-
-        return rv != NULL ? rv : NGX_CONF_ERROR;
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)

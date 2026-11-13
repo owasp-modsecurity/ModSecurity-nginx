@@ -7,8 +7,8 @@
 #
 # The leak checks only have an effect on an ASan/LSan build with symbols for
 # libmodsecurity: they fail if LeakSanitizer reports a leaked block allocated
-# in msc_rules_*() or in the connector's merge_conf().  On other builds they
-# always pass.
+# in msc_rules_*(), in the connector's ngx_conf_set_rules*() handlers or in
+# its merge_conf().  On other builds they always pass.
 
 ###############################################################################
 
@@ -140,7 +140,8 @@ sub no_leak {
 	my ($out, $name) = @_;
 
 	unlike($out, qr/^\s+\#\d+\s0x[0-9a-f]+\sin\s
-		(?:msc_rules_\w+|ngx_http_modsecurity_merge_conf)\b/mx, $name);
+		(?:msc_rules_\w+|ngx_conf_set_rules\w*|ngx_http_modsecurity_merge_conf)\b/mx,
+		$name);
 }
 
 ###############################################################################

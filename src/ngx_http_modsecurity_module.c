@@ -403,7 +403,6 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     int                                res;
     char                              *rules;
-    char                              *rv;
     ngx_str_t                         *value;
     const char                        *error;
     ngx_pool_t                        *old_pool;
@@ -427,9 +426,7 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
         dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
-        rv = strdup(error);
-        ngx_http_modsecurity_rules_error_free(error);
-        return rv;
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -444,7 +441,6 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     int                                res;
     char                              *rules_set;
-    char                              *rv;
     ngx_str_t                         *value;
     const char                        *error;
     ngx_pool_t                        *old_pool;
@@ -468,9 +464,7 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
         dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
-        rv = strdup(error);
-        ngx_http_modsecurity_rules_error_free(error);
-        return rv;
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -484,7 +478,6 @@ char *
 ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
     int                                res;
-    char                              *rv;
     ngx_str_t                         *value;
     const char                        *error;
     const char                        *rules_remote_key, *rules_remote_server;
@@ -514,9 +507,7 @@ ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         }
 
         dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
-        rv = strdup(error);
-        ngx_http_modsecurity_rules_error_free(error);
-        return rv;
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);

@@ -331,6 +331,12 @@ ngx_inline ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r)
 {
     ngx_http_modsecurity_ctx_t *ctx;
+
+    /* subrequests share r->pool; the cleanup walk would find the parent's ctx */
+    if (r != r->main) {
+        return NULL;
+    }
+
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
     if (ctx == NULL) {
         /*

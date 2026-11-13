@@ -422,6 +422,18 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 
 /* XXX: if NOT_MODIFIED, do we need to process it at all?  see xslt_header_filter() */
 
+    /*
+     * subrequest output reaches the body filter as part of the main
+     * response; keep it in memory so that file buffers are inspected too
+     */
+    if (r != r->main) {
+        if (ngx_http_modsecurity_get_module_ctx(r->main) != NULL) {
+            r->filter_need_in_memory = 1;
+        }
+
+        return ngx_http_next_header_filter(r);
+    }
+
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
     dd("header filter, recovering ctx: %p", ctx);

@@ -63,13 +63,17 @@ http {
         listen       127.0.0.1:8080;
         server_name  ssi;
 
+        sendfile on;
         log_subrequest on;
         default_type text/plain;
 
         modsecurity on;
         modsecurity_rules '
             SecRuleEngine On
+            SecResponseBodyAccess On
+            SecResponseBodyMimeType text/html
             SecRule REQUEST_HEADERS:X-Test "@streq ssi" "id:500,phase:1,log,auditlog,pass"
+            SecRule RESPONSE_BODY "@contains INCLUDED-MARKER" "id:503,phase:4,log,auditlog,pass"
             SecAuditEngine RelevantOnly
             SecAuditLogParts ABH
             SecAuditLog %%TESTDIR%%/audit-ssi.txt
@@ -91,7 +95,7 @@ $t->write_file('ssi.html',
 	'BEFORE <!--# include virtual="/static.txt" --> AFTER');
 $t->write_file('static.txt', 'INCLUDED-MARKER');
 $t->run();
-$t->plan(6);
+$t->plan(7);
 
 ###############################################################################
 
@@ -115,6 +119,8 @@ EOF
 like($r, qr/BEFORE INCLUDED-MARKER AFTER/, 'ssi include delivered');
 
 $audit = $t->read_file('audit-ssi.txt');
+
+like($audit, qr/\[id "503"\]/, 'included file inspected in phase 4');
 
 # Each serial audit log record starts with a part-A section header of the
 # form "---<boundary>---A--" on a line of its own.  The SSI subrequest is

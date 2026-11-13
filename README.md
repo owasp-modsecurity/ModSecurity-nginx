@@ -45,7 +45,7 @@ Further information about nginx third-party add-ons support are available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds four new directives and they are:
+It adds the following directives:
 
 modsecurity
 -----------
@@ -184,6 +184,62 @@ modsecurity_use_error_log
 **default:** *on*
 
 Turns on or off ModSecurity error log functionality.
+
+modsecurity_request_body
+------------------------
+**syntax:** *modsecurity_request_body on | off*
+
+**context:** *http, server, location*
+
+**default:** *on*
+
+Turns on or off the request body inspection.
+
+When turned off, the connector does not read and buffer the request body and
+does not feed it to ModSecurity, so `REQUEST_BODY`, `ARGS_POST`, `FILES` and
+the other body related variables are empty.  Phase 2 rules are still executed
+(with `SecRequestBodyAccess On`; libmodsecurity skips phase 2 entirely when it
+is `Off`), hence rules matching on `ARGS`, `REQUEST_HEADERS` and friends keep
+working.  The request body is then read by the content handler with nginx's
+own settings, which means that directives such as `proxy_request_buffering off`
+are effective again.
+
+As no body reaches ModSecurity, `SecRequestBodyLimit`,
+`SecRequestBodyNoFilesLimit` and `SecRequestBodyLimitAction` are not enforced
+in such a location; only nginx's `client_max_body_size` limits the body size.
+
+The body processors still run, on an empty body.  The URLENCODED, MULTIPART
+and JSON processors accept it, but the XML processor fails to parse an empty
+document and sets `REQBODY_ERROR`, so with the recommended rules 200000 and
+200002 every XML request to such a location is rejected with 400.  Remove rule
+200000 there: `modsecurity_rules 'SecRuleRemoveById 200000';`.
+
+The setting of the location where the access phase first runs applies to the
+whole request: an internal redirect (for example `try_files`, `index` or a
+named location) to a location with `on` does not re-enable body inspection,
+so set `off` only where every redirect target may also skip it.
+
+This is useful for locations handling large uploads, encrypted payloads, or
+for locations where `SecRequestBodyAccess Off` is already set: libmodsecurity
+copies the request body regardless of `SecRequestBodyAccess`, so turning this
+directive off is the only way to avoid that cost.
+
+This directive is a per-location opt-out.  It does not make the connector
+inspect the body while it is streamed to the backend: with `on`, the whole
+body is still buffered before inspection.
+
+```nginx
+server {
+    modsecurity on;
+    modsecurity_rules_file /etc/my_modsecurity_rules.conf;
+
+    location /upload {
+        modsecurity_request_body off;
+        proxy_request_buffering off;
+        proxy_pass http://backend;
+    }
+}
+```
 
 # Contributing
 

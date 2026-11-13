@@ -211,10 +211,11 @@ whether the body is buffered and copied. Consequences:
   `SecRequestBodyLimit`, which only caps the second copy. The spill costs a
   write and a read and saves no memory.
 * Raising `client_body_buffer_size` avoids the spill, but every body
-  without a Content-Length, and every body that spills, gets a buffer of the
-  full size (a body that stays in memory gets one of its own size, and one
-  that fits in the rest of the request header buffer needs none), so a large
-  value multiplies worker memory under concurrency. Size it against the
+  without a Content-Length, every body that spills and every HTTP/3 body gets
+  a buffer of the full size (otherwise a body that stays in memory gets one
+  of its own size, and an HTTP/1.x body that fits in the rest of the request
+  header buffer needs none), so a large value multiplies worker memory under
+  concurrency. Size it against the
   bodies you actually expect, not against `client_max_body_size`, which only
   decides which requests are accepted, nor against `SecRequestBodyLimit`,
   which is applied after the connector has already read the body.
@@ -222,14 +223,16 @@ whether the body is buffered and copied. Consequences:
   duration of the request, because libmodsecurity reopens it by path; it is
   created with mode 0600 and deleted when the request ends (unless
   `client_body_in_file_only on` asks nginx to keep it). nginx creates a
-  missing `client_body_temp_path` with mode 0700, but leaves the permissions
-  of an existing directory alone: keep that directory private to the nginx
-  user. A tmpfs-backed `client_body_temp_path` keeps the spill off disk, at
+  missing `client_body_temp_path` with mode 0700, but never removes group or
+  other access from an existing directory: keep that directory private to
+  the nginx user. A tmpfs-backed `client_body_temp_path` keeps the spill off disk, at
   the price of holding it in RAM.
 * With `SecRequestBodyAccess Off`, libmodsecurity still runs the request
   body processor (multipart, urlencoded, or JSON/XML when selected with
   `ctl:requestBodyProcessor`) over its copy in phase 2, and only then returns
-  before evaluating the phase 2 rules. `SecRuleEngine Off` skips the parsing
+  before evaluating the phase 2 rules. Only a body over
+  `SecRequestBodyNoFilesLimit` skips the urlencoded, JSON and XML parsers;
+  multipart is always parsed. `SecRuleEngine Off` skips the parsing
   as well, but not the buffering or the copy.
 
 ## Response body

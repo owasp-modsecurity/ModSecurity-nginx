@@ -45,7 +45,7 @@ Further information about nginx third-party add-ons support are available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds four new directives and they are:
+It adds the following directives:
 
 modsecurity
 -----------
@@ -184,6 +184,83 @@ modsecurity_use_error_log
 **default:** *on*
 
 Turns on or off ModSecurity error log functionality.
+
+modsecurity_log_thread_pool
+---------------------------
+**syntax:** *modsecurity_log_thread_pool &lt;name&gt; [max_pending=&lt;number&gt;] | off*
+
+**context:** *http, server, location*
+
+**default:** *off*
+
+Runs the LOGGING phase (phase 5) rules and the audit log write in the named
+nginx `thread_pool` instead of on the worker's event loop, so that audit log
+I/O no longer stalls the other connections handled by the worker. The
+transaction is detached from the request when the task is posted and is
+cleaned up once the task completes. Whether a request is offloaded is decided
+by the configuration of the location the request is finally logged in.
+
+Each posted task keeps the complete transaction in memory until it has run,
+including the buffered request and response bodies, up to
+`SecRequestBodyLimit` and `SecResponseBodyLimit`. The optional `max_pending`
+parameter limits the number of logging tasks a worker has posted, to any pool,
+and not yet completed (default 128); a request that finds the limit reached is
+logged on the event loop, as without this directive, and a warning is written
+at most once every 10 seconds. Size it so that `max_pending` times the per-request
+memory fits the worker's budget, and use a pool dedicated to this directive
+with `max_queue` at or above it, since nginx logs a `queue overflow` error for
+every task the pool refuses.
+
+This directive requires nginx built with `--with-threads` and with PCRE2;
+other builds refuse it at configuration time, except for
+`modsecurity_log_thread_pool off`, which is accepted everywhere. Builds using
+the original PCRE library are excluded because there the connector has to swap
+the process-global `pcre_malloc` and `pcre_free` pointers around every
+libmodsecurity call, which is not thread-safe.
+
+Rule messages emitted during phase 5 are written using the thread pool's log,
+which is the main context `error_log` at its configured level, rather than the
+`error_log` of the server or location the request was handled by, and they lack
+the usual client and request context. As they are emitted at the `info` level,
+the main `error_log` has to be set to `info` or lower for them to appear, and it
+has to be a file: an `error_log` that writes to `syslog:` or `memory:` must not
+be used with this directive, because those writers are not thread-safe. Any
+`SecDebugLog` output produced during phase 5 is likewise written from the
+thread.
+
+The logging performed early by a disruptive intervention stays synchronous, as
+does everything up to phase 4. The logging phase runs once per transaction, for
+the main request; with `log_subrequest on`, the log phase of a subrequest does
+not process it.
+
+The feature is experimental, and it needs a libmodsecurity that supports
+processing transactions concurrently -- the way the threaded Apache MPMs use
+it. Two caveats are worth knowing about:
+
+* concurrent writes of serial audit log entries rely on the atomicity of a
+  single `fwrite()`; the `fcntl()` lock taken by the library does not exclude
+  other threads of the same process. `SecAuditLogType Concurrent`, or a thread
+  pool with a single thread, avoids the question;
+* the LMDB collection backend (`--with-lmdb`) has not been reviewed for use
+  from several threads of one process.
+
+Logging tasks that are still queued when a worker shuts down are still run --
+the pool's exit task queues behind them -- so their audit log entries are
+written, but their completion handler does not run, and the transaction and
+the task are released only by the exiting process. Because the worker waits
+for the whole queue to drain, a thread blocked on a contended audit log can
+delay shutdown beyond `worker_shutdown_timeout`, which does not apply to
+thread pools.
+
+```nginx
+thread_pool modsec threads=4 max_queue=128;
+
+http {
+    modsecurity on;
+    modsecurity_rules_file /etc/modsecurity/main.conf;
+    modsecurity_log_thread_pool modsec max_pending=128;
+}
+```
 
 # Contributing
 

@@ -685,7 +685,11 @@ ngx_module_t ngx_http_modsecurity_module = {
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_log_init_process, /* init process */
+#else
     NULL,                                  /* init process */
+#endif
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */

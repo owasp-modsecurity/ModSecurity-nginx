@@ -36,16 +36,87 @@ ngx_http_modsecurity_log(void *data, const void* msg)
 }
 
 
+#if (NGX_THREADS) && (NGX_PCRE2)
+
+/* logging tasks of this worker posted and not yet completed */
+static ngx_uint_t          ngx_http_modsecurity_log_pending;
+static time_t              ngx_http_modsecurity_log_inline_warned;
+
+/* keeps a gracefully exiting worker alive while tasks are pending */
+static ngx_event_t         ngx_http_modsecurity_log_drain;
+static ngx_connection_t    ngx_http_modsecurity_log_drain_dumb;
+
+/* serialises msc_process_logging() within the worker */
+static ngx_thread_mutex_t  ngx_http_modsecurity_log_mutex;
+static ngx_flag_t          ngx_http_modsecurity_log_mutex_created;
+
+
+ngx_int_t
+ngx_http_modsecurity_log_init_process(ngx_cycle_t *cycle)
+{
+    ngx_http_modsecurity_main_conf_t  *mmcf;
+
+    mmcf = ngx_http_cycle_get_module_main_conf(cycle,
+                                               ngx_http_modsecurity_module);
+
+    if (mmcf == NULL || !mmcf->log_thread_pool_used) {
+        return NGX_OK;
+    }
+
+    if (ngx_thread_mutex_create(&ngx_http_modsecurity_log_mutex, cycle->log)
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    ngx_http_modsecurity_log_mutex_created = 1;
+
+    return NGX_OK;
+}
+
+
+static ngx_flag_t
+ngx_http_modsecurity_log_lock(ngx_log_t *log)
+{
+    if (!ngx_http_modsecurity_log_mutex_created) {
+        return 0;
+    }
+
+    return ngx_thread_mutex_lock(&ngx_http_modsecurity_log_mutex, log)
+           == NGX_OK;
+}
+
+
+static void
+ngx_http_modsecurity_log_unlock(ngx_flag_t locked, ngx_log_t *log)
+{
+    if (locked) {
+        (void) ngx_thread_mutex_unlock(&ngx_http_modsecurity_log_mutex, log);
+    }
+}
+
+#endif
+
+
 static ngx_int_t
 ngx_http_modsecurity_log_transaction(ngx_http_request_t *r,
     ngx_http_modsecurity_ctx_t *ctx)
 {
     ngx_pool_t  *old_pool;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_flag_t   locked;
+
+    locked = ngx_http_modsecurity_log_lock(r->connection->log);
+#endif
 
     dd("calling msc_process_logging for %p", ctx);
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     msc_process_logging(ctx->modsec_transaction);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_log_unlock(locked, r->connection->log);
+#endif
 
     return NGX_OK;
 }
@@ -53,20 +124,22 @@ ngx_http_modsecurity_log_transaction(ngx_http_request_t *r,
 
 #if (NGX_THREADS) && (NGX_PCRE2)
 
-/* logging tasks of this worker posted and not yet completed */
-static ngx_uint_t  ngx_http_modsecurity_log_pending;
-static time_t      ngx_http_modsecurity_log_inline_warned;
-
-
 static void
 ngx_http_modsecurity_log_thread_handler(void *data, ngx_log_t *log)
 {
+    ngx_flag_t                        locked;
     ngx_http_modsecurity_log_task_t  *lt = data;
 
     /* the request and its connection log may be gone by now */
     lt->msclog.log = log;
 
+    locked = ngx_http_modsecurity_log_lock(log);
     msc_process_logging(lt->transaction);
+    ngx_http_modsecurity_log_unlock(locked, log);
+
+    /* the completion handler does not run if the worker exits first */
+    msc_transaction_cleanup(lt->transaction);
+    lt->transaction = NULL;
 }
 
 
@@ -75,10 +148,24 @@ ngx_http_modsecurity_log_thread_event_handler(ngx_event_t *ev)
 {
     ngx_http_modsecurity_log_task_t  *lt = ev->data;
 
-    msc_transaction_cleanup(lt->transaction);
     ngx_free(lt);
 
     ngx_http_modsecurity_log_pending--;
+
+    if (ngx_http_modsecurity_log_pending == 0
+        && ngx_http_modsecurity_log_drain.timer_set)
+    {
+        ngx_del_timer(&ngx_http_modsecurity_log_drain);
+    }
+}
+
+
+static void
+ngx_http_modsecurity_log_drain_handler(ngx_event_t *ev)
+{
+    if (ngx_http_modsecurity_log_pending) {
+        ngx_add_timer(ev, 1000);
+    }
 }
 
 
@@ -113,6 +200,16 @@ ngx_http_modsecurity_log_offload(ngx_http_request_t *r,
     ctx->log_task = NULL;
 
     ngx_http_modsecurity_log_pending++;
+
+    if (!ngx_http_modsecurity_log_drain.timer_set) {
+        ngx_http_modsecurity_log_drain.handler =
+                                        ngx_http_modsecurity_log_drain_handler;
+        ngx_http_modsecurity_log_drain.log = ngx_cycle->log;
+        ngx_http_modsecurity_log_drain.data =
+                                        &ngx_http_modsecurity_log_drain_dumb;
+        ngx_http_modsecurity_log_drain_dumb.fd = (ngx_socket_t) -1;
+        ngx_add_timer(&ngx_http_modsecurity_log_drain, 1000);
+    }
 
     return NGX_OK;
 }

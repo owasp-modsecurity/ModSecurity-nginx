@@ -207,6 +207,9 @@ int ngx_http_modsecurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name
 void ngx_http_modsecurity_log(void *data, const void* msg);
 ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r);
 ngx_int_t ngx_http_modsecurity_log_phase_handler(ngx_http_request_t *r);
+#if (NGX_THREADS) && (NGX_PCRE2)
+ngx_int_t ngx_http_modsecurity_log_init_process(ngx_cycle_t *cycle);
+#endif
 
 /* ngx_http_modsecurity_access.c */
 ngx_int_t ngx_http_modsecurity_access_handler(ngx_http_request_t *r);

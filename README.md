@@ -208,8 +208,20 @@ and not yet completed (default 128); a request that finds the limit reached is
 logged on the event loop, as without this directive, and a warning is written
 at most once every 10 seconds. Size it so that `max_pending` times the per-request
 memory fits the worker's budget, and use a pool dedicated to this directive
-with `max_queue` at or above it, since nginx logs a `queue overflow` error for
-every task the pool refuses.
+with `max_queue` greater than `max_pending`. A pool that refuses a task makes
+nginx log a `queue overflow` error, and at worker exit a full queue leaves no
+room for the pool's own exit task (see below).
+
+Within a worker, phase 5 and the audit log write are serialised: the thread,
+the inline fallback and the early logging of a disruptive intervention all
+hold one per-worker mutex around them. The serial audit log writer of
+libmodsecurity only takes an `fcntl()` lock, which belongs to the process, so
+two threads of one worker do not exclude each other, and one thread releasing
+the lock lets another process write while the other thread is still writing.
+As a consequence a thread pool with more than one thread gives no additional
+logging parallelism, and the event loop can wait for the mutex while a thread
+writes; that wait is never longer than the write it would have done itself
+without this directive. `threads=1` is enough.
 
 This directive requires nginx built with `--with-threads` and with PCRE2;
 other builds refuse it at configuration time, except for
@@ -235,25 +247,28 @@ not process it.
 
 The feature is experimental, and it needs a libmodsecurity that supports
 processing transactions concurrently -- the way the threaded Apache MPMs use
-it. Two caveats are worth knowing about:
+it: phases 1 to 4 of one transaction still run on the event loop while phase 5
+of another runs in the thread. Two caveats are worth knowing about:
 
-* concurrent writes of serial audit log entries rely on the atomicity of a
-  single `fwrite()`; the `fcntl()` lock taken by the library does not exclude
-  other threads of the same process. `SecAuditLogType Concurrent`, or a thread
-  pool with a single thread, avoids the question;
+* `SecDebugLog` writes made during phases 1 to 4 are not covered by the mutex
+  and can interleave with debug log writes from the thread;
 * the LMDB collection backend (`--with-lmdb`) has not been reviewed for use
   from several threads of one process.
 
-Logging tasks that are still queued when a worker shuts down are still run --
-the pool's exit task queues behind them -- so their audit log entries are
-written, but their completion handler does not run, and the transaction and
-the task are released only by the exiting process. Because the worker waits
-for the whole queue to drain, a thread blocked on a contended audit log can
-delay shutdown beyond `worker_shutdown_timeout`, which does not apply to
-thread pools.
+The thread destroys the transaction once it has been logged, so temporary
+files of the transaction, such as saved uploads, are removed even if the
+worker exits before the task's completion handler runs.
+
+On graceful shutdown the worker does not exit while logging tasks are
+pending: it keeps a timer armed until their completion handlers have run. On
+fast shutdown the worker exits at once, and the thread pool runs the tasks
+still queued before its threads exit, provided the pool's exit task fits into
+the queue -- hence `max_queue` greater than `max_pending` on a dedicated pool.
+In both cases a thread blocked on a contended audit log delays the worker's
+exit, and `worker_shutdown_timeout` does not shorten that wait.
 
 ```nginx
-thread_pool modsec threads=4 max_queue=128;
+thread_pool modsec threads=1 max_queue=256;
 
 http {
     modsecurity on;

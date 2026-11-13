@@ -2,12 +2,13 @@
 
 # Tests for ModSecurity-nginx connector (configuration error reporting).
 #
-# The connector hands nginx the error message produced by libmodsecurity.  The
-# message buffer is owned by the connector once libmodsecurity returned it, so
-# it has to be copied before it is released.  These tests assert that the
-# message nginx prints is complete and correctly terminated -- a copy that is
-# released too early, or one that is not NUL-terminated, shows up here as a
-# truncated or garbled emerg line.
+# "nginx -t" on configurations whose rules fail to load or merge.  The emerg
+# line must carry libmodsecurity's message complete and NUL-terminated.
+#
+# The leak checks only have an effect on an ASan/LSan build with symbols for
+# libmodsecurity: they fail if LeakSanitizer reports a leaked block allocated
+# in msc_rules_*() or in the connector's merge_conf().  On other builds they
+# always pass.
 
 ###############################################################################
 
@@ -26,7 +27,7 @@ use Test::Nginx;
 select STDERR; $| = 1;
 select STDOUT; $| = 1;
 
-my $t = Test::Nginx->new()->has(qw/http/)->plan(6);
+my $t = Test::Nginx->new()->has(qw/http/)->plan(9);
 
 $t->write_file('error.log', '');
 
@@ -135,6 +136,13 @@ sub nginx_t {
 	return ($?, $out);
 }
 
+sub no_leak {
+	my ($out, $name) = @_;
+
+	unlike($out, qr/^\s+\#\d+\s0x[0-9a-f]+\sin\s
+		(?:msc_rules_\w+|ngx_http_modsecurity_merge_conf)\b/mx, $name);
+}
+
 ###############################################################################
 
 my ($rc, $out);
@@ -143,15 +151,18 @@ my ($rc, $out);
 isnt($rc, 0, 'inline rules syntax error rejected');
 like($out, qr/Rules error\..*got:\s+nosuchaction" in \S*bad-inline\.conf:\d+$/m,
 	'inline rules error message intact');
+no_leak($out, 'inline rules error released');
 
 ($rc, $out) = nginx_t($t, 'bad-file.conf');
 isnt($rc, 0, 'rules file syntax error rejected');
 like($out, qr/Rules error\..*bad-rules\.conf.*got:\s+nosuchaction" in \S*bad-file\.conf:\d+$/m,
 	'rules file error message intact');
+no_leak($out, 'rules file error released');
 
 ($rc, $out) = nginx_t($t, 'bad-merge.conf');
 isnt($rc, 0, 'duplicated rule id rejected on merge');
 like($out, qr/Rule id: 7777 is duplicated\s+in \S*bad-merge\.conf:\d+$/m,
 	'merge error message intact');
+no_leak($out, 'merge error released');
 
 ###############################################################################

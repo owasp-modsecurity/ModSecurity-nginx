@@ -334,14 +334,14 @@ ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r)
     ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
     if (ctx == NULL) {
         /*
-         * refer <nginx>/src/http/modules/ngx_http_realip_module.c
-         * if module context was reset, the original address
+         * if module context was reset, the transaction
          * can still be found in the cleanup handler
          */
         ngx_pool_cleanup_t *cln;
         for (cln = r->pool->cleanup; cln; cln = cln->next) {
             if (cln->handler == ngx_http_modsecurity_cleanup) {
                 ctx = cln->data;
+                ngx_http_set_ctx(r, ctx, ngx_http_modsecurity_module);
                 break;
             }
         }

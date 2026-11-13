@@ -11,9 +11,9 @@ release.
 Please do not report security issues publicly (no GitHub issues, pull
 requests or mailing lists).
 
-Report them privately by opening a
-[draft security advisory](https://github.com/owasp-modsecurity/ModSecurity-nginx/security/advisories/new)
-on GitHub. The maintainers triage the report there, coordinate a fix with you
+Report them privately with GitHub's
+[Report a vulnerability](https://github.com/owasp-modsecurity/ModSecurity-nginx/security/advisories/new)
+button. The maintainers triage the report there, coordinate a fix with you
 and publish the advisory together with the fixed release. Reporters are
 credited in the published advisory.
 
@@ -45,8 +45,17 @@ route it.
   them.
 - `SecDebugLog` / `SecAuditLog`: debug and audit logs can contain full request
   and response data, including credentials and cookies. Write them to a
-  directory that is not world-readable (not `/tmp`), and do not leave a high
-  `SecDebugLogLevel` enabled in production.
+  directory that is not world-readable (not `/tmp`), make the log files
+  themselves readable only by the users that need them, and do not leave a
+  high `SecDebugLogLevel` enabled in production. These logs are opened by the
+  nginx master process (usually root), so the directory must not be writable
+  by the nginx worker user; otherwise a compromised worker can replace a log
+  file with a symlink and have root append request data to any file.
 - `modsecurity on` is an nginx-level switch only. Whether rules actually block
-  is controlled by `SecRuleEngine` in the loaded rules; `SecRuleEngine
-  DetectionOnly` logs but never blocks.
+  is controlled by `SecRuleEngine` in the loaded rules. With `SecRuleEngine
+  DetectionOnly`, or with `SecRuleEngine` not set at all, rules are evaluated
+  but never block; only `SecRuleEngine On` enforces disruptive actions. A
+  common mistake is `modsecurity on` plus CRS without the `modsecurity.conf`
+  that sets `SecRuleEngine On`. Whether a match is logged depends on the rules
+  and the logging configuration (for example, rules with `nolog` are not
+  logged).

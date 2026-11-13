@@ -1,7 +1,7 @@
 
 <img src="https://github.com/owasp-modsecurity/ModSecurity/raw/v3/master/others/modsec.png" width="50%">
 
-[![Quality Assurance](https://github.com/owasp-modsecurity/ModSecurity-nginx/actions/workflows/test_new.yml/badge.svg)](https://github.com/owasp-modsecurity/ModSecurity-nginx/actions/workflows/test_new.yml)
+[![Quality Assurance new](https://github.com/owasp-modsecurity/ModSecurity-nginx/actions/workflows/test_new.yml/badge.svg)](https://github.com/owasp-modsecurity/ModSecurity-nginx/actions/workflows/test_new.yml)
 
 
 The ModSecurity-nginx connector is the connection point between nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between nginx and libmodsecurity. This connector is required to use LibModSecurity with nginx. 
@@ -40,14 +40,19 @@ needs to match the version of nginx you're compiling this for.
 
 If libmodsecurity is not installed in the system library path or in
 `/usr/local/modsecurity`, point the build at it with the `MODSECURITY_INC` and
-`MODSECURITY_LIB` environment variables (and `YAJL_LIB` if libyajl is in a
-non-standard location). On Linux, set `NGX_IGNORE_RPATH=YES` to avoid
-embedding the library path in the resulting binary. On platforms where nginx
-uses `-R` (such as Solaris), the path is always embedded.
+`MODSECURITY_LIB` environment variables. If libyajl is also in a non-standard
+location, set `YAJL_LIB` to the directory that contains it (not to the library
+file); `YAJL_LIB` is only honoured together with `MODSECURITY_INC` /
+`MODSECURITY_LIB` and is ignored when the library is auto-discovered (including
+from `/usr/local/modsecurity`). On Linux, set `NGX_IGNORE_RPATH=YES` to avoid
+embedding the library path in the resulting binary; the dynamic loader then has
+to find libmodsecurity at runtime, for example through `ld.so.conf` or
+`LD_LIBRARY_PATH`. On platforms where nginx uses `-R` (such as Solaris), the
+path is always embedded.
 
 For building on Windows with MSVC, see [win32/README.md](win32/README.md).
 
-Further information about nginx third-party add-ons support are available [here](https://docs.nginx.com/nginx/admin-guide/dynamic-modules/dynamic-modules/).
+Further information about building nginx third-party modules is available [here](https://nginx.org/en/docs/dev/development_guide.html#adding_new_modules).
 
 
 # Usage
@@ -130,7 +135,7 @@ server {
         root /var/www/html/opts;
         modsecurity_rules '
           SecRuleEngine On
-          SecDebugLog /var/log/nginx/modsec_debug.log
+          SecDebugLog /path/to/modsec_debug.log
           SecDebugLogLevel 9
           SecRuleRemoveById 10
         ';
@@ -138,9 +143,15 @@ server {
 }
 ```
 
-The `SecDebugLog` directory must already exist and be writable by nginx,
-otherwise the rules fail to load. The debug log contains request data, so keep
-the directory and file unreadable by unprivileged users (see the
+Replace `/path/to/modsec_debug.log` with a real path. The directory must
+already exist, otherwise the rules fail to load and nginx does not start. The
+debug log is opened by the nginx master process (usually running as root) when
+the configuration is loaded and on every reload, so the directory must be
+writable by the user nginx is started as, and must **not** be writable by the
+worker user (for example `www-data` or `nginx`): a compromised worker could
+otherwise replace the log file with a symlink and have root append request data
+to any file. The debug log contains request data, so also keep the directory
+and file unreadable by unprivileged users (see the
 [Hardening Notes](SECURITY.md#hardening-notes)).
 
 modsecurity_transaction_id
@@ -210,7 +221,7 @@ are willing to help with. Thank you.
 We prefer to have your patch within the GitHub infrastructure to facilitate our
 review work, and our QA integration. GitHub provides an excellent
 documentation on how to perform “Pull Requests”. More information available
-here: https://help.github.com/articles/using-pull-requests/
+here: https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request
 
 Please respect the coding style in use. Pull requests can include various commits, so
 provide one fix or one functionality per commit. Do not change anything outside
@@ -245,15 +256,18 @@ $ cd /path/to/nginx/test/repository
 $ TEST_NGINX_BINARY=/path/to/your/nginx prove .
 ```
 
-If you are facing problems getting your added functionality to pass all the nginx tests, feel free to contact us or the nginx mailing list at: http://nginx.org/en/support.html
+If you are facing problems getting your added functionality to pass all the nginx tests, feel free to open a GitHub issue.
 
 ### Debugging 
 
 We respect the nginx debugging schema. By using the configuration option
 "--with-debug" during the nginx configuration you will also be enabling the
-connector's debug messages. Core dumps and crashes are expected to be debugged
-in the same fashion that is used to debug nginx. For further information,
-please check the nginx debugging information: https://nginx.org/en/docs/debugging_log.html
+connector's debug messages, see https://nginx.org/en/docs/debugging_log.html.
+Core dumps and crashes are expected to be debugged in the same fashion that is
+used to debug nginx; to get a core dump from a worker, set
+[`worker_rlimit_core`](https://nginx.org/en/docs/ngx_core_module.html#worker_rlimit_core)
+and
+[`working_directory`](https://nginx.org/en/docs/ngx_core_module.html#working_directory).
 
 
 ## Reporting Issues

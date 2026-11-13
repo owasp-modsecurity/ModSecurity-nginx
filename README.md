@@ -207,9 +207,9 @@ parameter limits the number of logging tasks a worker has posted, to any pool,
 and not yet completed (default 128); a request that finds the limit reached is
 logged on the event loop, as without this directive, and a warning is written
 at most once every 10 seconds. Size it so that `max_pending` times the per-request
-memory fits the worker's budget, and keep the thread pool's `max_queue` at or
-above it, since nginx logs a `queue overflow` error for every task the pool
-refuses.
+memory fits the worker's budget, and use a pool dedicated to this directive
+with `max_queue` at or above it, since nginx logs a `queue overflow` error for
+every task the pool refuses.
 
 This directive requires nginx built with `--with-threads` and with PCRE2;
 other builds refuse it at configuration time, except for

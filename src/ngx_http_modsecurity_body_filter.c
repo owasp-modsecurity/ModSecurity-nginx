@@ -22,6 +22,7 @@
 #include "ddebug.h"
 
 #include "ngx_http_modsecurity_common.h"
+#include "ngx_http_modsecurity_log_metadata.h"
 
 /* Bounded, reusable materialization for file-only response buffers. */
 #define NGX_HTTP_MODSECURITY_PHASE4_FILE_READ_CHUNK 32768U
@@ -30,10 +31,7 @@ static ngx_http_output_body_filter_pt ngx_http_next_body_filter;
 static ngx_int_t ngx_http_modsecurity_process_response_intervention(ngx_http_request_t *r, ngx_http_modsecurity_ctx_t *ctx, ngx_http_modsecurity_conf_t *mcf);
 static ngx_int_t ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurity_conf_t *mcf, const char *wanted, const char *actual, const char *reason);
 static ngx_int_t ngx_http_modsecurity_phase4_handle_intervention(ngx_http_request_t *r, ngx_http_modsecurity_conf_t *mcf);
-static void ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *dst);
-static void ngx_http_modsecurity_extract_rule_id(ngx_pool_t *pool, ngx_str_t *intervention, ngx_str_t *rule_id);
 static ngx_str_t ngx_http_modsecurity_normalize_content_type(ngx_pool_t *pool, ngx_str_t in);
-static ngx_str_t ngx_http_modsecurity_sanitize_intervention(ngx_pool_t *pool, ngx_str_t in);
 
 /* XXX: check behaviour on few body filters installed */
 ngx_int_t
@@ -67,6 +65,7 @@ ngx_http_modsecurity_response_body_failure(ngx_http_request_t *r,
 {
     ngx_int_t ret;
 
+    ctx->phase4_append_active = 0;
     if (ctx->phase4_failed) {
         r->connection->error = 1;
         return NGX_ERROR;
@@ -85,9 +84,8 @@ ngx_http_modsecurity_response_body_failure(ngx_http_request_t *r,
     return ret;
 }
 
-/* libModSecurity owns response inspection limits in every Phase-4 mode.
- * Keep checked accounting without imposing the legacy connector budget;
- * independent host, file-buffer and allocation limits remain active. */
+/* These are diagnostic counters, not inspection limits. Saturation must not
+ * interrupt a valid large response, including on a 32-bit size_t build. */
 static ngx_int_t
 ngx_http_modsecurity_plan_limited_response_body(
     ngx_http_modsecurity_ctx_t *ctx, ngx_http_modsecurity_conf_t *mcf,
@@ -115,10 +113,9 @@ ngx_http_modsecurity_plan_limited_response_body(
     }
     if (len > SIZE_MAX - ctx->response_body_bytes_seen) {
         ctx->response_body_bytes_seen = SIZE_MAX;
-        ctx->response_body_truncated = 1;
-        return NGX_ERROR;
+    } else {
+        ctx->response_body_bytes_seen += len;
     }
-    ctx->response_body_bytes_seen += len;
     *allowed = len;
     return NGX_OK;
 }
@@ -129,17 +126,25 @@ ngx_http_modsecurity_append_response_body_chunk(
 {
     int ret;
 
+    ctx->phase4_append_active = 0;
     if (bytes == 0U) {
         return NGX_OK;
     }
-    if (data == NULL || ctx->response_body_bytes_inspected > SIZE_MAX - bytes) {
+    if (data == NULL) {
         return NGX_ERROR;
     }
     ret = msc_append_response_body(ctx->modsec_transaction, data, bytes);
     if (ret != 0 && ret != 1) {
         return NGX_ERROR;
     }
-    ctx->response_body_bytes_inspected += bytes;
+    if (bytes > SIZE_MAX - ctx->response_body_bytes_inspected) {
+        ctx->response_body_bytes_inspected = SIZE_MAX;
+    } else {
+        ctx->response_body_bytes_inspected += bytes;
+    }
+    /* Keep the accepted append boundary live until its immediate collection.
+     * The engine evaluates response rules only in process_response_body(). */
+    ctx->phase4_append_active = 1;
     return NGX_OK;
 }
 
@@ -163,8 +168,7 @@ ngx_http_modsecurity_append_file_response_body(ngx_http_request_t *r,
     ngx_buf_t *buffer)
 {
     uintmax_t file_length;
-    size_t allowed;
-    size_t remaining;
+    uintmax_t remaining;
     size_t chunk;
     off_t file_offset;
     ssize_t read_count;
@@ -175,12 +179,10 @@ ngx_http_modsecurity_append_file_response_body(ngx_http_request_t *r,
         return NGX_ERROR;
     }
     file_length = (uintmax_t)buffer->file_last - (uintmax_t)buffer->file_pos;
-    if (file_length > (uintmax_t)SIZE_MAX ||
-        ngx_http_modsecurity_plan_limited_response_body(ctx, mcf,
-            (size_t)file_length, &allowed) != NGX_OK) {
+    if (ctx == NULL || mcf == NULL) {
         return NGX_ERROR;
     }
-    if (allowed == 0U) {
+    if (file_length == 0U) {
         return NGX_OK;
     }
     if (buffer->file == NULL) {
@@ -194,10 +196,10 @@ ngx_http_modsecurity_append_file_response_body(ngx_http_request_t *r,
         }
     }
     file_offset = buffer->file_pos;
-    remaining = allowed;
+    remaining = file_length;
     while (remaining > 0U) {
         chunk = remaining > NGX_HTTP_MODSECURITY_PHASE4_FILE_READ_CHUNK
-            ? NGX_HTTP_MODSECURITY_PHASE4_FILE_READ_CHUNK : remaining;
+            ? NGX_HTTP_MODSECURITY_PHASE4_FILE_READ_CHUNK : (size_t)remaining;
         read_count = ngx_read_file(buffer->file, ctx->phase4_file_scratch,
             chunk, file_offset);
         if (read_count < 0 || (size_t)read_count != chunk) {
@@ -206,7 +208,7 @@ ngx_http_modsecurity_append_file_response_body(ngx_http_request_t *r,
                 "ModSecurity: file-backed response body read is short or failed");
             return NGX_ERROR;
         }
-        if (ngx_http_modsecurity_append_response_body_chunk(ctx,
+        if (ngx_http_modsecurity_append_limited_response_body(ctx, mcf,
                 ctx->phase4_file_scratch, chunk) != NGX_OK) {
             return NGX_ERROR;
         }
@@ -257,6 +259,7 @@ ngx_http_modsecurity_process_response_intervention(ngx_http_request_t *r,
 
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r,
         0);
+    ctx->phase4_append_active = 0;
     if (ret == 0) {
         return NGX_OK;
     }
@@ -289,6 +292,7 @@ ngx_http_modsecurity_process_final_response_body(ngx_http_request_t *r,
     if (ctx->phase4_processed) {
         return NGX_OK;
     }
+    ctx->phase4_append_active = 0;
     ctx->phase4_processed = 1;
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
     ret = msc_process_response_body(ctx->modsec_transaction);
@@ -346,19 +350,61 @@ ngx_http_modsecurity_response_header_sanity(ngx_http_request_t *r,
 }
 #endif
 
-static void
-ngx_http_modsecurity_discard_replaced_response_body(ngx_chain_t *in)
+static ngx_int_t
+ngx_http_modsecurity_discard_replaced_response_body(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, ngx_chain_t *in)
 {
     ngx_chain_t *chain;
+    ngx_chain_t *out = NULL;
+    ngx_chain_t **tail = &out;
 
     for (chain = in; chain != NULL; chain = chain->next) {
-        if (chain->buf == NULL) {
+        ngx_buf_t *source = chain->buf;
+        ngx_chain_t *control;
+
+        if (source == NULL) {
+            return ngx_http_modsecurity_response_body_failure(r, ctx);
+        }
+        /* Consume producer-owned bytes without forwarding its now-empty
+         * memory/file link: NGINX's writer rejects those non-special links. */
+        if (ngx_buf_in_memory(source)) {
+            source->pos = source->last;
+        }
+        if (source->in_file) {
+            source->file_pos = source->file_last;
+        }
+        if (ctx->replacement_body_terminal_sent ||
+            !(source->flush || source->sync || source->last_buf ||
+              source->last_in_chain)) {
             continue;
         }
-        chain->buf->pos = chain->buf->last;
-        chain->buf->in_file = 0;
-        chain->buf->file_last = chain->buf->file_pos;
+        control = ngx_alloc_chain_link(r->pool);
+        if (control == NULL) {
+            return ngx_http_modsecurity_response_body_failure(r, ctx);
+        }
+        control->buf = ngx_calloc_buf(r->pool);
+        if (control->buf == NULL) {
+            return ngx_http_modsecurity_response_body_failure(r, ctx);
+        }
+        control->next = NULL;
+        control->buf->flush = source->flush;
+        control->buf->last_buf = source->last_buf && r == r->main;
+        control->buf->last_in_chain = source->last_in_chain ||
+            (source->last_buf && r != r->main);
+        control->buf->sync = source->sync || control->buf->last_in_chain;
+        *tail = control;
+        tail = &control->next;
+        if (control->buf->last_buf ||
+            (r != r->main && control->buf->last_in_chain)) {
+            /* Downstream can retain this chain on NGX_AGAIN. Claim EOS
+             * before dispatch so a later callback cannot duplicate it. */
+            ctx->replacement_body_terminal_sent = 1;
+        }
     }
+    if (out == NULL && !r->buffered && !r->connection->buffered) {
+        return NGX_OK;
+    }
+    return ngx_http_next_body_filter(r, out);
 }
 
 ngx_int_t
@@ -377,11 +423,10 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
     if (ret != NGX_OK) {
         return ret == NGX_DECLINED ? ngx_http_next_body_filter(r, in) : ret;
     }
-    if (in == NULL) {
-        return ngx_http_next_body_filter(r, in);
-    }
     if (ctx->response_replaced) {
-        ngx_http_modsecurity_discard_replaced_response_body(in);
+        return ngx_http_modsecurity_discard_replaced_response_body(r, ctx, in);
+    }
+    if (in == NULL) {
         return ngx_http_next_body_filter(r, in);
     }
     if (ctx->intervention_triggered || ctx->phase4_processed) {
@@ -477,8 +522,26 @@ ngx_http_modsecurity_phase4_handle_intervention(ngx_http_request_t *r,
     log_result = ngx_http_modsecurity_phase4_log_event(r, mcf, wanted,
         "log_only", "response_committed_safe");
     if (log_result != NGX_OK) {
-        return ngx_http_modsecurity_response_body_failure(r, ctx);
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            "modsecurity optional phase4 intervention event could not be written");
     }
+    return NGX_OK;
+}
+
+static ngx_int_t
+ngx_http_modsecurity_phase4_log_capacity(const size_t *lengths, size_t count,
+    size_t *capacity)
+{
+    size_t total = 512U;
+    size_t i;
+
+    for (i = 0; i < count; i++) {
+        if (lengths[i] > SIZE_MAX - total) {
+            return NGX_ERROR;
+        }
+        total += lengths[i];
+    }
+    *capacity = total;
     return NGX_OK;
 }
 
@@ -486,6 +549,10 @@ static ngx_int_t
 ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurity_conf_t *mcf, const char *wanted, const char *actual, const char *reason)
 {
     u_char *p;
+    u_char *dbuf;
+    size_t lengths[9];
+    size_t need;
+    ssize_t n;
     ngx_str_t euri;
     ngx_str_t emethod;
     ngx_str_t ect;
@@ -493,13 +560,14 @@ ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurit
     ngx_str_t erule;
     ngx_str_t raw_log;
     ngx_str_t slog;
+    ngx_str_t nct;
     const char *mode = "off";
     const char *header_sent = r->header_sent ? "true" : "false";
     ngx_http_modsecurity_ctx_t *ctx = ngx_http_modsecurity_get_module_ctx(r);
     if (mcf == NULL || mcf->phase4_log_file == NULL || mcf->phase4_log_file->fd == NGX_INVALID_FILE) return NGX_OK;
     ngx_http_modsecurity_json_escape(r->pool, &r->uri, &euri);
     ngx_http_modsecurity_json_escape(r->pool, &r->method_name, &emethod);
-    ngx_str_t nct = ngx_http_modsecurity_normalize_content_type(r->pool, r->headers_out.content_type);
+    nct = ngx_http_modsecurity_normalize_content_type(r->pool, r->headers_out.content_type);
     ngx_http_modsecurity_json_escape(r->pool, &nct, &ect);
     if (ctx) {
         raw_log = ctx->last_intervention_log;
@@ -513,8 +581,23 @@ ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurit
     }
     if (mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_SAFE) mode = "safe";
     else if (mcf->phase4_mode == NGX_HTTP_MODSEC_PHASE4_MODE_STRICT) mode = "strict";
-    size_t need = 256 + euri.len + emethod.len + ect.len + elog.len + erule.len + ngx_strlen(mode) + ngx_strlen(wanted) + ngx_strlen(actual) + ngx_strlen(reason);
-    u_char *dbuf = ngx_pnalloc(r->pool, need);
+    if (euri.data == NULL || emethod.data == NULL || nct.data == NULL ||
+        ect.data == NULL || elog.data == NULL || erule.data == NULL) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            "modsecurity phase4 log metadata allocation failed");
+        return NGX_ERROR;
+    }
+    lengths[0] = euri.len; lengths[1] = emethod.len;
+    lengths[2] = ect.len; lengths[3] = elog.len; lengths[4] = erule.len;
+    lengths[5] = ngx_strlen(mode); lengths[6] = ngx_strlen(wanted);
+    lengths[7] = ngx_strlen(actual); lengths[8] = ngx_strlen(reason);
+    if (ngx_http_modsecurity_phase4_log_capacity(lengths,
+            sizeof(lengths) / sizeof(lengths[0]), &need) != NGX_OK) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            "modsecurity phase4 log size overflow");
+        return NGX_ERROR;
+    }
+    dbuf = ngx_pnalloc(r->pool, need);
     if (dbuf == NULL) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0, "modsecurity phase4 log allocation failed");
         return NGX_ERROR;
@@ -524,7 +607,12 @@ ngx_http_modsecurity_phase4_log_event(ngx_http_request_t *r, ngx_http_modsecurit
         &euri, &emethod, (ngx_uint_t) r->headers_out.status,
         ctx ? ctx->last_intervention_status : (ngx_int_t) 0,
         &ect, header_sent, mode, wanted, actual, reason, &elog, &erule);
-    ssize_t n = ngx_write_fd(mcf->phase4_log_file->fd, dbuf, p - dbuf);
+    if (p == dbuf + need || p == dbuf || p[-1] != '\n') {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+            "modsecurity phase4 log serialization was truncated");
+        return NGX_ERROR;
+    }
+    n = ngx_write_fd(mcf->phase4_log_file->fd, dbuf, p - dbuf);
     if (n < 0 || (size_t) n != (size_t) (p - dbuf)) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, ngx_errno,
             "modsecurity phase4 log write failed");
@@ -540,7 +628,9 @@ ngx_http_modsecurity_normalize_content_type(ngx_pool_t *pool, ngx_str_t in)
     size_t i;
     u_char *semi;
     out = in;
-    if (out.data == NULL || out.len == 0) return out;
+    if (out.data == NULL || out.len == 0) {
+        out.data = (u_char *)""; out.len = 0; return out;
+    }
     semi = (u_char *)ngx_strlchr(out.data, out.data + out.len, ';');
     if (semi) out.len = semi - out.data;
     while (out.len > 0) {
@@ -551,88 +641,11 @@ ngx_http_modsecurity_normalize_content_type(ngx_pool_t *pool, ngx_str_t in)
         }
         out.len--;
     }
+    if (out.len == 0) {
+        out.data = (u_char *)""; return out;
+    }
     out.data = ngx_pnalloc(pool, out.len);
     if (out.data == NULL) { out.len = 0; return out; }
     for (i = 0; i < out.len; i++) out.data[i] = ngx_tolower(in.data[i]);
     return out;
-}
-
-static ngx_str_t
-ngx_http_modsecurity_sanitize_intervention(ngx_pool_t *pool, ngx_str_t in)
-{
-    static ngx_str_t redacted = { sizeof("redacted") - 1, (u_char *) "redacted" };
-    ngx_str_t out = redacted;
-    u_char *id, *msg, *op;
-    size_t len = 0;
-    if (in.data == NULL || in.len == 0) {
-        return redacted;
-    }
-    id = (u_char *)ngx_strstr(in.data, "id \"");
-    msg = (u_char *)ngx_strstr(in.data, "msg \"");
-    op = (u_char *)ngx_strstr(in.data, "Operator");
-    if (id == NULL && msg == NULL && op == NULL) {
-        return redacted;
-    }
-    len = 9 + (id ? 10 : 0) + (msg ? 12 : 0) + (op ? 10 : 0);
-    out.data = ngx_pnalloc(pool, len);
-    if (out.data == NULL) return redacted;
-    out.len = ngx_snprintf(out.data, len, "id:%s msg:%s op:%s",
-        id ? "present" : "-", msg ? "present" : "-", op ? "present" : "-") - out.data;
-    return out;
-}
-
-static void
-ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *dst)
-{
-    size_t i;
-    size_t extra = 0;
-    u_char *d;
-    if (src == NULL || src->data == NULL) { dst->len=0; dst->data=(u_char*)""; return; }
-    for (i = 0; i < src->len; i++) {
-        if (src->data[i] < 0x20 || src->data[i] == '"' || src->data[i] == '\\') {
-            extra++;
-        }
-    }
-    dst->data = ngx_pnalloc(pool, src->len + extra + 1);
-    if (dst->data == NULL) {
-        dst->len = 0;
-        dst->data = (u_char *)"";
-        return;
-    }
-    d = dst->data;
-    for (i = 0; i < src->len; i++) {
-        u_char c = src->data[i];
-        if (c == '"' || c == '\\') { *d++='\\'; *d++=c; }
-        else if (c < 0x20) { *d++=' '; }
-        else *d++=c;
-    }
-    dst->len = d - dst->data;
-}
-
-static void
-ngx_http_modsecurity_extract_rule_id(ngx_pool_t *pool, ngx_str_t *intervention, ngx_str_t *rule_id)
-{
-    size_t i;
-    rule_id->data = (u_char *)"";
-    rule_id->len = 0;
-    if (intervention == NULL || intervention->data == NULL) return;
-    for (i = 0; i + 4 < intervention->len; i++) {
-        size_t j;
-
-        if (ngx_strncasecmp(intervention->data + i, (u_char *)"id \"", 4) != 0) continue;
-
-        j = i + 4;
-        while (j < intervention->len && intervention->data[j] >= '0' && intervention->data[j] <= '9') j++;
-        if (j <= i + 4 || j >= intervention->len || intervention->data[j] != '"') continue;
-
-        rule_id->len = j - (i + 4);
-        rule_id->data = ngx_pnalloc(pool, rule_id->len);
-        if (rule_id->data == NULL) {
-            rule_id->len = 0;
-            rule_id->data = (u_char *)"";
-            return;
-        }
-        ngx_memcpy(rule_id->data, intervention->data + i + 4, rule_id->len);
-        return;
-    }
 }

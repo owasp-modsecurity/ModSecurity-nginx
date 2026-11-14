@@ -14,6 +14,7 @@
  */
 
 #include <ngx_config.h>
+#include <limits.h>
 
 #ifndef MODSECURITY_DDEBUG
 #define MODSECURITY_DDEBUG 0
@@ -350,6 +351,19 @@ ngx_http_modsecurity_resolv_header_transfer_encoding(ngx_http_request_t *r, ngx_
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 
+    (void) offset;
+#if (NGX_HTTP_V2)
+    /* Transfer-Encoding is an HTTP/1.x hop-by-hop header. */
+    if (r->stream) {
+        return 1;
+    }
+#endif
+#if defined(nginx_version) && nginx_version >= 1025000
+    if (r->http_version == NGX_HTTP_VERSION_30) {
+        return 1;
+    }
+#endif
+
     if (r->chunked) {
         ngx_str_t value = ngx_string("chunked");
 
@@ -514,6 +528,16 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         status = r->headers_out.status;
     }
 
+    /* The native API accepts int; validate the wider NGINX status before
+     * narrowing it, independently of protocol/header representation. */
+    if (status > INT_MAX) {
+        ctx->intervention_triggered = 1;
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: response status exceeds the native integer range");
+        return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
+            NGX_HTTP_INTERNAL_SERVER_ERROR);
+    }
+
     /*
      * NGINX always sends HTTP response with HTTP/1.1, except cases when
      * HTTP V2 module is enabled, and request has been posted with HTTP/2.0.
@@ -526,7 +550,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 #endif
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-    ret = msc_process_response_headers(ctx->modsec_transaction, status,
+    ret = msc_process_response_headers(ctx->modsec_transaction, (int) status,
         http_response_ver);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
     if (ret != 1) {

@@ -56,18 +56,27 @@ typedef struct {
     int disruptive;
     double pause;
 } ModSecurityIntervention;
+typedef struct ngx_http_modsecurity_conf_s ngx_http_modsecurity_conf_t;
+typedef struct { int named; ngx_str_t name; } ngx_http_core_loc_conf_t;
 typedef struct {
     ngx_http_request_t *r;
+    struct { const ngx_http_modsecurity_conf_t *conf; } lifetime;
+    struct { ngx_str_t target; ngx_int_t status, response_status; } error_page;
     Transaction *modsec_transaction;
+    ModSecurityIntervention pending_request_intervention;
     ngx_str_t last_intervention_log;
     int last_intervention_status, intervention_late, intervention_failed;
     int intervention_redirect_location_installed, logged;
     int phase4_failed, phase4_error_emitting, phase4_started, phase4_processed, intervention_body_limit;
+    int phase4_append_active, request_policy_superseded, intervention_triggered;
+    int request_intervention_active, request_intervention_pending, native_request_body_limit_rejection;
 } ngx_http_modsecurity_ctx_t;
-typedef struct {
+struct ngx_http_modsecurity_conf_s {
     void *phase4_log_file;
-    int use_error_log, phase4_mode;
-} ngx_http_modsecurity_conf_t;
+    const void *rules_identity;
+    void *transaction_id;
+    int enable, use_error_log, phase4_mode, sanity_checks_enabled;
+};
 typedef struct { void *log; } ngx_connection_t;
 struct ngx_http_request_s {
     int header_sent;
@@ -75,6 +84,9 @@ struct ngx_http_request_s {
     ngx_connection_t *connection;
     ngx_http_modsecurity_ctx_t *ctx;
     ngx_http_modsecurity_conf_t *conf;
+    ngx_http_core_loc_conf_t *core;
+    int internal, err_status;
+    ngx_str_t uri;
     struct { ngx_list_t headers; ngx_table_elt_t *location; } headers_out;
 };
 #define NGX_OK 0
@@ -85,8 +97,14 @@ struct ngx_http_request_s {
 #define NGX_HTTP_FORBIDDEN 403
 #define NGX_HTTP_INTERNAL_SERVER_ERROR 500
 #define NGX_LOG_ERR 3
+#define NGX_LOG_WARN 4
+#define ngx_inline inline
+#define ngx_http_modsecurity_module 1
+#define ngx_http_core_module 2
 #define ngx_http_get_module_ctx(r, module) ((r)->ctx)
-#define ngx_http_get_module_loc_conf(r, module) ((r)->conf)
+#define ngx_http_get_module_loc_conf(r, module) ((module) == 2 ? (void *)(r)->core : (void *)(r)->conf)
+#define ngx_http_set_ctx(r, c, module) ((r)->ctx = (c))
+#define ngx_strncmp(a, b, n) strncmp((const char *)(a), (const char *)(b), (n))
 #define ngx_memzero(data, size) memset((data), 0, (size))
 #define ngx_memcpy(dst, src, size) memcpy((dst), (src), (size))
 #define ngx_strlen(data) strlen((const char *)(data))
@@ -98,7 +116,7 @@ struct ngx_http_request_s {
 static int native_available = 1, native_status = 403, native_calls;
 static int native_return = 1, native_disruptive = 1;
 static int native_has_log = 1, native_has_url, native_initialized;
-static char native_log[256] = "native intervention message";
+static char native_log[4096] = "native intervention message";
 static char native_url[256] = "https://example.test/new-location";
 static int freed_log, freed_url, bad_free, allocation_calls, fail_allocation_at;
 static int list_calls, fail_list, clear_calls, error_log_calls;
@@ -107,6 +125,8 @@ static int early_log_result;
 static char captured_error[256];
 static ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r);
 static void ngx_http_modsecurity_cleanup(void *data) { (void)data; }
+static void ngx_http_modsecurity_capture_error_page(ngx_http_request_t *r, ngx_http_modsecurity_ctx_t *ctx, ngx_int_t status)
+{ (void)r; (void)ctx; (void)status; }
 
 static int msc_intervention(Transaction *transaction, ModSecurityIntervention *out)
 {
@@ -209,7 +229,8 @@ int main(int argc, char **argv)
     request.pool = &pool; request.connection = &connection;
     request.ctx = &ctx; request.conf = &conf;
     ctx.r = &request; ctx.modsec_transaction = &transaction;
-    conf.phase4_log_file = &transaction; conf.use_error_log = 1;
+    conf.phase4_log_file = &transaction; conf.use_error_log = 1; conf.enable = 1;
+    ctx.lifetime.conf = &conf;
     previous_location.hash = 1;
     request.headers_out.location = &previous_location;
     ctx.intervention_late = 1; ctx.intervention_failed = 1;
@@ -275,7 +296,7 @@ int main(int argc, char **argv)
             conf.phase4_mode = mode;
             for (committed = 0; committed <= 1; ++committed) {
                 strcpy(native_log, limit_message); freed_log = 0;
-                request.header_sent = committed; ctx.phase4_started = 1;
+                request.header_sent = committed; ctx.phase4_started = 1; ctx.phase4_append_active = 1;
                 result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
                 CHECK(result == (committed ? NGX_ERROR : 403));
                 CHECK(ctx.intervention_failed && ctx.intervention_body_limit && !ctx.intervention_late);
@@ -284,6 +305,51 @@ int main(int argc, char **argv)
                 CHECK(status_calls == 0 && list_calls == 0 && early_log_calls == 0);
             }
         }
+    } else if (strcmp(argv[1], "body-limit-language-independent") == 0) {
+        const char *messages[] = {"Andere Diagnose", "", NULL};
+        int mode, committed;
+        size_t i;
+        ctx.phase4_started = 1; ctx.phase4_append_active = 1;
+        for (mode = 0; mode <= 2; ++mode) {
+            conf.phase4_mode = mode;
+            for (committed = 0; committed <= 1; ++committed) {
+                request.header_sent = committed;
+                for (i = 0; i < sizeof(messages) / sizeof(messages[0]); ++i) {
+                    native_has_log = messages[i] != NULL; freed_log = 0;
+                    if (messages[i]) strcpy(native_log, messages[i]);
+                    result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
+                    CHECK(result == (committed ? NGX_ERROR : 403));
+                    CHECK(ctx.intervention_body_limit && ctx.intervention_failed);
+                    CHECK(freed_log == native_has_log && status_calls == 0 && list_calls == 0);
+                }
+            }
+        }
+    } else if (strcmp(argv[1], "body-limit-boundary-controls") == 0) {
+        ctx.phase4_started = 1; ctx.phase4_processed = 1; ctx.phase4_append_active = 1;
+        strcpy(native_log, limit_message);
+        result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
+        CHECK(result == 403 && !ctx.intervention_body_limit && !ctx.intervention_failed);
+        CHECK(status_calls == 1 && freed_log == 1);
+        status_calls = 0; freed_log = 0; ctx.phase4_processed = 0;
+        strcpy(native_log, "[file \"/rule\"] [line \"1\"] [id \"123\"] [rev \"\"] [msg \"limit\"] [data \"\"] [severity \"2\"] [ver \"\"] [maturity \"0\"] [accuracy \"0\"] [hostname \"host\"] [uri \"/\"] [unique_id \"x\"] [ref \"\"]");
+        result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
+        CHECK(result == 500 && !ctx.intervention_body_limit && ctx.intervention_failed);
+        CHECK(status_calls == 0 && freed_log == 1);
+    } else if (strcmp(argv[1], "request-append-retains-limit") == 0) {
+        strcpy(native_log, "Request body limit is marked to reject the request");
+        native_status = 413;
+        CHECK(ngx_http_modsecurity_capture_request_body_intervention(&request) == NGX_OK);
+        CHECK(ctx.request_intervention_pending && freed_log == 0);
+        native_available = 0; ctx.request_intervention_active = 1;
+        result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
+        CHECK(result == 413 && ctx.native_request_body_limit_rejection);
+        CHECK(!ctx.request_intervention_pending && freed_log == 1 && status_calls == 1);
+        CHECK(!ctx.intervention_failed && ctx.last_intervention_status == 413);
+    } else if (strcmp(argv[1], "request-append-invalid-result") == 0) {
+        native_return = 2;
+        CHECK(ngx_http_modsecurity_capture_request_body_intervention(&request) == NGX_ERROR);
+        CHECK(!ctx.request_intervention_pending && freed_log == 1);
+        CHECK(status_calls == 0 && early_log_calls == 0);
     } else if (strcmp(argv[1], "body-limit-other-phase") == 0 ||
                strcmp(argv[1], "body-limit-rule-lookalike") == 0) {
         if (strcmp(argv[1], "body-limit-other-phase") == 0) strcpy(native_log, limit_message);
@@ -297,7 +363,7 @@ int main(int argc, char **argv)
         CHECK(freed_log == 1 && freed_url == 0 && early_log_calls == 0);
     } else if (strcmp(argv[1], "uncorrelated-append-intervention") == 0) {
         int mode, committed;
-        ctx.phase4_started = 1; native_has_log = 0;
+        ctx.phase4_started = 1; ctx.phase4_append_active = 1; native_status = 451; native_has_log = 0;
         for (mode = 0; mode <= 2; ++mode) {
             conf.phase4_mode = mode;
             for (committed = 0; committed <= 1; ++committed) {
@@ -424,11 +490,12 @@ int main(int argc, char **argv)
         request.header_sent = strcmp(argv[1], "log-allocation-committed") == 0;
         native_has_url = 1; native_status = 302; fail_allocation_at = 1;
         result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
-        CHECK(result == (request.header_sent ? NGX_ERROR : 500));
-        CHECK(ctx.intervention_failed && !ctx.intervention_late);
-        CHECK(!ctx.intervention_redirect_location_installed && error_log_calls == 0);
+        CHECK(result == (request.header_sent ? NGX_ERROR : 302));
+        CHECK(!ctx.intervention_failed && ctx.intervention_late == request.header_sent);
+        CHECK(ctx.intervention_redirect_location_installed == !request.header_sent);
+        CHECK(error_log_calls == 2);
         CHECK(ctx.last_intervention_log.len == 0U && ctx.last_intervention_log.data == NULL);
-        CHECK(freed_log == 1 && freed_url == 1 && list_calls == 0);
+        CHECK(freed_log == 1 && freed_url == 1 && list_calls == !request.header_sent);
     } else if (strcmp(argv[1], "disabled-log-retention") == 0) {
         conf.phase4_log_file = NULL; conf.use_error_log = 0;
         ctx.last_intervention_log.data = (u_char *)"old message";
@@ -451,10 +518,11 @@ int main(int argc, char **argv)
         request.header_sent = strcmp(argv[1], "missing-config-committed") == 0;
         result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
         CHECK(result == (request.header_sent ? NGX_ERROR : 500));
-        CHECK(ctx.intervention_failed && !ctx.intervention_late);
+        /* No policy owner is selected without configuration: its state stays untouched. */
+        CHECK(ctx.intervention_failed && ctx.intervention_late);
         CHECK(native_calls == 0 && freed_log == 0 && freed_url == 0);
     } else if (strcmp(argv[1], "redirect-context-recovery") == 0) {
-        pool.cleanup = &cleanup; request.ctx = NULL;
+        pool.cleanup = &cleanup; request.ctx = NULL; ctx.intervention_failed = 0;
         result = ngx_http_modsecurity_process_intervention(&transaction, &request, 0);
         CHECK(result == 403 && native_calls == 1 && !ctx.intervention_failed);
         CHECK(freed_log == 1 && ctx.last_intervention_status == 403);
@@ -474,7 +542,10 @@ int main(int argc, char **argv)
 
 
 def unit_program(module: str) -> str:
-    helpers = "\nstatic ngx_http_modsecurity_ctx_t *\n" + function_definition(
+    helpers = ""
+    for name in ("ngx_http_modsecurity_same_policy", "ngx_http_modsecurity_is_block_error_page"):
+        helpers += "\nstatic ngx_int_t\n" + function_definition(module, name)
+    helpers += "\nstatic ngx_http_modsecurity_ctx_t *\n" + function_definition(
         module, "ngx_http_modsecurity_get_module_ctx"
     )
     helpers += "\nstatic ngx_int_t\n" + function_definition(
@@ -484,6 +555,7 @@ def unit_program(module: str) -> str:
         module, "ngx_http_modsecurity_process_intervention_redirect"
     )
     for helper in (
+        "ngx_http_modsecurity_take_pending_request_intervention",
         "ngx_http_modsecurity_is_response_body_limit_rejection",
         "ngx_http_modsecurity_intervention_failure_status",
         "ngx_http_modsecurity_collect_native_intervention",
@@ -491,13 +563,15 @@ def unit_program(module: str) -> str:
     ):
         if re.search(rf"\b{helper}\s*\(", module):
             helpers += "\nstatic ngx_int_t\n" + function_definition(module, helper)
+    helpers += "\nngx_int_t\n" + function_definition(module, "ngx_http_modsecurity_capture_request_body_intervention")
     reset = "ngx_http_modsecurity_reset_intervention"
     if re.search(rf"\b{reset}\s*\(", module):
         helpers += "\nstatic void\n" + function_definition(module, reset)
     helpers += "\nint\n" + function_definition(
         module, "ngx_http_modsecurity_process_intervention"
     )
-    return PREAMBLE + helpers + CASES
+    metadata = (ROOT / "src" / "ngx_http_modsecurity_log_metadata.h").read_text(encoding="utf-8")
+    return PREAMBLE + metadata + helpers + CASES
 
 
 class InterventionRuntimeTests(unittest.TestCase):
@@ -545,7 +619,8 @@ for case in (
     "late-phase4-policy-deferral",
     "invalid-native-results", "nondisruptive-result", "no-result-owned-outputs",
     "body-limit-rejection", "body-limit-other-phase", "body-limit-rule-lookalike",
-    "early-log-failure",
+    "early-log-failure", "body-limit-language-independent", "body-limit-boundary-controls",
+    "request-append-retains-limit", "request-append-invalid-result",
     "uncorrelated-append-intervention",
     "redirect-owned", "redirect-committed", "redirect-crlf", "redirect-list-failure",
     "redirect-allocation-failure", "redirect-sanity-failure",

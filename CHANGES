@@ -6,7 +6,7 @@ Unreleased
     leaves ModSecurity response inspection and native interventions active.
     [PR #377 - @Easton97-Jens]
   - feat: handle late deny and redirect interventions explicitly. After
-    headers are sent, safe logs and continues when event logging succeeds;
+    headers are sent, safe diagnoses optional event-log failures and continues;
     strict terminates the response. A late intervention cannot replace an HTTP
     status or body already sent.
     [PR #377 - @Easton97-Jens]
@@ -27,8 +27,9 @@ Unreleased
     [PR #377 - @Easton97-Jens]
   - fix: inspect memory and file-backed response buffers, reading file data
     in bounded 32 KiB chunks while preserving the outgoing chain. Check byte
-    accounting, engine results, allocations and file reads; genuine errors
-    remain failures in every mode, including safe.
+    ranges, engine results, allocations and file reads. Saturate cumulative
+    counters without imposing a SIZE_MAX response limit; technical body
+    processing errors remain failures in every mode, including safe.
     [PR #377 - @Easton97-Jens]
   - fix: finalize response-body processing once per transaction and respect
     main-request/subrequest ownership and end-of-stream markers. Correct
@@ -53,8 +54,22 @@ Unreleased
     valid empty memory/EOS buffers without repeating phase completion.
     [PR #377 - @Easton97-Jens]
   - fix: preserve request-phase deny/redirect decisions across error_page
-    routing and start a fresh transaction for an internal target location.
-    Check request-phase, file-ingestion and append results independently.
+    routing. Reuse the original transaction for inherited identical policy,
+    retire it when target policy changes, and audit every transaction owner.
+    Preserve only the captured local block error page without reinspection;
+    ordinary internal targets still run their own rules.
+    [PR #377 - @Easton97-Jens]
+  - fix: stream file-backed request bodies through bounded 32 KiB reads and
+    the same native 0/1 append contract as memory bodies. Preserve ProcessPartial
+    and pending native Reject through P2 dispatch without reopening temp paths.
+    [PR #377 - @Easton97-Jens]
+  - fix: identify native response-limit Reject at the actual append boundary,
+    independent of English log text. Suppress drained replacement data chains
+    and forward only fresh control markers, with once-only terminal delivery.
+    [PR #377 - @Easton97-Jens]
+  - fix: parse complete, unambiguous engine metadata records for rule IDs and
+    redacted presence summaries. Preserve JSON control characters and valid
+    UTF-8, escape invalid bytes, and avoid sanitizer buffer truncation.
     [PR #377 - @Easton97-Jens]
   - fix: attempt native audit logging once and retain failed native results
     across re-entry without attempting another client response.
@@ -62,6 +77,9 @@ Unreleased
   - fix: return NULL for transaction/context creation failures, release
     partially created native owners, make cleanup idempotent and terminate
     length-delimited custom transaction IDs before passing them to the SDK.
+    [PR #377 - @Easton97-Jens]
+  - fix: avoid synthetic Transfer-Encoding inspection headers on HTTP/2 and
+    HTTP/3, and validate response status before narrowing to the native int.
     [PR #377 - @Easton97-Jens]
   - test: extend regressions for modes, log inheritance, engine MIME selection,
     Reject/ProcessPartial limits, large responses, file buffers, overflow,

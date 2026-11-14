@@ -211,7 +211,8 @@ modsecurity_phase4_mode
 **default:** *off*
 
 Controls the connector's additional phase 4 intervention policy. `safe` logs a
-late intervention as `log_only`; `strict` aborts the connection once headers
+late rule intervention as `log_only` and continues even if optional JSON
+logging fails (with an nginx diagnostic); `strict` aborts the connection once headers
 are sent. Before headers are sent, both modes can apply the intervention's HTTP
 status. Neither mode guarantees a clean 403 after headers have been sent.
 

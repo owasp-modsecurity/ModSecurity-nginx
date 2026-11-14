@@ -7,7 +7,7 @@ For more information about those tests, read the subsection "Testing your
 patch" on the project's README file.
 
 For more about nginx tests, check their repository:
-http://hg.nginx.org/nginx-tests/
+https://github.com/nginx/nginx-tests
 
 ## Standalone Phase4 helper regressions
 
@@ -36,6 +36,10 @@ failed filter re-entry (including NULL-input flushes), a synchronous core
 error response, and early rejection after a single file chunk. Request tests
 exercise internal target-location isolation, error-page P1/P2 continuation,
 once-only audit logging, failed context creation and custom-ID termination.
+Review follow-ups cover same-policy redirect reuse, changed-policy audit owners,
+exact block-page routing, file-backed request ProcessPartial, saturated counters,
+replacement control chains, language-independent append-limit classification,
+complete metadata parsing and valid JSON for control/UTF-8/invalid-byte inputs.
 
 ## Native Phase4 integration tests
 

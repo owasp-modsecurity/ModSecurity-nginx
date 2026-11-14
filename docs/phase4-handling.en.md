@@ -13,6 +13,8 @@ The response-limit ownership update follows
 [commit 820b6975495bdf0f90aca67eee86e27a3b7d329b](https://github.com/Easton97-Jens/ModSecurity-conector/blob/820b6975495bdf0f90aca67eee86e27a3b7d329b/docs/phase4-mode-budget.md).
 Native-result, response completion, and lifecycle corrections follow
 [commit f5523da040bd6325b369269ada074be6ba069c4f](https://github.com/Easton97-Jens/ModSecurity-conector/tree/f5523da040bd6325b369269ada074be6ba069c4f/connectors/nginx/src).
+The review follow-up follows
+[commit d420a12c4155a4bc2b9ea63ee5cef633085705e7](https://github.com/Easton97-Jens/ModSecurity-conector/tree/d420a12c4155a4bc2b9ea63ee5cef633085705e7/connectors/nginx/src).
 These changes are adapted to this standalone module and preserve its phase 4
 JSON-lines schema. The source repository's multi-connector runtime and run
 evidence are not imported.
@@ -60,11 +62,13 @@ For the additional policy in `safe` and `strict`:
 | Header state | `safe` | `strict` |
 | --- | --- | --- |
 | Headers not sent | Apply the intervention's status/redirect through the normal path; logged as `deny_status` | Same |
-| Headers already sent | Log the rule intervention as `log_only` and continue if logging succeeds | Log `connection_abort` and terminate the response |
+| Headers already sent | Attempt `log_only` logging and continue; diagnose optional event-log failures | Log `connection_abort` and terminate the response |
 
 `safe` only downgrades late **rule interventions**. An engine API failure, invalid
-buffer, failed file read, allocation failure, counter overflow, or final
-processing failure remains a failure. It is not converted into successful
+buffer, failed file read, body-processing allocation failure, or final
+processing failure remains a failure. After headers are sent, optional phase 4 event-log allocation and write
+failures are diagnosed but do not abort Safe delivery. Before commitment,
+event-log failures retain the existing error path. It is not converted into successful
 forwarding. Native response-limit Reject is not a rule-policy downgrade.
 
 Once a response has failed, later data callbacks and NULL-input flushes cannot
@@ -95,7 +99,8 @@ The 1 MiB value is an explicit example setting, not a new engine default.
 `ProcessPartial` selects inspection of the portion within the engine limit;
 `Reject` is the alternative engine action when rejection is required. Mode
 selection does not override that engine policy. Native Reject is recognized
-by its exact rule-free engine signature while processing a response body. It
+at a valid append boundary before EOS: a rule-free, disruptive native 403
+without a redirect. Recognition does not depend on the diagnostic language. It
 produces 403 before headers are sent, or fails the transport after commitment,
 in all modes including `safe`. It does not produce a `phase4_intervention`
 rule-policy event; a fixed diagnostic is written to the nginx error log.
@@ -105,8 +110,9 @@ value has no enforcement effect in any valid mode. A successful configuration
 load therefore does not establish the old connector inspection limit. Migrate
 that policy to the engine settings above.
 
-Checked cumulative byte accounting still rejects overflow beyond `SIZE_MAX`
-in all modes. Genuine processing and file-read failures remain failures;
+Cumulative byte counters saturate at `SIZE_MAX` without limiting delivery.
+Large file buffers are streamed without converting their entire length to
+`size_t`, including on 32-bit hosts. Genuine processing and file-read failures remain failures;
 nonfatal engine `ProcessPartial` ingestion is not a connector failure.
 
 The connector does not globally buffer responses or reorder nginx body
@@ -175,7 +181,11 @@ The `actual_action` values remain `deny_status`, `log_only`, and
 `connection_abort`; `mode` uses the current mode names. The intervention
 message is redacted rather than copied from the engine, and response-body
 payload is not added to this event. nginx's error log may also contain
-diagnostics.
+diagnostics. Rule IDs and presence flags come only from complete, unambiguous
+engine metadata records; reflected delimiter-like payloads are not trusted.
+JSON preserves control characters through escapes and copies valid UTF-8;
+invalid bytes are escaped individually. Redacted summaries have fixed complete
+representations rather than variable-sized truncated buffers.
 
 `off` uses native intervention handling and does not produce these dedicated
 policy events. A dedicated intervention event is not a complete inventory of
@@ -183,9 +193,19 @@ all engine, buffer, or I/O errors.
 
 Native audit logging is attempted once, including re-entry, and its return
 value is checked. A failed audit attempt is retained as a failure without
-trying to generate a new HTTP response. Request inspection also preserves
-deny/redirect decisions across `error_page` routing; a new internal target
-location starts its own transaction rather than reusing processed state.
+trying to generate a new HTTP response. Every request-owned transaction gets
+one audit attempt, including superseded owners and cleanup fallback after
+NGINX clears the request pool pointer. An internal redirect reuses a transaction
+only for identical inherited policy; a changed policy starts a fresh owner and
+retires the old response scope. A native request block can render its captured
+local `error_page` target without reblocking that same error response. Merely
+setting `error_page` does not exempt an unrelated target from inspection.
+
+File-backed request bodies use their existing NGINX file descriptor and bounded
+32 KiB reads, with the same 0/1 append contract as memory bodies. ProcessPartial
+remains valid, and collected native request-limit Reject is retained until P2
+dispatch. Replaced response data is consumed without forwarding empty producer
+buffers to the writer; terminal control markers are emitted once.
 
 ## 7) Configuration examples and verification
 

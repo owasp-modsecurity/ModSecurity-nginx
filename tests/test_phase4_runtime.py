@@ -49,6 +49,9 @@ def function_definition(source: str, name: str) -> str:
 
 
 PREAMBLE = r"""
+#ifndef _FILE_OFFSET_BITS
+#define _FILE_OFFSET_BITS 64
+#endif
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -60,20 +63,24 @@ typedef intptr_t ssize_t;
 #endif
 typedef unsigned char u_char;
 typedef int ngx_int_t;
+typedef struct { size_t len; u_char *data; } ngx_str_t;
 typedef struct ngx_http_request_s ngx_http_request_t;
+typedef struct ngx_http_modsecurity_conf_s ngx_http_modsecurity_conf_t;
+typedef struct { int named; ngx_str_t name; } ngx_http_core_loc_conf_t;
 typedef struct ngx_pool_cleanup_s {
     void (*handler)(void *);
     void *data;
     struct ngx_pool_cleanup_s *next;
 } ngx_pool_cleanup_t;
 typedef struct { ngx_pool_cleanup_t *cleanup; } ngx_pool_t;
-typedef struct { int error; void *log; } ngx_connection_t;
+typedef struct { int error; void *log; int buffered; } ngx_connection_t;
 typedef struct { u_char *data; size_t length; } ngx_file_t;
 typedef struct {
     u_char *pos, *last;
     off_t file_pos, file_last;
     ngx_file_t *file;
     unsigned memory, in_file, last_buf, last_in_chain;
+    unsigned flush, sync;
 } ngx_buf_t;
 typedef struct ngx_chain_s {
     ngx_buf_t *buf;
@@ -85,16 +92,25 @@ typedef struct {
     int phase4_strict_abort, phase4_headers_checked, intervention_triggered;
     int intervention_late, intervention_failed, response_replaced, last_intervention_status;
     int phase4_failed, phase4_error_emitting, phase4_started, intervention_body_limit;
+    int phase4_append_active, replacement_body_terminal_sent;
+    int logged, request_policy_superseded;
+    struct { ngx_pool_t *pool; const ngx_http_modsecurity_conf_t *conf; } lifetime;
+    struct { ngx_str_t target; ngx_int_t status, response_status; } error_page;
     ngx_http_request_t *r;
     void *modsec_transaction;
     u_char *phase4_file_scratch;
 } ngx_http_modsecurity_ctx_t;
-typedef struct {
+struct ngx_http_modsecurity_conf_s {
     unsigned phase4_mode;
     size_t phase4_body_limit;
-} ngx_http_modsecurity_conf_t;
+    int enable, use_error_log;
+    void *rules_identity, *transaction_id, *phase4_log_file;
+};
 struct ngx_http_request_s {
     int header_sent, filter_finalize;
+    int buffered, internal, err_status;
+    ngx_str_t uri;
+    ngx_http_core_loc_conf_t *core_conf;
     struct ngx_http_request_s *main;
     ngx_pool_t *pool;
     ngx_connection_t *connection;
@@ -113,8 +129,12 @@ struct ngx_http_request_s {
 #define NGX_HTTP_MODSECURITY_PHASE4_FILE_READ_CHUNK 32768U
 #define ngx_buf_in_memory(buffer) ((buffer)->memory)
 #define ngx_http_get_module_ctx(r, module) ((r)->ctx)
-#define ngx_http_get_module_loc_conf(r, module) ((r)->conf)
-#define ngx_log_error(...) ((void)0)
+#define ngx_http_core_module 1
+#define ngx_http_get_module_loc_conf(r, module) \
+    ((module) == ngx_http_core_module ? (void *)(r)->core_conf : (void *)(r)->conf)
+#define ngx_http_set_ctx(r, value, module) ((r)->ctx = (value))
+#define ngx_strncmp(a, b, n) strncmp((const char *)(a), (const char *)(b), (n))
+#define ngx_log_error(...) (++diagnostic_calls)
 static int ngx_http_modsecurity_module;
 static ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r);
 static void ngx_http_modsecurity_cleanup(void *data) { (void)data; }
@@ -122,7 +142,12 @@ static int allocation_calls, read_calls, append_calls, process_calls;
 static int fail_allocation, fail_read, short_read, fail_append, append_result = 1;
 static int engine_result = 1, native_result, native_late, native_failed, native_body_limit;
 static int log_result, event_calls, pcre_enter, pcre_leave;
+static int diagnostic_calls, native_only_after_eos, append_collections, eos_with_append_active;
 static int forward_calls, forwarded_links, forward_result;
+static int verify_writer, writer_rejected_zero, forwarded_controls, forwarded_eos;
+static int control_link_calls, control_buffer_calls, fail_control_link, fail_control_buffer;
+static ngx_chain_t control_links[16];
+static ngx_buf_t control_buffers[16];
 static int finalize_calls, emulate_core_response, core_response_result;
 static ngx_chain_t *core_response;
 ngx_int_t ngx_http_modsecurity_body_filter(ngx_http_request_t *, ngx_chain_t *);
@@ -130,6 +155,18 @@ static size_t read_max, appended_bytes;
 static u_char scratch[32768], inspected[200000];
 static const char *last_action, *last_reason;
 
+static ngx_chain_t *ngx_alloc_chain_link(ngx_pool_t *pool)
+{
+    (void)pool;
+    if (fail_control_link || control_link_calls >= 16) return NULL;
+    return &control_links[control_link_calls++];
+}
+static ngx_buf_t *ngx_calloc_buf(ngx_pool_t *pool)
+{
+    (void)pool;
+    if (fail_control_buffer || control_buffer_calls >= 16) return NULL;
+    return &control_buffers[control_buffer_calls++];
+}
 static void *ngx_pnalloc(ngx_pool_t *pool, size_t bytes)
 {
     (void)pool;
@@ -159,7 +196,8 @@ static int msc_append_response_body(void *transaction, u_char *data, size_t byte
 }
 static int msc_process_response_body(void *transaction)
 {
-    (void)transaction;
+    ngx_http_modsecurity_ctx_t *ctx = transaction;
+    if (ctx->phase4_append_active) ++eos_with_append_active;
     ++process_calls;
     return engine_result;
 }
@@ -179,6 +217,8 @@ static int ngx_http_modsecurity_process_intervention(void *transaction,
     ngx_http_modsecurity_ctx_t *ctx = ngx_http_modsecurity_get_module_ctx(r);
     (void)transaction; (void)early;
     if (ctx == NULL) return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    if (ctx->phase4_append_active) ++append_collections;
+    if (native_only_after_eos && !ctx->phase4_processed) return 0;
     ctx->intervention_late = native_late;
     ctx->intervention_failed = native_failed;
     ctx->intervention_body_limit = native_body_limit;
@@ -210,7 +250,22 @@ static ngx_int_t ngx_http_next_body_filter(ngx_http_request_t *r, ngx_chain_t *i
 {
     (void)r;
     ++forward_calls;
-    for (; in != NULL; in = in->next) ++forwarded_links;
+    for (; in != NULL; in = in->next) {
+        ngx_buf_t *buffer = in->buf;
+        int special = buffer != NULL && !buffer->memory && !buffer->in_file &&
+            (buffer->flush || buffer->sync || buffer->last_buf);
+        int empty = buffer == NULL || (buffer->memory
+            ? buffer->pos == buffer->last
+            : (!buffer->in_file || buffer->file_pos == buffer->file_last));
+        if (verify_writer && empty && !special) {
+            ++writer_rejected_zero;
+            return NGX_ERROR;
+        }
+        ++forwarded_links;
+        if (special) ++forwarded_controls;
+        if (buffer != NULL && (buffer->last_buf ||
+            (r != r->main && buffer->last_in_chain))) ++forwarded_eos;
+    }
     return forward_result;
 }
 #define CHECK(condition) do { if (!(condition)) { \
@@ -222,7 +277,10 @@ CASES = r"""
 int main(int argc, char **argv)
 {
     ngx_http_modsecurity_ctx_t ctx = {0};
-    ngx_http_modsecurity_conf_t conf = {NGX_HTTP_MODSEC_PHASE4_MODE_SAFE, 1048576U};
+    ngx_http_modsecurity_conf_t conf = {
+        .phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_SAFE,
+        .phase4_body_limit = 1048576U, .enable = 1
+    };
     ngx_pool_t pool = {0};
     ngx_connection_t connection = {0};
     ngx_http_request_t request = {0};
@@ -238,7 +296,7 @@ int main(int argc, char **argv)
     CHECK(argc == 2);
     memset(payload, 'A', sizeof(payload));
     request.pool = &pool; request.connection = &connection;
-    request.ctx = &ctx; request.conf = &conf; request.main = &request; ctx.r = &request; ctx.modsec_transaction = &ctx;
+    request.ctx = &ctx; request.conf = &conf; request.main = &request; ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf;
     buffer.file = &file; buffer.in_file = 1; buffer.file_last = sizeof(payload);
 
     if (strcmp(argv[1], "request-ownership") == 0) {
@@ -246,7 +304,9 @@ int main(int argc, char **argv)
         ngx_http_request_t subrequest = {0};
         ngx_pool_cleanup_t owner_cleanup = {ngx_http_modsecurity_cleanup, &ctx, NULL};
         ngx_pool_cleanup_t other_cleanup = {ngx_http_modsecurity_cleanup, &other_ctx, &owner_cleanup};
-        other_ctx.r = &subrequest;
+        other_ctx.r = &subrequest; other_ctx.modsec_transaction = &other_ctx;
+        other_ctx.lifetime.pool = &pool; other_ctx.lifetime.conf = &conf;
+        subrequest.conf = &conf;
         subrequest.pool = &pool; subrequest.main = &request;
         pool.cleanup = &other_cleanup;
         CHECK(ngx_http_modsecurity_get_module_ctx(&request) == &ctx);
@@ -256,6 +316,7 @@ int main(int argc, char **argv)
         subrequest.ctx = &ctx; /* Reject a foreign direct context too. */
         CHECK(ngx_http_modsecurity_get_module_ctx(&subrequest) == &other_ctx);
         pool.cleanup = &owner_cleanup; /* Auth subrequest has no own transaction. */
+        subrequest.ctx = NULL;
         CHECK(ngx_http_modsecurity_get_module_ctx(&subrequest) == NULL);
         subrequest.ctx = NULL; subrequest.connection = &connection;
         final.last_in_chain = 1;
@@ -266,7 +327,7 @@ int main(int argc, char **argv)
         CHECK(process_calls == 1 && ctx.phase4_processed && forward_calls == 2);
     } else if (strcmp(argv[1], "all-modes-large") == 0) {
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             CHECK(ngx_http_modsecurity_plan_limited_response_body(&ctx, &conf,
                 1048577U, &allowed) == NGX_OK);
             CHECK(allowed == 1048577U && ctx.response_body_bytes_seen == allowed);
@@ -276,7 +337,7 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "all-modes-multiple") == 0) {
         size_t chunk;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             for (chunk = 0; chunk < 3; ++chunk) {
                 CHECK(ngx_http_modsecurity_plan_limited_response_body(&ctx, &conf,
                     1048576U, &allowed) == NGX_OK);
@@ -289,7 +350,7 @@ int main(int argc, char **argv)
         }
     } else if (strcmp(argv[1], "legacy-boundary") == 0) {
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             CHECK(ngx_http_modsecurity_plan_limited_response_body(&ctx, &conf,
                 1048575U, &allowed) == NGX_OK);
             ctx.response_body_bytes_inspected += allowed;
@@ -308,7 +369,7 @@ int main(int argc, char **argv)
         buffer.in_file = 0; buffer.memory = 1;
         buffer.pos = payload; buffer.last = payload + sizeof(payload);
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             append_calls = 0; appended_bytes = 0;
             CHECK(ngx_http_modsecurity_append_response_body_buffer(&request, &ctx,
                 &conf, &buffer) == NGX_OK);
@@ -322,21 +383,22 @@ int main(int argc, char **argv)
         }
     } else if (strcmp(argv[1], "overflow") == 0) {
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             ctx.response_body_bytes_seen = SIZE_MAX - 1U;
             ctx.response_body_bytes_inspected = SIZE_MAX - 1U;
             CHECK(ngx_http_modsecurity_plan_limited_response_body(&ctx, &conf,
-                2U, &allowed) == NGX_ERROR);
-            CHECK(allowed == 0U && ctx.response_body_truncated);
+                2U, &allowed) == NGX_OK);
+            CHECK(allowed == 2U && !ctx.response_body_truncated);
             CHECK(ctx.response_body_bytes_seen == SIZE_MAX);
             CHECK(ctx.response_body_bytes_inspected == SIZE_MAX - 1U);
             CHECK(ngx_http_modsecurity_append_response_body_chunk(&ctx,
-                payload, 2U) == NGX_ERROR);
-            CHECK(append_calls == 0);
+                payload, 2U) == NGX_OK);
+            CHECK(ctx.response_body_bytes_inspected == SIZE_MAX);
+            CHECK(append_calls == (int)i + 1 && ctx.phase4_append_active);
         }
     } else if (strcmp(argv[1], "invalid-accounting") == 0) {
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             ctx.response_body_bytes_inspected = 1U;
             CHECK(ngx_http_modsecurity_plan_limited_response_body(&ctx, &conf,
                 1U, &allowed) == NGX_ERROR);
@@ -371,7 +433,7 @@ int main(int argc, char **argv)
         conf.phase4_body_limit = 65536U;
         buffer.memory = 1; buffer.pos = payload; buffer.last = payload + sizeof(payload);
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             append_calls = 0; appended_bytes = 0;
             CHECK(ngx_http_modsecurity_append_response_body_buffer(&request, &ctx,
                 &conf, &buffer) == NGX_OK);
@@ -387,7 +449,7 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "file-over-legacy-limit") == 0) {
         conf.phase4_body_limit = 65536U;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             read_calls = 0; append_calls = 0; allocation_calls = 0;
             appended_bytes = 0; read_max = 0;
             CHECK(ngx_http_modsecurity_append_response_body_buffer(&request, &ctx,
@@ -435,7 +497,7 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "append-error") == 0) {
         fail_append = 1;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             CHECK(ngx_http_modsecurity_append_response_body_buffer(&request, &ctx,
                 &conf, &buffer) == NGX_ERROR);
             CHECK(ctx.response_body_bytes_inspected == 0U);
@@ -446,7 +508,7 @@ int main(int argc, char **argv)
         buffer.in_file = 0; buffer.memory = 1;
         buffer.pos = payload; buffer.last = payload + 10;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             append_calls = 0; appended_bytes = 0;
             CHECK(ngx_http_modsecurity_append_response_body_buffer(&request, &ctx,
                 &conf, &buffer) == NGX_OK);
@@ -460,7 +522,7 @@ int main(int argc, char **argv)
         CHECK(ctx.phase4_processed);
     } else if (strcmp(argv[1], "engine-error") == 0) {
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; conf.phase4_mode = (unsigned)i;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
             request.header_sent = 1; connection.error = 0; engine_result = -1;
             CHECK(ngx_http_modsecurity_process_final_response_body(&request, &ctx, &conf) == NGX_ERROR);
             CHECK(ctx.phase4_processed && ctx.intervention_triggered && connection.error);
@@ -512,15 +574,105 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "replaced-body") == 0) {
         ctx.response_replaced = 1;
         buffer.memory = 1; buffer.pos = payload; buffer.last = payload + 10;
+        final.last_buf = 1; verify_writer = 1;
         CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
-        CHECK(buffer.pos == buffer.last && !buffer.in_file);
+        CHECK(buffer.pos == buffer.last && buffer.in_file);
         CHECK(buffer.file_last == buffer.file_pos);
-        CHECK(append_calls == 0 && process_calls == 0 && forwarded_links == 2);
+        CHECK(append_calls == 0 && process_calls == 0 && forwarded_links == 1);
+        CHECK(forwarded_controls == 1 && forwarded_eos == 1 && writer_rejected_zero == 0);
+        CHECK(ctx.replacement_body_terminal_sent && chain.next == &tail);
+    } else if (strcmp(argv[1], "replaced-data-only") == 0) {
+        ctx.response_replaced = 1; verify_writer = 1; chain.next = NULL;
+        buffer.memory = 1; buffer.pos = payload; buffer.last = payload + 10;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
+        CHECK(buffer.pos == buffer.last && buffer.file_pos == buffer.file_last);
+        CHECK(ngx_http_modsecurity_body_filter(&request, NULL) == NGX_OK);
+        CHECK(forward_calls == 0 && control_link_calls == 0 && writer_rejected_zero == 0);
+        CHECK(append_calls == 0 && process_calls == 0 && !ctx.replacement_body_terminal_sent);
+    } else if (strcmp(argv[1], "replaced-buffered-drain") == 0) {
+        ctx.response_replaced = 1; verify_writer = 1; chain.next = NULL;
+        request.buffered = 1; forward_result = NGX_AGAIN;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_AGAIN);
+        CHECK(forward_calls == 1 && forwarded_links == 0 && writer_rejected_zero == 0);
+        request.buffered = 0; connection.buffered = 1;
+        CHECK(ngx_http_modsecurity_body_filter(&request, NULL) == NGX_AGAIN);
+        CHECK(forward_calls == 2 && forwarded_links == 0);
+        connection.buffered = 0;
+        CHECK(ngx_http_modsecurity_body_filter(&request, NULL) == NGX_OK);
+        CHECK(forward_calls == 2 && control_link_calls == 0);
+    } else if (strcmp(argv[1], "replaced-terminal-again") == 0) {
+        ctx.response_replaced = 1; verify_writer = 1; chain.next = NULL;
+        buffer.memory = 1; buffer.pos = payload; buffer.last = payload + 10;
+        buffer.last_buf = 1; request.buffered = 1; forward_result = NGX_AGAIN;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_AGAIN);
+        CHECK(ctx.replacement_body_terminal_sent && forwarded_eos == 1);
+        CHECK(control_link_calls == 1 && forwarded_controls == 1 && writer_rejected_zero == 0);
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_AGAIN);
+        CHECK(forward_calls == 2 && forwarded_eos == 1 && forwarded_links == 1);
+        request.buffered = 0;
+        CHECK(ngx_http_modsecurity_body_filter(&request, NULL) == NGX_OK);
+        CHECK(forward_calls == 2 && control_link_calls == 1 && chain.next == NULL);
+    } else if (strcmp(argv[1], "replaced-subrequest-eos") == 0) {
+        ctx.response_replaced = 1; verify_writer = 1; request.main = &main_request;
+        chain.next = NULL; buffer.last_in_chain = 1;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
+        CHECK(forwarded_controls == 1 && forwarded_eos == 1 && writer_rejected_zero == 0);
+        CHECK(ctx.replacement_body_terminal_sent && control_buffers[0].sync);
+        CHECK(!control_buffers[0].last_buf && control_buffers[0].last_in_chain);
+    } else if (strcmp(argv[1], "replaced-main-chain-marker") == 0) {
+        ctx.response_replaced = 1; verify_writer = 1; chain.next = NULL;
+        buffer.last_in_chain = 1;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
+        CHECK(!ctx.replacement_body_terminal_sent && forwarded_eos == 0);
+        CHECK(control_buffers[0].sync && control_buffers[0].last_in_chain);
+        final.last_buf = 1;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &tail) == NGX_OK);
+        CHECK(ctx.replacement_body_terminal_sent && forwarded_eos == 1);
+        CHECK(forwarded_controls == 2 && writer_rejected_zero == 0);
+    } else if (strcmp(argv[1], "replaced-control-allocation-failure") == 0) {
+        for (i = 0; i < 2; ++i) {
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx;
+            ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf;
+            ctx.response_replaced = 1; request.header_sent = 1; connection.error = 0;
+            buffer.file_pos = 0; buffer.last_buf = 1; chain.next = NULL;
+            fail_control_link = i == 0; fail_control_buffer = i != 0;
+            CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_ERROR);
+            CHECK(ctx.phase4_failed && connection.error && forward_calls == 0);
+            CHECK(ngx_http_modsecurity_body_filter(&request, NULL) == NGX_ERROR);
+        }
+    } else if (strcmp(argv[1], "counter-saturation-stream") == 0) {
+        chain.next = NULL; request.header_sent = 1;
+        buffer.in_file = 0; buffer.memory = 1; buffer.last_buf = 1;
+        buffer.pos = payload; buffer.last = payload + 10;
+        for (i = 0; i <= 2; ++i) {
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx;
+            ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf; conf.phase4_mode = (unsigned)i;
+            ctx.response_body_bytes_seen = SIZE_MAX - 1U;
+            ctx.response_body_bytes_inspected = SIZE_MAX - 1U;
+            append_calls = 0; appended_bytes = 0; process_calls = 0; forward_calls = 0;
+            CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
+            CHECK(ctx.response_body_bytes_seen == SIZE_MAX && ctx.response_body_bytes_inspected == SIZE_MAX);
+            CHECK(append_calls == 1 && appended_bytes == 10U && process_calls == 1 && forward_calls == 1);
+            CHECK(!ctx.phase4_failed && !ctx.response_body_truncated && !connection.error);
+        }
+    } else if (strcmp(argv[1], "large-file-first-chunk") == 0) {
+        if (sizeof(off_t) < 8) return 0;
+        buffer.file_last = (off_t)UINT32_MAX + (off_t)sizeof(payload);
+        native_result = 403; native_failed = 1; native_body_limit = 1;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == 403);
+        CHECK(read_calls == 1 && append_calls == 1 && appended_bytes == 32768U);
+        CHECK(ctx.intervention_body_limit && process_calls == 0 && forward_calls == 0);
+    } else if (strcmp(argv[1], "append-boundary") == 0) {
+        buffer.in_file = 0; buffer.memory = 1; buffer.last_buf = 1;
+        buffer.pos = payload; buffer.last = payload + 10; chain.next = NULL;
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
+        CHECK(append_collections == 1 && eos_with_append_active == 0);
+        CHECK(!ctx.phase4_append_active && ctx.phase4_processed && forward_calls == 1);
     } else if (strcmp(argv[1], "empty-memory-eos") == 0) {
         buffer.in_file = 0; buffer.memory = 1; buffer.last_buf = 1;
         chain.next = NULL;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf;
             conf.phase4_mode = (unsigned)i;
             process_calls = 0; forward_calls = 0;
             CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_OK);
@@ -544,7 +696,7 @@ int main(int argc, char **argv)
         for (i = 0; i <= 2; ++i) {
             conf.phase4_mode = (unsigned)i;
             for (invalid_index = 0; invalid_index < sizeof(invalid) / sizeof(invalid[0]); ++invalid_index) {
-                memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx;
+                memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf;
                 append_calls = 0; appended_bytes = 0; connection.error = 0;
                 append_result = invalid[invalid_index];
                 CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_ERROR);
@@ -557,7 +709,7 @@ int main(int argc, char **argv)
         buffer.in_file = 0; buffer.memory = 1; buffer.last_buf = 1;
         buffer.pos = payload; buffer.last = payload + 10;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf;
             conf.phase4_mode = (unsigned)i;
             process_calls = 0; append_calls = 0; appended_bytes = 0;
             engine_result = 0; connection.error = 0;
@@ -571,17 +723,23 @@ int main(int argc, char **argv)
     } else if (strcmp(argv[1], "strict-reentry") == 0 ||
                strcmp(argv[1], "sink-failure-reentry") == 0) {
         request.header_sent = 1; chain.next = NULL;
-        buffer.in_file = 0; buffer.memory = 1;
+        buffer.in_file = 0; buffer.memory = 1; buffer.last_buf = 1;
         buffer.pos = payload; buffer.last = payload + 10;
         native_result = -1; native_late = 1; ctx.last_intervention_status = 403;
+        native_only_after_eos = 1;
         if (strcmp(argv[1], "strict-reentry") == 0) conf.phase4_mode = 2;
         else log_result = NGX_ERROR;
-        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_ERROR);
-        CHECK(ctx.phase4_failed && connection.error && event_calls == 1);
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) ==
+            (conf.phase4_mode == 2 ? NGX_ERROR : NGX_OK));
+        CHECK(ctx.phase4_failed == (conf.phase4_mode == 2));
+        CHECK(connection.error == (conf.phase4_mode == 2) && event_calls == 1);
         native_result = 0; log_result = NGX_OK;
-        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_ERROR);
-        CHECK(ngx_http_modsecurity_body_filter(&request, NULL) == NGX_ERROR);
-        CHECK(append_calls == 1 && process_calls == 0 && forward_calls == 0);
+        CHECK(ngx_http_modsecurity_body_filter(&request, &chain) ==
+            (conf.phase4_mode == 2 ? NGX_ERROR : NGX_OK));
+        CHECK(ngx_http_modsecurity_body_filter(&request, NULL) ==
+            (conf.phase4_mode == 2 ? NGX_ERROR : NGX_OK));
+        CHECK(append_calls == 1 && process_calls == 1);
+        CHECK(forward_calls == (conf.phase4_mode == 2 ? 0 : 3));
         CHECK(event_calls == 1);
     } else if (strcmp(argv[1], "core-error-once") == 0) {
         buffer.in_file = 0; buffer.memory = 1; buffer.last_buf = 1;
@@ -599,7 +757,7 @@ int main(int argc, char **argv)
         request.header_sent = 1;
         native_result = 403; native_failed = 1; native_body_limit = 1;
         for (i = 0; i <= 2; ++i) {
-            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx;
+            memset(&ctx, 0, sizeof(ctx)); ctx.r = &request; ctx.modsec_transaction = &ctx; ctx.lifetime.pool = &pool; ctx.lifetime.conf = &conf;
             conf.phase4_mode = (unsigned)i;
             read_calls = 0; append_calls = 0; appended_bytes = 0;
             CHECK(ngx_http_modsecurity_body_filter(&request, &chain) == NGX_ERROR);
@@ -642,8 +800,14 @@ int main(int argc, char **argv)
         }
     } else if (strcmp(argv[1], "log-failure-safe") == 0) {
         request.header_sent = 1; native_result = -1; native_late = 1; log_result = NGX_ERROR;
+        CHECK(ngx_http_modsecurity_process_response_intervention(&request, &ctx, &conf) == NGX_OK);
+        CHECK(!ctx.intervention_triggered && !ctx.phase4_failed && !connection.error);
+        CHECK(event_calls == 1 && diagnostic_calls == 1);
+    } else if (strcmp(argv[1], "log-failure-strict") == 0) {
+        conf.phase4_mode = NGX_HTTP_MODSEC_PHASE4_MODE_STRICT;
+        request.header_sent = 1; native_result = -1; native_late = 1; log_result = NGX_ERROR;
         CHECK(ngx_http_modsecurity_process_response_intervention(&request, &ctx, &conf) == NGX_ERROR);
-        CHECK(ctx.intervention_triggered && connection.error);
+        CHECK(ctx.phase4_failed && ctx.phase4_strict_abort && connection.error && event_calls == 1);
     } else {
         return 2;
     }
@@ -667,14 +831,21 @@ def unit_program(body: str, module: str) -> str:
     gate = "ngx_http_modsecurity_phase4_error_gate"
     if re.search(rf"\b{gate}\s*\(", body):
         definitions.insert(0, "\nstatic ngx_int_t\n" + function_definition(body, gate) + "\n")
-    definitions.append("\nstatic void\n" + function_definition(
+    discard_type = "void" if re.search(
+        r"static\s+void\s+ngx_http_modsecurity_discard_replaced_response_body\s*\(", body
+    ) else "ngx_int_t"
+    definitions.append("\nstatic " + discard_type + "\n" + function_definition(
         body, "ngx_http_modsecurity_discard_replaced_response_body"
     ))
     definitions.append("\nngx_int_t\n" + function_definition(
         body, "ngx_http_modsecurity_body_filter"
     ))
     declarations = "\n".join(definition[:definition.index("{")] + ";" for definition in definitions)
-    context_lookup = "\nstatic ngx_http_modsecurity_ctx_t *\n" + function_definition(
+    context_lookup = "".join(
+        "\nstatic ngx_int_t\n" + function_definition(module, name) + "\n"
+        for name in ("ngx_http_modsecurity_same_policy", "ngx_http_modsecurity_is_block_error_page")
+    )
+    context_lookup += "\nstatic ngx_http_modsecurity_ctx_t *\n" + function_definition(
         module, "ngx_http_modsecurity_get_module_ctx"
     ) + "\n"
     return PREAMBLE + declarations + context_lookup + "".join(definitions) + CASES
@@ -721,11 +892,14 @@ for case in (
     "engine-error", "process-zero",
     "main-eos", "subrequest-eos", "chain-restored", "forward-again",
     "terminal-trailing", "replaced-body",
+    "replaced-data-only", "replaced-buffered-drain", "replaced-terminal-again",
+    "replaced-subrequest-eos", "replaced-main-chain-marker", "replaced-control-allocation-failure",
+    "counter-saturation-stream", "large-file-first-chunk", "append-boundary",
     "empty-memory-eos", "memory-missing-end", "invalid-append-results",
     "failure-reentry", "strict-reentry", "sink-failure-reentry",
     "core-error-once", "file-chunk-rejection",
     "late-safe", "late-strict", "late-off", "native-failure-safe",
-    "native-failure-uncommitted", "uncommitted-deny", "log-failure-safe",
+    "native-failure-uncommitted", "uncommitted-deny", "log-failure-safe", "log-failure-strict",
 ):
     setattr(Phase4RuntimeTests, "test_" + case.replace("-", "_"), case_test(case))
 

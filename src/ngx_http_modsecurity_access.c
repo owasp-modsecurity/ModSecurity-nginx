@@ -14,6 +14,7 @@
  */
 
 #include <ngx_config.h>
+#include <stdint.h>
 
 #ifndef MODSECURITY_DDEBUG
 #define MODSECURITY_DDEBUG 0
@@ -36,6 +37,91 @@ ngx_http_modsecurity_request_failure(ngx_http_request_t *r,
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
 }
 
+
+static int
+ngx_http_modsecurity_request_intervention(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, ngx_int_t early_log)
+{
+    int result;
+
+    ctx->request_intervention_active = 1;
+    result = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction,
+        r, early_log);
+    ctx->request_intervention_active = 0;
+    return result;
+}
+
+
+static ngx_int_t
+ngx_http_modsecurity_append_request_chunk(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, const u_char *data, size_t size)
+{
+    int result;
+
+    result = msc_append_request_body(ctx->modsec_transaction, data, size);
+    /* Zero is the engine's ProcessPartial result, for memory and file data. */
+    if ((result != 0 && result != 1) ||
+        ngx_http_modsecurity_capture_request_body_intervention(r) != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: request body append failed");
+        return ngx_http_modsecurity_request_failure(r, ctx);
+    }
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_modsecurity_inspect_request_body_file(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    ngx_file_t *file = &r->request_body->temp_file->file;
+    ngx_file_info_t info;
+    off_t size = r->request_body->temp_file->offset;
+    off_t offset = 0;
+    size_t amount;
+    ssize_t read_size;
+    ngx_int_t result;
+
+    /* Inspect the descriptor NGINX owns. The file-path SDK helper cannot
+     * distinguish ProcessPartial zero from its file I/O/allocation failures. */
+    if (file->fd == NGX_INVALID_FILE || size < 0 ||
+        ngx_fd_info(file->fd, &info) == NGX_FILE_ERROR ||
+        !ngx_is_file(&info) || ngx_file_size(&info) != size) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: invalid request body file descriptor or size");
+        return ngx_http_modsecurity_request_failure(r, ctx);
+    }
+    if (size > 0 && ctx->request_file_scratch == NULL) {
+        ctx->request_file_scratch = ngx_pnalloc(r->pool, 32768U);
+        if (ctx->request_file_scratch == NULL) {
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
+    }
+    while (offset < size) {
+        amount = (uintmax_t) (size - offset) > 32768U
+            ? 32768U : (size_t) (size - offset);
+        read_size = ngx_read_file(file, ctx->request_file_scratch, amount, offset);
+        if (read_size < 0 || (size_t) read_size != amount) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                "ModSecurity: request body file read is short or failed");
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
+        result = ngx_http_modsecurity_append_request_chunk(r, ctx,
+            ctx->request_file_scratch, amount);
+        if (result != NGX_OK) {
+            return result;
+        }
+        offset += (off_t) amount;
+    }
+    if (ngx_fd_info(file->fd, &info) == NGX_FILE_ERROR ||
+        !ngx_is_file(&info) || ngx_file_size(&info) != size) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: request body temp file size changed unexpectedly");
+        return ngx_http_modsecurity_request_failure(r, ctx);
+    }
+    return NGX_OK;
+}
+
 void
 ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
@@ -47,7 +133,7 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
     r->main->count--;
 #endif
 
-    if (ctx->waiting_more_body)
+    if (ctx != NULL && ctx->waiting_more_body)
     {
         ctx->waiting_more_body = 0;
         r->write_event_handler = ngx_http_core_run_phases;
@@ -65,6 +151,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
     ngx_http_modsecurity_conf_t  *mcf;
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    if (ngx_http_modsecurity_prepare_location(r, mcf) != NGX_OK) {
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
     if (mcf == NULL || mcf->enable != 1) {
         dd("ModSecurity not enabled... returning");
         return NGX_DECLINED;
@@ -81,9 +170,9 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 
     dd("catching a new _access_ phase handler");
 
-    /* Internal redirects clear the current location's module context.
-     * Cleanup recovery belongs to finalization, not access initialization. */
-    ctx = ngx_http_get_module_ctx(r, ngx_http_modsecurity_module);
+    /* Reuse only the same request's equivalent policy, or its own exact
+     * configured native-block error page. Other targets get a new owner. */
+    ctx = ngx_http_modsecurity_get_module_ctx(r);
     if (ctx != NULL && ctx->r != r) {
         ctx = NULL;
     }
@@ -201,7 +290,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          *
          */
         dd("Processing intervention with the connection information filled in");
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
+        ret = ngx_http_modsecurity_request_intervention(r, ctx, 1);
         if (ret < 0) {
             return ngx_http_modsecurity_request_failure(r, ctx);
         }
@@ -258,7 +347,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         }
 
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
+        ret = ngx_http_modsecurity_request_intervention(r, ctx, 1);
         if (ret < 0) {
             return ngx_http_modsecurity_request_failure(r, ctx);
         }
@@ -315,7 +404,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             return ngx_http_modsecurity_request_failure(r, ctx);
         }
         dd("Processing intervention with the request headers information filled in");
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
+        ret = ngx_http_modsecurity_request_intervention(r, ctx, 1);
         if (ret < 0) {
             return ngx_http_modsecurity_request_failure(r, ctx);
         }
@@ -416,7 +505,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 
         r->write_event_handler = ngx_http_core_run_phases;
 
-        ngx_chain_t *chain = r->request_body->bufs;
+        ngx_chain_t *chain = r->request_body != NULL ? r->request_body->bufs : NULL;
 
         /**
          * TODO: Speed up the analysis by sending chunk while they arrive.
@@ -427,25 +516,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          * function.
          */
 
-        if (r->request_body->temp_file != NULL) {
-            ngx_str_t file_path = r->request_body->temp_file->file.name;
-            const char *file_name = ngx_str_to_char(file_path, r->pool);
-            if (file_name == (char*)-1) {
-                return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        if (r->request_body != NULL && r->request_body->temp_file != NULL) {
+            ret = ngx_http_modsecurity_inspect_request_body_file(r, ctx);
+            if (ret != NGX_OK) {
+                return ret;
             }
-            /*
-             * Request body was saved to a file, probably we don't have a
-             * copy of it in memory.
-             */
-            dd("request body inspection: file -- %s", file_name);
-
-            ret = msc_request_body_from_file(ctx->modsec_transaction, file_name);
-            if (ret != 1) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "ModSecurity: request body file processing failed");
-                return ngx_http_modsecurity_request_failure(r, ctx);
-            }
-
             already_inspected = 1;
         } else {
             dd("inspection request body in memory.");
@@ -453,37 +528,24 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 
         while (chain && !already_inspected)
         {
-            u_char *data = chain->buf->pos;
-
-            ret = msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->last - data);
-            /* Direct append zero is the engine's ProcessPartial result. */
-            if (ret != 0 && ret != 1) {
-                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
-                    "ModSecurity: request body append failed");
+            if (chain->buf == NULL) {
                 return ngx_http_modsecurity_request_failure(r, ctx);
             }
-
+            if (!ngx_buf_special(chain->buf)) {
+                if (chain->buf->pos == NULL || chain->buf->last == NULL ||
+                    chain->buf->last < chain->buf->pos) {
+                    return ngx_http_modsecurity_request_failure(r, ctx);
+                }
+                ret = ngx_http_modsecurity_append_request_chunk(r, ctx,
+                    chain->buf->pos, (size_t) (chain->buf->last - chain->buf->pos));
+                if (ret != NGX_OK) {
+                    return ret;
+                }
+            }
             if (chain->buf->last_buf) {
                 break;
             }
             chain = chain->next;
-
-/* XXX: chains are processed one-by-one, maybe worth to pass all chains and then call intervention() ? */
-
-            /**
-             * ModSecurity may perform stream inspection on this buffer,
-             * it may ask for a intervention in consequence of that.
-             *
-             */
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-            if (ret < 0) {
-                return ngx_http_modsecurity_request_failure(r, ctx);
-            }
-            if (ret > 0) {
-                ctx->intervention_triggered = 1;
-                return ret;
-            }
         }
 
         /**
@@ -505,7 +567,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         }
         ctx->request_body_processed = 1;
 
-        ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
+        ret = ngx_http_modsecurity_request_intervention(r, ctx, 0);
         if (ret < 0) {
             return ngx_http_modsecurity_request_failure(r, ctx);
         }

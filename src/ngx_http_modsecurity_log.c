@@ -37,24 +37,22 @@ ngx_http_modsecurity_log(void *log, const void* data)
 
 
 ngx_int_t
-ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
+ngx_http_modsecurity_log_context(ngx_http_modsecurity_ctx_t *ctx)
 {
     ngx_pool_t                   *old_pool;
-    ngx_http_modsecurity_ctx_t   *ctx;
+    ngx_http_request_t           *r;
     int                          result;
 
-    if (r == NULL || r->connection == NULL) {
+    if (ctx == NULL || ctx->r == NULL || ctx->r->connection == NULL ||
+        ctx->lifetime.pool == NULL) {
         return NGX_ERROR;
     }
-    ctx = ngx_http_modsecurity_get_module_ctx(r);
-    if (ctx == NULL) {
-        return NGX_OK;
-    }
+    r = ctx->r;
     if (ctx->logged) {
         return ctx->native_logging_failed ? NGX_ERROR : NGX_OK;
     }
 
-    /* Claim the attempt before a native callback can re-enter this handler. */
+    /* Claim the attempt before native callbacks can re-enter this owner. */
     ctx->logged = 1;
     ctx->native_logging_failed = 1;
     if (ctx->modsec_transaction == NULL) {
@@ -62,7 +60,8 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
             "ModSecurity: native logging transaction is unavailable");
         return NGX_ERROR;
     }
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
+    /* Pool cleanup can run after NGINX clears r->pool. Retain its real owner. */
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(ctx->lifetime.pool);
     result = msc_process_logging(ctx->modsec_transaction);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
     if (result != 1) {
@@ -73,4 +72,13 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     }
     ctx->native_logging_failed = 0;
     return NGX_OK;
+}
+
+
+ngx_int_t
+ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
+{
+    /* Every transaction owner for this request gets one native audit attempt,
+     * including prior locations and disabled/different target policies. */
+    return ngx_http_modsecurity_log_request_contexts(r);
 }

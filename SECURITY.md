@@ -42,7 +42,7 @@ route it.
   readable only by the users that need it.
 - `modsecurity_rules_file` and any files it includes: these are loaded by
   nginx and control what is blocked. Make sure only trusted users can write to
-  them.
+  them, their directories and any of their parent directories.
 - `SecDebugLog` / `SecAuditLog`: debug and audit logs can contain full request
   and response data, including credentials and cookies. Write them to a
   directory that is not world-readable (not `/tmp`), make the log files
@@ -56,8 +56,10 @@ route it.
   log file, or a directory on its path, with a symlink and have root append
   request data to any file. Concurrent audit logging is different: the
   per-transaction files in `SecAuditLogStorageDir` are created by the worker
-  processes, so that directory must be writable by the worker user; keep it
-  out of reach of every other user.
+  processes, so that directory must be writable by the worker user, but by no
+  other untrusted user, and its parent directories only by trusted users;
+  otherwise another user can replace the directory, or one of its parents,
+  with a symlink.
 - `modsecurity on` is an nginx-level switch only. Whether rules actually block
   is controlled by `SecRuleEngine` in the loaded rules. With `SecRuleEngine
   DetectionOnly`, or with `SecRuleEngine` not set at all, rules are evaluated

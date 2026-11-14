@@ -44,11 +44,12 @@ If libmodsecurity is not installed in the system library path or in
 location, set `YAJL_LIB` to the directory that contains it (not to the library
 file); `YAJL_LIB` is only honoured together with `MODSECURITY_INC` /
 `MODSECURITY_LIB` and is ignored when the library is auto-discovered (including
-from `/usr/local/modsecurity`). On Linux, set `NGX_IGNORE_RPATH=YES` to avoid
-embedding the library path in the resulting binary; the dynamic loader then has
-to find libmodsecurity at runtime, for example through `ld.so.conf` or
-`LD_LIBRARY_PATH`. On platforms where nginx uses `-R` (such as Solaris), the
-path is always embedded.
+from `/usr/local/modsecurity`). `config` turns it into `-L`/`-lyajl` linker
+flags, so it does not work for MSVC builds. On Linux, set
+`NGX_IGNORE_RPATH=YES` to avoid embedding the library path in the resulting
+binary; the dynamic loader then has to find libmodsecurity at runtime, for
+example through `ld.so.conf` or `LD_LIBRARY_PATH`. On platforms where nginx
+uses `-R` (such as Solaris), the path is always embedded.
 
 For building on Windows with MSVC, see [win32/README.md](win32/README.md).
 
@@ -144,16 +145,17 @@ server {
 ```
 
 Replace `/path/to/modsec_debug.log` with a real path. The directory must
-already exist, otherwise the rules fail to load and nginx does not start. The
-debug log is opened by the nginx master process (usually running as root) when
-the configuration is loaded, so the directory must be writable by the user
-nginx is started as, and neither it nor any of its parent directories may be
-writable by anyone else (in particular not by the worker user, for example
-`www-data` or `nginx`, nor through a group or ACL): anyone who can write
-there could replace the log file, or a directory on its path, with a symlink
-and have root append request data to any file. The debug log contains request
-data, so also keep the directory and file unreadable by unprivileged users (see
-the
+already exist, otherwise the rules fail to load and nginx refuses to start, or,
+on a reload, rejects the new configuration and keeps running with the old one.
+The debug log is opened by the nginx master process (usually running as root)
+when the configuration is loaded, so unless the log file already exists, the
+directory must be writable by the user nginx is started as. Neither the
+directory nor any of its parent directories may be writable by anyone else (in
+particular not by the worker user, for example `www-data` or `nginx`, nor
+through a group or ACL): anyone who can write there could replace the log file,
+or a directory on its path, with a symlink and have root append request data to
+any file. The debug log contains request data, so also keep the directory and
+file unreadable by unprivileged users (see the
 [Hardening Notes](SECURITY.md#hardening-notes)).
 
 modsecurity_transaction_id

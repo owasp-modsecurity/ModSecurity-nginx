@@ -211,6 +211,93 @@ modsecurity_use_error_log
 
 Turns on or off ModSecurity error log functionality.
 
+# Performance considerations
+
+## Request body
+
+When `modsecurity` is on, the connector reads the **whole** request body in
+nginx's ACCESS phase, before the content handler (for example `proxy_pass`)
+runs, and libmodsecurity keeps its own copy of it. Only `modsecurity off`
+avoids this: `SecRuleEngine Off` or `DetectionOnly` and
+`SecRequestBodyAccess Off` change what libmodsecurity does with the copy, not
+whether the body is buffered and copied. Consequences:
+
+* `proxy_request_buffering off` has no effect in such locations: the body has
+  already been buffered by the time the proxy module sees it.
+* A body that does not fit in nginx's body buffer is written to a temporary
+  file under `client_body_temp_path`. Over HTTP/1.x with a Content-Length,
+  bodies up to about 1.25 times `client_body_buffer_size` (twice the system
+  page size, 8k on most platforms) stay in memory; chunked and HTTP/2 bodies
+  spill once they exceed `client_body_buffer_size`.
+* libmodsecurity reopens a spilled file by name and reads it back in full,
+  because ModSecurity v3 has no `SecRequestBodyInMemoryLimit` (the rule
+  parser rejects it). It reads the whole file into a temporary string and
+  then copies that into its own buffer, so the body is held twice while it is
+  loaded, and the file is read in full even when it exceeds
+  `SecRequestBodyLimit`, which only caps the second copy. The spill costs a
+  write and a read and saves no memory.
+* Raising `client_body_buffer_size` avoids the spill, but every body
+  without a Content-Length, every body that spills and every HTTP/3 body gets
+  a buffer of the full size (otherwise a body that stays in memory gets one
+  of its own size, and an HTTP/1.x body that fits in the rest of the request
+  header buffer needs none), so a large value multiplies worker memory under
+  concurrency. Size it against the
+  bodies you actually expect, not against `client_max_body_size`, which only
+  decides which requests are accepted, nor against `SecRequestBodyLimit`,
+  which is applied after the connector has already read the body.
+* The spilled file keeps its name under `client_body_temp_path` for the
+  duration of the request, because libmodsecurity reopens it by path; it is
+  created with mode 0600 and deleted when the request ends (unless
+  `client_body_in_file_only on` asks nginx to keep it). nginx creates a
+  missing `client_body_temp_path` with mode 0700, but never removes group or
+  other access from an existing directory: keep that directory private to
+  the nginx user. A tmpfs-backed `client_body_temp_path` keeps the spill off disk, at
+  the price of holding it in RAM.
+* With `SecRequestBodyAccess Off`, libmodsecurity still runs the request
+  body processor (multipart, urlencoded, or JSON/XML when selected with
+  `ctl:requestBodyProcessor`) over its copy in phase 2, and only then returns
+  before evaluating the phase 2 rules. Only a body over
+  `SecRequestBodyNoFilesLimit` skips the urlencoded, JSON and XML parsers;
+  multipart is always parsed. `SecRuleEngine Off` skips the parsing
+  as well, but not the buffering or the copy.
+
+## Response body
+
+The connector asks nginx to keep every response body in memory
+(`filter_need_in_memory`) and feeds every response buffer to libmodsecurity,
+regardless of `SecResponseBodyAccess` and `SecRuleEngine`; again only
+`modsecurity off` avoids this.
+
+* A file-backed response (a static file, or a proxied response buffered to
+  disk) is read into memory in `output_buffers`-sized pieces (default
+  `2 32k`) before it is passed on, so nginx's own extra memory per request
+  stays bounded by `output_buffers`. `sendfile` is still used to transmit it,
+  so the cost is the extra read and copy rather than the loss of `sendfile`.
+* libmodsecurity accumulates its own copy of the whole response. It skips
+  the copy only for responses whose Content-Type is not in a non-empty
+  `SecResponseBodyMimeType` list, and caps it at `SecResponseBodyLimit`
+  according to `SecResponseBodyLimitAction`. To limit the copy, list only the
+  types you inspect.
+* Do not use `SecResponseBodyMimeTypesClear` to turn response inspection off.
+  If it leaves the list empty, libmodsecurity copies every response, but
+  phase 4 inspects none of them.
+* Phase 4 runs on the buffer that ends the response, after the response
+  headers have been committed and earlier buffers have been passed on. A
+  disruptive phase 4 action can therefore neither send its status nor
+  redirect: the connector aborts the response, and the client receives
+  nothing or a truncated response.
+
+## Rules loading
+
+Each `modsecurity_rules_file` directive parses and compiles the referenced
+file again. Load a large rule set such as the OWASP Core Rule Set once at the
+`http` level and only toggle `modsecurity on|off` per server or location.
+The rule objects are then shared, but every `server` and `location` block,
+including those with `modsecurity off` or without any modsecurity directive,
+still gets its own rules set into which the enclosing level's rules are
+merged at configuration load, so configuration load time and memory grow
+with the number of locations times the number of rules.
+
 # Contributing
 
 As an open source project we invite (and encourage) anyone from the community to contribute to our project. This may take the form of: new

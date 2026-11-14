@@ -47,15 +47,22 @@ route it.
   and response data, including credentials and cookies. Write them to a
   directory that is not world-readable (not `/tmp`), make the log files
   themselves readable only by the users that need them, and do not leave a
-  high `SecDebugLogLevel` enabled in production. These logs are opened by the
-  nginx master process (usually root), so the directory must not be writable
-  by the nginx worker user; otherwise a compromised worker can replace a log
-  file with a symlink and have root append request data to any file.
+  high `SecDebugLogLevel` enabled in production. The debug log and the audit
+  log files named by `SecAuditLog`/`SecAuditLog2` are opened by the nginx
+  master process (usually root), so neither their directory nor any of its
+  parent directories may be writable by the nginx worker user; otherwise a
+  compromised worker can replace a log file, or a directory on its path, with
+  a symlink and have root append request data to any file. Concurrent audit
+  logging is different: the per-transaction files in `SecAuditLogStorageDir`
+  are created by the worker processes, so that directory must be writable by
+  the worker user; keep it out of reach of every other user.
 - `modsecurity on` is an nginx-level switch only. Whether rules actually block
   is controlled by `SecRuleEngine` in the loaded rules. With `SecRuleEngine
   DetectionOnly`, or with `SecRuleEngine` not set at all, rules are evaluated
-  but never block; only `SecRuleEngine On` enforces disruptive actions. A
-  common mistake is `modsecurity on` plus CRS without the `modsecurity.conf`
-  that sets `SecRuleEngine On`. Whether a match is logged depends on the rules
+  but never block; only `SecRuleEngine On` enforces disruptive actions. Note
+  that libmodsecurity's `modsecurity.conf-recommended` sets
+  `SecRuleEngine DetectionOnly`: loading it, or CRS without any
+  `SecRuleEngine` line, does not block. Set `SecRuleEngine On` explicitly when
+  you want enforcement. Whether a match is logged depends on the rules
   and the logging configuration (for example, rules with `nolog` are not
   logged).

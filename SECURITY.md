@@ -50,12 +50,14 @@ route it.
   high `SecDebugLogLevel` enabled in production. The debug log and the audit
   log files named by `SecAuditLog`/`SecAuditLog2` are opened by the nginx
   master process (usually root), so neither their directory nor any of its
-  parent directories may be writable by the nginx worker user; otherwise a
-  compromised worker can replace a log file, or a directory on its path, with
-  a symlink and have root append request data to any file. Concurrent audit
-  logging is different: the per-transaction files in `SecAuditLogStorageDir`
-  are created by the worker processes, so that directory must be writable by
-  the worker user; keep it out of reach of every other user.
+  parent directories may be writable by anyone but trusted users (root and
+  the user nginx is started as), in particular not by the nginx worker user
+  nor through a group or ACL; otherwise whoever can write there can replace a
+  log file, or a directory on its path, with a symlink and have root append
+  request data to any file. Concurrent audit logging is different: the
+  per-transaction files in `SecAuditLogStorageDir` are created by the worker
+  processes, so that directory must be writable by the worker user; keep it
+  out of reach of every other user.
 - `modsecurity on` is an nginx-level switch only. Whether rules actually block
   is controlled by `SecRuleEngine` in the loaded rules. With `SecRuleEngine
   DetectionOnly`, or with `SecRuleEngine` not set at all, rules are evaluated
@@ -63,6 +65,7 @@ route it.
   that libmodsecurity's `modsecurity.conf-recommended` sets
   `SecRuleEngine DetectionOnly`: loading it, or CRS without any
   `SecRuleEngine` line, does not block. Set `SecRuleEngine On` explicitly when
-  you want enforcement. Whether a match is logged depends on the rules
-  and the logging configuration (for example, rules with `nolog` are not
-  logged).
+  you want enforcement. These describe the configured mode: a rule with
+  `ctl:ruleEngine` can change it for a single transaction, either way.
+  Whether a match is logged depends on the rules and the logging
+  configuration (for example, rules with `nolog` are not logged).

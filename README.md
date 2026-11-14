@@ -148,10 +148,12 @@ already exist, otherwise the rules fail to load and nginx does not start. The
 debug log is opened by the nginx master process (usually running as root) when
 the configuration is loaded, so the directory must be writable by the user
 nginx is started as, and neither it nor any of its parent directories may be
-writable by the worker user (for example `www-data` or `nginx`): a compromised
-worker could otherwise replace the log file, or a directory on its path, with a
-symlink and have root append request data to any file. The debug log contains request data, so also keep the directory
-and file unreadable by unprivileged users (see the
+writable by anyone else (in particular not by the worker user, for example
+`www-data` or `nginx`, nor through a group or ACL): anyone who can write
+there could replace the log file, or a directory on its path, with a symlink
+and have root append request data to any file. The debug log contains request
+data, so also keep the directory and file unreadable by unprivileged users (see
+the
 [Hardening Notes](SECURITY.md#hardening-notes)).
 
 modsecurity_transaction_id

@@ -112,6 +112,55 @@ ngx_http_modsecurity_pcre_malloc_done(ngx_pool_t *old_pool)
 #endif
 
 /*
+ * Release the error message handed out by msc_rules_add(), msc_rules_add_file(),
+ * msc_rules_add_remote() and msc_rules_merge(). libmodsecurity allocates it with
+ * strdup() and transfers the ownership to the caller; msc_rules_error_cleanup()
+ * is the documented release call, available since libmodsecurity v3.0.13.
+ */
+static ngx_inline void
+ngx_http_modsecurity_rules_error_free(const char *error)
+{
+    if (error == NULL) {
+        return;
+    }
+#if defined(MODSECURITY_CHECK_VERSION)
+#if MODSECURITY_VERSION_NUM >= 30130100
+    msc_rules_error_cleanup(error);
+#else
+    free((void *) error);
+#endif
+#else
+    free((void *) error);
+#endif
+}
+
+/*
+ * Copy a libmodsecurity error message into cf->pool, NUL-terminated as
+ * ngx_conf_handler() prints it with "%s", and release the original.
+ */
+static char *
+ngx_http_modsecurity_rules_error(ngx_conf_t *cf, const char *error)
+{
+    size_t   len;
+    u_char  *rv;
+
+    if (error == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    len = ngx_strlen(error);
+    rv = ngx_pnalloc(cf->pool, len + 1);
+
+    if (rv != NULL) {
+        ngx_cpystrn(rv, (u_char *) error, len + 1);
+    }
+
+    ngx_http_modsecurity_rules_error_free(error);
+
+    return rv != NULL ? (char *) rv : NGX_CONF_ERROR;
+}
+
+/*
  * ngx_string's are not null-terminated in common case, so we need to convert
  * them into null-terminated ones before passing to ModSecurity
  */
@@ -372,8 +421,12 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (res < 0) {
+        if (error == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
         dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
-        return strdup(error);
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -406,8 +459,12 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (res < 0) {
+        if (error == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
         dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
-        return strdup(error);
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -445,8 +502,12 @@ ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 
     if (res < 0) {
+        if (error == NULL) {
+            return NGX_CONF_ERROR;
+        }
+
         dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
-        return strdup(error);
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
@@ -783,7 +844,7 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     rules = msc_rules_merge(c->rules_set, p->rules_set, &error);
 
     if (rules < 0) {
-        return strdup(error);
+        return ngx_http_modsecurity_rules_error(cf, error);
     }
 
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)

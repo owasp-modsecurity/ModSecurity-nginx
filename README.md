@@ -1,8 +1,7 @@
 
-<img src="https://github.com/SpiderLabs/ModSecurity/raw/v3/master/others/modsec.png" width="50%">
+<img src="https://github.com/owasp-modsecurity/ModSecurity/raw/v3/master/others/modsec.png" width="50%">
 
-[![Build Status](https://travis-ci.org/SpiderLabs/ModSecurity-nginx.svg?branch=master)](https://travis-ci.org/SpiderLabs/ModSecurity-nginx)
-[![](https://raw.githubusercontent.com/ZenHubIO/support/master/zenhub-badge.png)](https://zenhub.com)
+[![Quality Assurance new](https://github.com/owasp-modsecurity/ModSecurity-nginx/actions/workflows/test_new.yml/badge.svg)](https://github.com/owasp-modsecurity/ModSecurity-nginx/actions/workflows/test_new.yml)
 
 
 The ModSecurity-nginx connector is the connection point between nginx and libmodsecurity (ModSecurity v3). Said another way, this project provides a communication channel between nginx and libmodsecurity. This connector is required to use LibModSecurity with nginx. 
@@ -22,7 +21,7 @@ Apache. As a result, this current version has less dependencies, fewer bugs, and
 # Compilation
 
 Before compile this software make sure that you have libmodsecurity installed.
-You can download it from the [ModSecurity git repository](https://github.com/SpiderLabs/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
+You can download it from the [ModSecurity git repository](https://github.com/owasp-modsecurity/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
 
 With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follows the nginx third-party module installation procedure. From the nginx source directory:
 
@@ -39,13 +38,27 @@ Or, to build a dynamic module:
 Note that when building a dynamic module, your nginx source version
 needs to match the version of nginx you're compiling this for.
 
-Further information about nginx third-party add-ons support are available [here](https://www.f5.com/company/blog/nginx/compiling-dynamic-modules-nginx-plus).
+If libmodsecurity is not installed in the system library path or in
+`/usr/local/modsecurity`, point the build at it with the `MODSECURITY_INC` and
+`MODSECURITY_LIB` environment variables. If libyajl is also in a non-standard
+location, set `YAJL_LIB` to the directory that contains it (not to the library
+file); `YAJL_LIB` is only honoured together with `MODSECURITY_INC` /
+`MODSECURITY_LIB` and is ignored when the library is auto-discovered (including
+from `/usr/local/modsecurity`). On Linux, set `NGX_IGNORE_RPATH=YES` to avoid
+embedding the library path in the resulting binary; the dynamic loader then has
+to find libmodsecurity at runtime, for example through `ld.so.conf` or
+`LD_LIBRARY_PATH`. On platforms where nginx uses `-R` (such as Solaris), the
+path is always embedded.
+
+For building on Windows with MSVC, see [win32/README.md](win32/README.md).
+
+Further information about building nginx third-party modules is available [here](https://nginx.org/en/docs/dev/development_guide.html#adding_new_modules).
 
 
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds four new directives and they are:
+It adds six new directives and they are:
 
 modsecurity
 -----------
@@ -122,13 +135,26 @@ server {
         root /var/www/html/opts;
         modsecurity_rules '
           SecRuleEngine On
-          SecDebugLog /tmp/modsec_debug.log
+          SecDebugLog /path/to/modsec_debug.log
           SecDebugLogLevel 9
           SecRuleRemoveById 10
         ';
     }
 }
 ```
+
+Replace `/path/to/modsec_debug.log` with a real path. The directory must
+already exist, otherwise the rules fail to load and nginx does not start. The
+debug log is opened by the nginx master process (usually running as root) when
+the configuration is loaded, so the directory must be writable by the user
+nginx is started as, and neither it nor any of its parent directories may be
+writable by anyone else (in particular not by the worker user, for example
+`www-data` or `nginx`, nor through a group or ACL): anyone who can write
+there could replace the log file, or a directory on its path, with a symlink
+and have root append request data to any file. The debug log contains request
+data, so also keep the directory and file unreadable by unprivileged users (see
+the
+[Hardening Notes](SECURITY.md#hardening-notes)).
 
 modsecurity_transaction_id
 --------------------------
@@ -176,7 +202,7 @@ using the same unique identificator.
 String can contain variables.
 
 modsecurity_use_error_log
------------
+-------------------------
 **syntax:** *modsecurity_use_error_log on | off*
 
 **context:** *http, server, location*
@@ -197,7 +223,7 @@ are willing to help with. Thank you.
 We prefer to have your patch within the GitHub infrastructure to facilitate our
 review work, and our QA integration. GitHub provides an excellent
 documentation on how to perform “Pull Requests”. More information available
-here: https://help.github.com/articles/using-pull-requests/
+here: https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/creating-a-pull-request
 
 Please respect the coding style in use. Pull requests can include various commits, so
 provide one fix or one functionality per commit. Do not change anything outside
@@ -221,7 +247,7 @@ You may also take a look at recent bug reports and open issues to get an idea of
 Along with the manual testing, we strongly recommend that you to use the nginx test
 utility to make sure that you patch does not adversely affect the behavior or performance of nginx. 
 
-The nginx tests are available on: http://hg.nginx.org/nginx-tests/ 
+The nginx tests are available on: https://github.com/nginx/nginx-tests
 
 To use those tests, make sure you have the Perl utility prove (part of Perl 5)
 and proceed with the following commands:
@@ -232,43 +258,43 @@ $ cd /path/to/nginx/test/repository
 $ TEST_NGINX_BINARY=/path/to/your/nginx prove .
 ```
 
-If you are facing problems getting your added functionality to pass all the nginx tests, feel free to contact us or the nginx mailing list at: http://nginx.org/en/support.html
+If you are facing problems getting your added functionality to pass all the nginx tests, feel free to open a GitHub issue.
 
 ### Debugging 
 
 We respect the nginx debugging schema. By using the configuration option
 "--with-debug" during the nginx configuration you will also be enabling the
-connector's debug messages. Core dumps and crashes are expected to be debugged
-in the same fashion that is used to debug nginx. For further information,
-please check the nginx debugging information: http://wiki.nginx.org/Debugging
+connector's debug messages, see https://nginx.org/en/docs/debugging_log.html.
+Core dumps and crashes are expected to be debugged in the same fashion that is
+used to debug nginx; to get a core dump from a worker, set
+[`worker_rlimit_core`](https://nginx.org/en/docs/ngx_core_module.html#worker_rlimit_core)
+and
+[`working_directory`](https://nginx.org/en/docs/ngx_core_module.html#working_directory).
 
 
 ## Reporting Issues
 
 If you are facing a configuration issue or if something is not working as you
-expect it to be, please use ModSecurity user’s mailing list. Issues on GitHub
-are also welcome, but we prefer to have users question on the mailing list first,
-where you can reach an entire community. Also don’t forget to look for an
-existing issue before opening a new one.
+expect it to be, please open an issue on
+[GitHub](https://github.com/owasp-modsecurity/ModSecurity-nginx/issues).
+Don’t forget to look for an existing issue before opening a new one.
 
 Lastly, If you are planning to open an issue on GitHub, please don’t forget to tell us the
 version of your libmodsecurity and the version of the nginx connector you are running.
 
 ### Security issue
 
-Please do not publicly report any security issue. Instead, contact us at:
-security@modsecurity.org to report the issue. Once the problem is fixed we will provide you with credit for the discovery.
+Please do not report security issues publicly. See [SECURITY.md](SECURITY.md)
+for how to report them privately.
 
 
 ## Feature Request
 
-We would love to discuss any ideas that you may have for a new feature. Please keep in mind this is a community driven project so be sure to contact the community via the mailing list to get feedback first. Alternatively,
-feel free to open GitHub issues requesting for new features. Before opening a new issue, please check if there is an existing feature request for the desired functionality.
+We would love to discuss any ideas that you may have for a new feature. Please keep in mind this is a community driven project, so feel free to open
+GitHub issues requesting new features and to gather feedback there. Before opening a new issue, please check if there is an existing feature request for the desired functionality.
 
 
 ## Packaging
 
 Having our packages in distros on time is something we highly desire. Let us know if
 there is anything we can do to facilitate your work as a packager.
-
-

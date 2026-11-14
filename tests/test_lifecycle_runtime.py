@@ -356,6 +356,7 @@ def unit_program(access: str, logging: str) -> str:
         ("ngx_http_modsecurity_request_failure", "static ngx_int_t"),
         ("ngx_http_modsecurity_request_intervention", "static int"),
         ("ngx_http_modsecurity_append_request_chunk", "static ngx_int_t"),
+        ("ngx_http_modsecurity_append_request_body", "static ngx_int_t"),
         ("ngx_http_modsecurity_inspect_request_body_file", "static ngx_int_t"),
         ("ngx_http_modsecurity_request_read", "void"),
         ("ngx_http_modsecurity_access_handler", "ngx_int_t"),

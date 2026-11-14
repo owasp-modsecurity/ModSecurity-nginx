@@ -42,13 +42,39 @@ ngx_http_modsecurity_metadata_hex_digit(u_char value)
 /* Engine toHexIfNeeded() uses literal \xHH sequences in the escaped fields.
  * Do not decode them while locating delimiters. Raw fields may contain quotes
  * without a following ']', but the complete ordered record must still match. */
+static ngx_inline size_t
+ngx_http_modsecurity_metadata_field_character_size(ngx_str_t input,
+    size_t position, ngx_int_t escaped, ngx_int_t decimal)
+{
+    u_char character = input.data[position];
+    size_t remaining = input.len - position;
+
+    if (character < 0x20 || character > 0x7e ||
+        (decimal && (character < '0' || character > '9'))) {
+        return 0;
+    }
+    if (!escaped) {
+        return 1;
+    }
+    if (character == '\\') {
+        if (remaining < 4 || input.data[position + 1] != 'x' ||
+            !ngx_http_modsecurity_metadata_hex_digit(input.data[position + 2]) ||
+            !ngx_http_modsecurity_metadata_hex_digit(input.data[position + 3])) {
+            return 0;
+        }
+        return 4;
+    }
+    return character == '"' ? 0 : 1;
+}
+
 static ngx_inline ngx_int_t
 ngx_http_modsecurity_metadata_parse_field(
     ngx_http_modsecurity_metadata_cursor_t *cursor, const char *name,
     ngx_int_t escaped, ngx_int_t decimal, ngx_str_t *value)
 {
-    size_t start, position, remaining;
-    u_char character;
+    size_t start;
+    size_t position;
+    size_t consumed;
 
     if (!ngx_http_modsecurity_metadata_field_starts(cursor->input,
             cursor->position, name)) {
@@ -57,9 +83,8 @@ ngx_http_modsecurity_metadata_parse_field(
     start = cursor->position + strlen(name) + 3;
     position = start;
     while (position < cursor->input.len) {
-        remaining = cursor->input.len - position;
-        character = cursor->input.data[position];
-        if (character == '"' && remaining >= 2 &&
+        if (cursor->input.data[position] == '"' &&
+            cursor->input.len - position >= 2 &&
             cursor->input.data[position + 1] == ']') {
             if (decimal && position == start) {
                 return 0;
@@ -71,25 +96,12 @@ ngx_http_modsecurity_metadata_parse_field(
             cursor->position = position + 2;
             return 1;
         }
-        if (character < 0x20 || character > 0x7e ||
-            (decimal && (character < '0' || character > '9'))) {
+        consumed = ngx_http_modsecurity_metadata_field_character_size(
+            cursor->input, position, escaped, decimal);
+        if (consumed == 0) {
             return 0;
         }
-        if (escaped && character == '\\') {
-            if (remaining < 4 || cursor->input.data[position + 1] != 'x' ||
-                !ngx_http_modsecurity_metadata_hex_digit(
-                    cursor->input.data[position + 2]) ||
-                !ngx_http_modsecurity_metadata_hex_digit(
-                    cursor->input.data[position + 3])) {
-                return 0;
-            }
-            position += 4;
-        } else {
-            if (escaped && character == '"') {
-                return 0;
-            }
-            position++;
-        }
+        position += consumed;
     }
     return 0;
 }
@@ -163,7 +175,8 @@ ngx_http_modsecurity_parse_rule_metadata(ngx_str_t input, ngx_str_t *rule_id)
     static const char marker[] = "[file \"";
     ngx_http_modsecurity_metadata_cursor_t cursor;
     ngx_str_t candidate;
-    size_t position, first;
+    size_t position;
+    size_t first;
 
     if (rule_id == NULL) {
         return -1;
@@ -282,6 +295,56 @@ ngx_http_modsecurity_metadata_utf8_size(const u_char *input, size_t remaining)
     return 0;
 }
 
+/* Classify one input byte or complete UTF-8 sequence for both JSON passes. */
+static ngx_inline size_t
+ngx_http_modsecurity_metadata_json_character_size(const u_char *input,
+    size_t remaining, size_t *consumed)
+{
+    u_char character = input[0];
+    size_t sequence_size;
+
+    *consumed = 1;
+    if (character < 0x20) {
+        return 6;
+    }
+    if (character == '"' || character == '\\') {
+        return 2;
+    }
+    if (character < 0x80) {
+        return 1;
+    }
+    sequence_size = ngx_http_modsecurity_metadata_utf8_size(input, remaining);
+    if (sequence_size == 0) {
+        return 6;
+    }
+    *consumed = sequence_size;
+    return sequence_size;
+}
+
+static ngx_inline u_char *
+ngx_http_modsecurity_metadata_write_json_character(u_char *output,
+    const u_char *input, size_t consumed, size_t width)
+{
+    static const u_char hex[] = "0123456789abcdef";
+    u_char character = input[0];
+
+    if (width == 6) {
+        *output++ = '\\';
+        *output++ = 'u';
+        *output++ = '0';
+        *output++ = '0';
+        *output++ = hex[character >> 4];
+        *output++ = hex[character & 0x0f];
+    } else if (consumed == 1 && width == 2) {
+        *output++ = '\\';
+        *output++ = character;
+    } else {
+        memcpy(output, input, consumed);
+        output += consumed;
+    }
+    return output;
+}
+
 /* Preserve valid UTF-8 as-is. JSON controls and invalid UTF-8 bytes are
  * represented as \u00xx; each invalid byte retains its unsigned byte value.
  * Success is NUL-terminated with an explicit length. Allocation/size failure
@@ -290,9 +353,11 @@ ngx_http_modsecurity_metadata_utf8_size(const u_char *input, size_t remaining)
 static ngx_inline void
 ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *dst)
 {
-    static const u_char hex[] = "0123456789abcdef";
-    size_t position, size, consumed, width;
-    u_char character, *output;
+    size_t position;
+    size_t size;
+    size_t consumed;
+    size_t width;
+    u_char *output;
 
     dst->data = NULL;
     dst->len = 0;
@@ -305,24 +370,8 @@ ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *ds
     }
     size = 0;
     for (position = 0; position < src->len; position += consumed) {
-        character = src->data[position];
-        consumed = 1;
-        if (character < 0x20) {
-            width = 6;
-        } else if (character == '"' || character == '\\') {
-            width = 2;
-        } else if (character < 0x80) {
-            width = 1;
-        } else {
-            consumed = ngx_http_modsecurity_metadata_utf8_size(
-                src->data + position, src->len - position);
-            if (consumed == 0) {
-                consumed = 1;
-                width = 6;
-            } else {
-                width = consumed;
-            }
-        }
+        width = ngx_http_modsecurity_metadata_json_character_size(
+            src->data + position, src->len - position, &consumed);
         if (width > SIZE_MAX - 1 - size) {
             return;
         }
@@ -334,26 +383,10 @@ ngx_http_modsecurity_json_escape(ngx_pool_t *pool, ngx_str_t *src, ngx_str_t *ds
     }
     output = dst->data;
     for (position = 0; position < src->len; position += consumed) {
-        character = src->data[position];
-        consumed = 1;
-        if (character == '"' || character == '\\') {
-            *output++ = '\\';
-            *output++ = character;
-        } else if (character < 0x20 ||
-            (character >= 0x80 &&
-             (consumed = ngx_http_modsecurity_metadata_utf8_size(
-                src->data + position, src->len - position)) == 0)) {
-            *output++ = '\\';
-            *output++ = 'u';
-            *output++ = '0';
-            *output++ = '0';
-            *output++ = hex[character >> 4];
-            *output++ = hex[character & 0x0f];
-            consumed = 1;
-        } else {
-            memcpy(output, src->data + position, consumed);
-            output += consumed;
-        }
+        width = ngx_http_modsecurity_metadata_json_character_size(
+            src->data + position, src->len - position, &consumed);
+        output = ngx_http_modsecurity_metadata_write_json_character(output,
+            src->data + position, consumed, width);
     }
     *output = '\0';
     dst->len = size;

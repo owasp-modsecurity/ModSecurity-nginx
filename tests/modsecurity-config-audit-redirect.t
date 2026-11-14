@@ -27,23 +27,40 @@ http {
         modsecurity on;
         modsecurity_rules '
             SecRuleEngine On
-            SecAuditEngine On
-            SecAuditLogType Serial
-            SecAuditLogParts ABZ
-            SecAuditLog %%TESTDIR%%/audit-source.log
         ';
         location /same/ {
+            modsecurity_rules '
+                SecAuditEngine On
+                SecAuditLogType Serial
+                SecAuditLogParts ABZ
+                SecAuditLog %%TESTDIR%%/audit-source.log
+            ';
             try_files $uri /same/index.html;
         }
         location = /changed-start {
+            modsecurity_rules '
+                SecAuditEngine On
+                SecAuditLogType Serial
+                SecAuditLogParts ABZ
+                SecAuditLog %%TESTDIR%%/audit-source.log
+            ';
             try_files /nonexistent-audit-source /changed-final;
         }
         location = /changed-final {
             modsecurity_rules '
+                SecAuditEngine On
+                SecAuditLogType Serial
+                SecAuditLogParts ABZ
                 SecAuditLog %%TESTDIR%%/audit-target.log
             ';
         }
         location = /disabled-start {
+            modsecurity_rules '
+                SecAuditEngine On
+                SecAuditLogType Serial
+                SecAuditLogParts ABZ
+                SecAuditLog %%TESTDIR%%/audit-source.log
+            ';
             try_files /nonexistent-audit-source /disabled-final;
         }
         location = /disabled-final {
@@ -69,6 +86,8 @@ my $disabled = http_get('/disabled-start');
 like($disabled, qr/200 OK/, 'disabled target succeeds');
 like($disabled, qr/disabled-policy-response/, 'disabled response preserved');
 
+# Each location owns its audit settings: the engine's rules merge otherwise
+# lets an explicitly configured parent audit path override a child path.
 # Stop first so the native serial audit epilogues are fully written.
 $t->stop();
 my $source = $t->read_file('audit-source.log');

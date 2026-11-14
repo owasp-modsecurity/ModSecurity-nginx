@@ -71,6 +71,37 @@ ngx_http_modsecurity_append_request_chunk(ngx_http_request_t *r,
 
 
 static ngx_int_t
+ngx_http_modsecurity_append_request_body(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    ngx_chain_t *chain = r->request_body != NULL ? r->request_body->bufs : NULL;
+    ngx_int_t result;
+
+    while (chain != NULL) {
+        if (chain->buf == NULL) {
+            return ngx_http_modsecurity_request_failure(r, ctx);
+        }
+        if (!ngx_buf_special(chain->buf)) {
+            if (chain->buf->pos == NULL || chain->buf->last == NULL ||
+                chain->buf->last < chain->buf->pos) {
+                return ngx_http_modsecurity_request_failure(r, ctx);
+            }
+            result = ngx_http_modsecurity_append_request_chunk(r, ctx,
+                chain->buf->pos, (size_t) (chain->buf->last - chain->buf->pos));
+            if (result != NGX_OK) {
+                return result;
+            }
+        }
+        if (chain->buf->last_buf) {
+            break;
+        }
+        chain = chain->next;
+    }
+    return NGX_OK;
+}
+
+
+static ngx_int_t
 ngx_http_modsecurity_inspect_request_body_file(ngx_http_request_t *r,
     ngx_http_modsecurity_ctx_t *ctx)
 {
@@ -499,13 +530,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
     if (ctx->waiting_more_body == 0)
     {
         int ret = 0;
-        int already_inspected = 0;
 
         dd("request body is ready to be processed");
 
         r->write_event_handler = ngx_http_core_run_phases;
-
-        ngx_chain_t *chain = r->request_body != NULL ? r->request_body->bufs : NULL;
 
         /**
          * TODO: Speed up the analysis by sending chunk while they arrive.
@@ -518,34 +546,12 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 
         if (r->request_body != NULL && r->request_body->temp_file != NULL) {
             ret = ngx_http_modsecurity_inspect_request_body_file(r, ctx);
-            if (ret != NGX_OK) {
-                return ret;
-            }
-            already_inspected = 1;
         } else {
             dd("inspection request body in memory.");
+            ret = ngx_http_modsecurity_append_request_body(r, ctx);
         }
-
-        while (chain && !already_inspected)
-        {
-            if (chain->buf == NULL) {
-                return ngx_http_modsecurity_request_failure(r, ctx);
-            }
-            if (!ngx_buf_special(chain->buf)) {
-                if (chain->buf->pos == NULL || chain->buf->last == NULL ||
-                    chain->buf->last < chain->buf->pos) {
-                    return ngx_http_modsecurity_request_failure(r, ctx);
-                }
-                ret = ngx_http_modsecurity_append_request_chunk(r, ctx,
-                    chain->buf->pos, (size_t) (chain->buf->last - chain->buf->pos));
-                if (ret != NGX_OK) {
-                    return ret;
-                }
-            }
-            if (chain->buf->last_buf) {
-                break;
-            }
-            chain = chain->next;
+        if (ret != NGX_OK) {
+            return ret;
         }
 
         /**

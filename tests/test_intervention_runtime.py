@@ -570,7 +570,8 @@ def unit_program(module: str) -> str:
     helpers += "\nint\n" + function_definition(
         module, "ngx_http_modsecurity_process_intervention"
     )
-    metadata = (ROOT / "src" / "ngx_http_modsecurity_log_metadata.h").read_text(encoding="utf-8")
+    metadata_path = (ROOT / "src" / "ngx_http_modsecurity_log_metadata.h").as_posix()
+    metadata = f'\n#include "{metadata_path}"\n'
     return PREAMBLE + metadata + helpers + CASES
 
 

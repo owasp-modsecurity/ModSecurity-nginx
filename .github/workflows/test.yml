@@ -25,7 +25,7 @@ jobs:
         run: |
           sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
+          sudo apt-get install -y patch make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
       - name: Get libModSecurity source
         uses: actions/checkout@v4
         with:
@@ -50,6 +50,8 @@ jobs:
           repository: nginx/nginx
           path: nginx
           fetch-depth: 1
+      - name: Apply NGINX HTTP/2 reset delivery fix
+        run: sh ModSecurity-nginx/.github/scripts/apply-nginx-http2-patch.sh nginx
       - name: Get Nginx tests
         uses: actions/checkout@v4
         with:

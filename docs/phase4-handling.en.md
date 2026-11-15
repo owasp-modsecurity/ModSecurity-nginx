@@ -168,6 +168,27 @@ same separate-load sequence.
 Engine MIME selection and inspection limits apply in every phase 4 mode;
 there is no additional connector inspection budget.
 
+### HTTP/2 host-core correction
+
+A Strict intervention on an HTTP/2 response terminates that stream. The
+bundled [NGINX core patch](../patches/README.md) ensures that its queued reset
+is written promptly when an independent stream on the connection remains
+active. The physical connection and allowed sibling streams remain usable.
+
+Apply the patch before configuring and rebuilding NGINX. This includes the
+NGINX host binary when using a dynamic module; replacing only the connector
+module cannot change an already installed host's core behavior. The helper
+accepts an already-applied patch and rejects source drift without fuzzy
+matching. Native CI applies the host correction to its Linux/Windows builds.
+
+The focused regression releases an auth-gated static Strict response while
+an allowed proxied sibling is held open, then waits passively for the reset.
+It sends no new
+client input that could hide a stalled write. After the reset, the sibling
+and a new stream must complete normally. A selected Linux job runs the
+controlled queued-reset expectation against an unpatched host before
+applying the patch and rebuilding it.
+
 ## 6) Logging format and security boundary
 
 `modsecurity_phase4_log` preserves the existing JSON-lines intervention schema:

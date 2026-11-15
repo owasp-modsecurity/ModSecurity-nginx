@@ -5,7 +5,7 @@
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
-      ca-certificates git build-essential clang autoconf automake libtool pkg-config \
+      ca-certificates git patch build-essential clang autoconf automake libtool pkg-config \
       perl curl gdb valgrind \
       libpcre2-dev pcre2-utils zlib1g-dev libyajl-dev libxml2-dev libmaxminddb-dev \
       libcurl4-gnutls-dev \
@@ -39,7 +39,8 @@ RUN tag=$(git ls-remote --tags --refs https://github.com/coreruleset/coreruleset
     && git clone --depth 1 --branch "$tag" https://github.com/coreruleset/coreruleset /opt/coreruleset
 
 # nginx with this connector built in, as CI builds it. A failing step fails the build.
-RUN cd /opt/nginx \
+RUN sh /src/.github/scripts/apply-nginx-http2-patch.sh /opt/nginx \
+    && cd /opt/nginx \
     && ./auto/configure --with-debug --with-http_v2_module --with-http_auth_request_module \
          --with-cc-opt="$DEBUG_FLAGS" --add-module=/src \
     && make -j"$(nproc)"

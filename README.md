@@ -23,6 +23,15 @@ Apache. As a result, this current version has less dependencies, fewer bugs, and
 Before compile this software make sure that you have libmodsecurity installed.
 You can download it from the [ModSecurity git repository](https://github.com/owasp-modsecurity/ModSecurity). For information pertaining to the compilation and installation of libmodsecurity please consult the documentation provided along with it.
 
+For HTTP/2 builds that use Phase 4 enforcement, apply the bundled
+[NGINX reset-delivery correction](patches/README.md) to the NGINX sources before
+configuration. This is a host-core change; rebuild the NGINX binary when using
+a dynamic connector module as well:
+
+```sh
+sh /path/to/ModSecurity-nginx/.github/scripts/apply-nginx-http2-patch.sh /path/to/nginx
+```
+
 With libmodsecurity installed, you can proceed with the installation of the ModSecurity-nginx connector, which follows the nginx third-party module installation procedure. From the nginx source directory:
 
 ```
@@ -212,7 +221,7 @@ modsecurity_phase4_mode
 
 Controls the connector's additional phase 4 intervention policy. `safe` logs a
 late rule intervention as `log_only` and continues even if optional JSON
-logging fails (with an nginx diagnostic); `strict` aborts the connection once headers
+logging fails (with an nginx diagnostic); `strict` terminates the affected response once headers
 are sent. Before headers are sent, both modes can apply the intervention's HTTP
 status. Neither mode guarantees a clean 403 after headers have been sent.
 

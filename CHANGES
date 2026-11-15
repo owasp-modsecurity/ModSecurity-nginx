@@ -1,6 +1,17 @@
 Unreleased
 ----------
 
+  - fix: bundle the NGINX HTTP/2 close-stream correction so a queued
+    RST_STREAM is flushed while sibling streams remain active. Apply it to
+    native CI hosts before building NGINX and document the host rebuild
+    requirement for static and dynamic connector installations.
+    [PR #377 - @Easton97-Jens]
+  - test: add a passive HTTP/2 multiplex regression for prompt Strict resets,
+    independent allowed-stream completion and same-connection reuse. One
+    Linux job first verifies the queued-reset behavior on an unpatched host,
+    then applies the core patch and runs the normal suite.
+    [PR #377 - @Easton97-Jens]
+
   - feat: add off (default), safe and strict Phase 4 intervention modes.
     Safe and strict explicitly enable the additional connector policy; off
     leaves ModSecurity response inspection and native interventions active.

@@ -46,7 +46,7 @@ jobs:
       - name: Setup Dependencies
         run: |
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
+          sudo apt-get install -y patch make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
       - name: Get libModSecurity source
         uses: actions/checkout@v6
         with:
@@ -81,6 +81,10 @@ jobs:
           path: nginx
           fetch-depth: 0
 
+      - name: Apply NGINX HTTP/2 reset delivery fix
+        if: ${{ matrix.os != 'ubuntu-24.04' || matrix.compiler != 'gcc' || matrix.nginx_version != '1.31.x' }}
+        run: sh ModSecurity-nginx/.github/scripts/apply-nginx-http2-patch.sh nginx
+
       - name: Show Nginx source version
         working-directory: nginx
         shell: bash
@@ -113,6 +117,19 @@ jobs:
         working-directory: nginx
         run: |
           ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
+          make
+          make modules
+          sudo make install
+      - name: Verify queued reset on unpatched NGINX
+        if: ${{ matrix.os == 'ubuntu-24.04' && matrix.compiler == 'gcc' && matrix.nginx_version == '1.31.x' }}
+        working-directory: nginx/test
+        run: |
+          TEST_NGINX_BINARY=../objs/nginx TEST_NGINX_H2_RESET_EXPECT_QUEUED=1 prove -v modsecurity-phase4-h2-reset.t
+      - name: Apply HTTP/2 fix and rebuild after negative control
+        if: ${{ matrix.os == 'ubuntu-24.04' && matrix.compiler == 'gcc' && matrix.nginx_version == '1.31.x' }}
+        working-directory: nginx
+        run: |
+          sh ../ModSecurity-nginx/.github/scripts/apply-nginx-http2-patch.sh .
           make
           make modules
           sudo make install
@@ -310,6 +327,7 @@ jobs:
         with:
           msystem: UCRT64
           path-type: inherit
+          install: patch
       - name: Get ModSecurity-nginx workflow scripts
         uses: actions/checkout@v7
         with:
@@ -329,6 +347,9 @@ jobs:
           ref: ${{ steps.nginx_ref.outputs.ref }}
           path: nginx
           fetch-depth: 0
+
+      - name: Apply NGINX HTTP/2 reset delivery fix
+        run: sh ModSecurity-nginx/.github/scripts/apply-nginx-http2-patch.sh nginx
 
       - name: Show Nginx source version
         working-directory: nginx

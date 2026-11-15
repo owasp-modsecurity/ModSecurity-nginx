@@ -71,3 +71,16 @@ Perl suites run in the Linux and Windows build jobs.
 or MIME selection. The main response must still run its Phase3 header rule and
 Phase4 body rule. Direct subrequest EOS ownership is exercised separately by
 the compiled helper suite; the auth fixture does not claim to emit a body EOS.
+
+## HTTP/2 reset delivery regression
+
+`modsecurity-phase4-h2-reset.t` uses Test::Nginx::HTTP2 and controlled proxy
+backends. It requires a prompt Strict reset while an allowed sibling remains
+active, then checks sibling completion and connection reuse. Normal CI runs
+it with the bundled NGINX host-core correction applied.
+
+Only the controlled unpatched negative run sets
+`TEST_NGINX_H2_RESET_EXPECT_QUEUED=1`. That run requires the reset to remain
+queued during the passive wait and to arrive after the held sibling is
+released. The selected Linux job subsequently applies the patch, rebuilds
+NGINX, and runs the normal tests without that variable.

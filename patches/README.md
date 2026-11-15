@@ -20,7 +20,7 @@ Then configure NGINX with `--with-http_v2_module` and this connector as usual.
 For a dynamic connector, rebuild and deploy the patched NGINX host as well.
 Replacing only the module leaves an existing host's HTTP/2 core unchanged.
 
-The helper requires the standard `patch` utility, rejects mismatched source
+The helper requires GNU `patch`, rejects mismatched source
 without fuzzy matching, and accepts an already-applied copy. Review this
 dependency correction when changing NGINX versions or when an equivalent fix
 lands upstream. NGINX binaries supplied by a distribution need the equivalent

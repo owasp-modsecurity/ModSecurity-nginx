@@ -36,6 +36,7 @@ END {
 			$t->write_file('strict-release', "\n");
 		};
 		undef $s;
+		undef $t;
 	}
 }
 
@@ -162,6 +163,8 @@ ok(!grep({ $_->{type} eq 'GOAWAY' } @$after), 'reused connection has no GOAWAY')
 ok(!stream_reset($after, $allowed), 'later allowed stream is not reset');
 
 undef $s;
+# Run Test::Nginx's alert/sanitizer assertions before Test::More finalizes TAP.
+undef $t;
 
 sub stream_body {
 	my ($list, $sid) = @_;

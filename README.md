@@ -245,9 +245,9 @@ libmodsecurity only takes an `fcntl()` lock, which belongs to the process, so
 two threads of one worker do not exclude each other, and one thread releasing
 the lock lets another process write while the other thread is still writing.
 As a consequence a thread pool with more than one thread gives no additional
-logging parallelism, and the event loop can wait for the mutex while a thread
-writes; that wait is never longer than the write it would have done itself
-without this directive. `threads=1` is enough.
+logging parallelism, and inline or early logging on the event loop can wait
+for the mutex while another transaction's phase 5 and audit write run, so that
+wait is not bounded by the request's own logging time. `threads=1` is enough.
 
 This directive requires nginx built with `--with-threads` and with PCRE2;
 other builds refuse it at configuration time, except for
@@ -285,13 +285,17 @@ The thread destroys the transaction once it has been logged, so temporary
 files of the transaction, such as saved uploads, are removed even if the
 worker exits before the task's completion handler runs.
 
-On graceful shutdown the worker does not exit while logging tasks are
-pending: it keeps a timer armed until their completion handlers have run. On
-fast shutdown the worker exits at once, and the thread pool runs the tasks
-still queued before its threads exit, provided the pool's exit task fits into
-the queue -- hence `max_queue` greater than `max_pending` on a dedicated pool.
-In both cases a thread blocked on a contended audit log delays the worker's
-exit, and `worker_shutdown_timeout` does not shorten that wait.
+On graceful shutdown (`nginx -s quit`) the worker does not exit while logging
+tasks are pending: it keeps a timer armed until their completion handlers have
+run. Use graceful shutdown when queued audit records must be written. A worker
+that receives `SIGTERM` exits at once, and the thread pool runs the tasks still
+queued before its threads exit, provided the pool's exit task fits into the
+queue -- hence `max_queue` greater than `max_pending` on a dedicated pool. On
+fast shutdown (`nginx -s stop`), though, the master sends `SIGKILL` to workers
+that have not exited after about 1.5 seconds, so queued and running logging tasks
+can be lost and their temporary files left behind, whatever the queue size. A
+thread blocked on a contended audit log delays a graceful exit, and
+`worker_shutdown_timeout` does not shorten that wait.
 
 ```nginx
 thread_pool modsec threads=1 max_queue=256;

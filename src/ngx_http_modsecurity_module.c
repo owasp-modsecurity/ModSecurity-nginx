@@ -389,16 +389,20 @@ typedef int (*ngx_http_modsecurity_add_pt)(void *rules_set, const char *a,
 
 static int
 ngx_http_modsecurity_add_inline(void *rules_set, const char *rules,
-    const char *unused, const char **error)
+    const char *b, const char **error)
 {
+    (void) b;   /* only the remote variant takes a second argument */
+
     return msc_rules_add(rules_set, rules, error);
 }
 
 
 static int
 ngx_http_modsecurity_add_file(void *rules_set, const char *file,
-    const char *unused, const char **error)
+    const char *b, const char **error)
 {
+    (void) b;   /* only the remote variant takes a second argument */
+
     return msc_rules_add_file(rules_set, file, error);
 }
 

@@ -36,6 +36,7 @@ static void *ngx_http_modsecurity_create_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child);
 static void ngx_http_modsecurity_cleanup_instance(void *data);
 static void ngx_http_modsecurity_cleanup_rules(void *data);
+static void ngx_http_modsecurity_cleanup_empty_rules(void *data);
 
 
 /*
@@ -275,6 +276,7 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
+    void                              *rules_set;
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -286,16 +288,22 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
+    /*
+     * A loc conf that never went through merge_conf (created by another
+     * module) has no RulesSet: use the empty one, as before it was lazy.
+     */
+    rules_set = mcf->rules_set != NULL ? mcf->rules_set : mmcf->empty_rules_set;
+
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", rules_set, mmcf->modsec);
 
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, rules_set, (char *) s.data, r->connection->log);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, rules_set, r->connection->log);
     }
 
     dd("transaction created");
@@ -375,15 +383,72 @@ ngx_http_modsecurity_own_rules_set(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *
 }
 
 
+typedef int (*ngx_http_modsecurity_add_pt)(void *rules_set, const char *a,
+    const char *b, const char **error);
+
+
+static int
+ngx_http_modsecurity_add_inline(void *rules_set, const char *rules,
+    const char *unused, const char **error)
+{
+    return msc_rules_add(rules_set, rules, error);
+}
+
+
+static int
+ngx_http_modsecurity_add_file(void *rules_set, const char *file,
+    const char *unused, const char **error)
+{
+    return msc_rules_add_file(rules_set, file, error);
+}
+
+
+static int
+ngx_http_modsecurity_add_remote(void *rules_set, const char *key,
+    const char *server, const char **error)
+{
+    return msc_rules_add_remote(rules_set, key, server, error);
+}
+
+
+/*
+ * Common part of the three rules directives: make sure the block owns its
+ * RulesSet (see own_rules_set), add the rules, and count them. Going through
+ * this single path means a new rules directive can't forget to own one.
+ */
+static char *
+ngx_http_modsecurity_add_rules(ngx_conf_t *cf, ngx_http_modsecurity_conf_t *mcf,
+    ngx_http_modsecurity_add_pt add, const char *a, const char *b,
+    ngx_uint_t *counter)
+{
+    int          res;
+    const char  *error;
+    ngx_pool_t  *old_pool;
+
+    if (ngx_http_modsecurity_own_rules_set(cf, mcf) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
+    res = add(mcf->rules_set, a, b, &error);
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+    if (res < 0) {
+        dd("Failed to load the rules: '%s' - reason: '%s'", a, error);
+        return strdup(error);
+    }
+
+    *counter += res;
+
+    return NGX_CONF_OK;
+}
+
+
 char *
 ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    int                                res;
     char                              *rules;
     ngx_str_t                         *value;
-    const char                        *error;
-    ngx_pool_t                        *old_pool;
-    ngx_http_modsecurity_conf_t       *mcf = conf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
 
     value = cf->args->elts;
@@ -393,35 +458,18 @@ ngx_conf_set_rules(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_http_modsecurity_own_rules_set(cf, mcf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
-    res = msc_rules_add(mcf->rules_set, rules, &error);
-    ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-    if (res < 0) {
-        dd("Failed to load the rules: '%s' - reason: '%s'", rules, error);
-        return strdup(error);
-    }
-
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
-    mmcf->rules_inline += res;
 
-    return NGX_CONF_OK;
+    return ngx_http_modsecurity_add_rules(cf, conf,
+        ngx_http_modsecurity_add_inline, rules, NULL, &mmcf->rules_inline);
 }
 
 
 char *
 ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    int                                res;
     char                              *rules_set;
     ngx_str_t                         *value;
-    const char                        *error;
-    ngx_pool_t                        *old_pool;
-    ngx_http_modsecurity_conf_t       *mcf = conf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
 
     value = cf->args->elts;
@@ -431,35 +479,18 @@ ngx_conf_set_rules_file(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_http_modsecurity_own_rules_set(cf, mcf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
-    res = msc_rules_add_file(mcf->rules_set, rules_set, &error);
-    ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-    if (res < 0) {
-        dd("Failed to load the rules from: '%s' - reason: '%s'", rules_set, error);
-        return strdup(error);
-    }
-
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
-    mmcf->rules_file += res;
 
-    return NGX_CONF_OK;
+    return ngx_http_modsecurity_add_rules(cf, conf,
+        ngx_http_modsecurity_add_file, rules_set, NULL, &mmcf->rules_file);
 }
 
 
 char *
 ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
 {
-    int                                res;
     ngx_str_t                         *value;
-    const char                        *error;
     const char                        *rules_remote_key, *rules_remote_server;
-    ngx_pool_t                        *old_pool;
-    ngx_http_modsecurity_conf_t       *mcf = conf;
     ngx_http_modsecurity_main_conf_t  *mmcf;
 
     value = cf->args->elts;
@@ -474,23 +505,11 @@ ngx_conf_set_rules_remote(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
         return NGX_CONF_ERROR;
     }
 
-    if (ngx_http_modsecurity_own_rules_set(cf, mcf) != NGX_OK) {
-        return NGX_CONF_ERROR;
-    }
-
-    old_pool = ngx_http_modsecurity_pcre_malloc_init(cf->pool);
-    res = msc_rules_add_remote(mcf->rules_set, rules_remote_key, rules_remote_server, &error);
-    ngx_http_modsecurity_pcre_malloc_done(old_pool);
-
-    if (res < 0) {
-        dd("Failed to load the rules from: '%s'  - reason: '%s'", rules_remote_server, error);
-        return strdup(error);
-    }
-
     mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
-    mmcf->rules_remote += res;
 
-    return NGX_CONF_OK;
+    return ngx_http_modsecurity_add_rules(cf, conf,
+        ngx_http_modsecurity_add_remote, rules_remote_key,
+        rules_remote_server, &mmcf->rules_remote);
 }
 
 
@@ -714,6 +733,20 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     msc_set_connector_info(conf->modsec, MODSECURITY_NGINX_WHOAMI);
     msc_set_log_cb(conf->modsec, ngx_http_modsecurity_log);
 
+    /* fallback for loc confs without a RulesSet, see create_ctx */
+    cln = ngx_pool_cleanup_add(cf->pool, 0);
+    if (cln == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    conf->empty_rules_set = msc_create_rules_set();
+    if (conf->empty_rules_set == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    cln->handler = ngx_http_modsecurity_cleanup_empty_rules;
+    cln->data = conf;
+
     dd ("main conf created at: '%p', instance is: '%p'", conf, conf->modsec);
 
     return conf;
@@ -802,19 +835,23 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif
 
+    /*
+     * All the field merges are above on purpose: the sharing below returns
+     * early, so anything merged after it would be skipped for most blocks.
+     */
+
     /* transactions need a RulesSet, even an empty one */
-    if (p->rules_set == NULL
-        && ngx_http_modsecurity_own_rules_set(cf, p) != NGX_OK)
-    {
+    if (ngx_http_modsecurity_own_rules_set(cf, p) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 
-    /* no rules of its own: share the parent's instead of copying it */
     if (c->rules_set == NULL) {
+        /* no rules of its own: share the parent's instead of copying it */
         c->rules_set = p->rules_set;
         return NGX_CONF_OK;
     }
 
+    /* the child declared rules: it gets the parent's merged into its own */
 #if defined(MODSECURITY_DDEBUG) && (MODSECURITY_DDEBUG)
     dd("PARENT RULES");
     msc_rules_dump(p->rules_set);
@@ -847,6 +884,20 @@ ngx_http_modsecurity_cleanup_instance(void *data)
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(mmcf->pool);
     msc_cleanup(mmcf->modsec);
+    ngx_http_modsecurity_pcre_malloc_done(old_pool);
+}
+
+
+static void
+ngx_http_modsecurity_cleanup_empty_rules(void *data)
+{
+    ngx_pool_t                        *old_pool;
+    ngx_http_modsecurity_main_conf_t  *mmcf;
+
+    mmcf = (ngx_http_modsecurity_main_conf_t *) data;
+
+    old_pool = ngx_http_modsecurity_pcre_malloc_init(mmcf->pool);
+    msc_rules_cleanup(mmcf->empty_rules_set);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
 }
 

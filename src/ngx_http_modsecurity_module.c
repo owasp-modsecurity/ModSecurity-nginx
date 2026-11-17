@@ -736,12 +736,12 @@ ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf)
     /* fallback for loc confs without a RulesSet, see create_ctx */
     cln = ngx_pool_cleanup_add(cf->pool, 0);
     if (cln == NULL) {
-        return NGX_CONF_ERROR;
+        return NULL;
     }
 
     conf->empty_rules_set = msc_create_rules_set();
     if (conf->empty_rules_set == NULL) {
-        return NGX_CONF_ERROR;
+        return NULL;
     }
 
     cln->handler = ngx_http_modsecurity_cleanup_empty_rules;

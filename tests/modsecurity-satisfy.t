@@ -85,6 +85,15 @@ http {
                 SecRule ARGS "@streq block407" "id:5,phase:2,status:407,block"
             ';
         }
+        location /bodylimit {
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecRequestBodyAccess On
+                SecRequestBodyLimit 16
+                SecRequestBodyLimitAction Reject
+            ';
+        }
     }
 }
 EOF
@@ -92,8 +101,9 @@ EOF
 $t->write_file('htpasswd', "user:{PLAIN}secret\n");
 $t->write_file('phase1', 'should be moved/blocked before this.');
 $t->write_file('phase2', 'should be moved/blocked before this.');
+$t->write_file('bodylimit', 'should be blocked before this.');
 $t->run();
-$t->plan(11);
+$t->plan(13);
 
 ###############################################################################
 
@@ -117,6 +127,14 @@ like(http_get('/phase2?what=block407'), qr/^HTTP.*407/, 'block 407 - phase 2');
 like(http_post('/phase2', 'what=block403'), qr/^HTTP.*403/,
 	'block 403 - phase 2, request body');
 
+# Request body over SecRequestBodyLimit with Reject: in one buffer, the
+# intervention is taken after the body; in two, between the buffers
+
+like(http_post('/bodylimit', 'what=' . ('x' x 64)), qr/^HTTP.*403/,
+	'body limit reject 403');
+like(http_post_split('/bodylimit', 'what=' . ('x' x 32), 'x' x 32),
+	qr/^HTTP.*403/, 'body limit reject 403, between buffers');
+
 # Nothing to detect
 like(http_get('/phase1?what=nothing'), qr/should be moved\/blocked before this./, 'nothing phase 1');
 like(http_get('/phase2?what=nothing'), qr/should be moved\/blocked before this./, 'nothing phase 2');
@@ -131,6 +149,18 @@ POST $uri HTTP/1.0
 Host: localhost
 Content-Type: application/x-www-form-urlencoded
 Content-Length: @{[ length($body) ]}
+
+EOF
+}
+
+sub http_post_split {
+	my ($uri, $first, $rest) = @_;
+
+	return http(<<EOF . $first, sleep => 0.2, body => $rest);
+POST $uri HTTP/1.0
+Host: localhost
+Content-Type: application/x-www-form-urlencoded
+Content-Length: @{[ length($first . $rest) ]}
 
 EOF
 }

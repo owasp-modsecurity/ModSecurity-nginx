@@ -42,6 +42,23 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 }
 
 
+/*
+ * With "satisfy any" the access phase checker takes a 401 or 403 returned
+ * by a handler as one vote only and serves the request if another access
+ * module (allow, auth_basic, auth_request) admits the client.  An
+ * intervention is final, so finalize the request here instead of
+ * returning its status to the checker.
+ */
+static ngx_int_t
+ngx_http_modsecurity_access_intervention(ngx_http_request_t *r,
+    ngx_int_t status)
+{
+    ngx_http_finalize_request(r, status);
+
+    return NGX_DONE;
+}
+
+
 ngx_int_t
 ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 {
@@ -180,7 +197,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
         if (ret > 0) {
             ctx->intervention_triggered = 1;
-            return ret;
+            return ngx_http_modsecurity_access_intervention(r, ret);
         }
 
         const char *http_version;
@@ -229,7 +246,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
         if (ret > 0) {
             ctx->intervention_triggered = 1;
-            return ret;
+            return ngx_http_modsecurity_access_intervention(r, ret);
         }
 
         /**
@@ -281,7 +298,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             }
         if (ret > 0) {
             ctx->intervention_triggered = 1;
-            return ret;
+            return ngx_http_modsecurity_access_intervention(r, ret);
         }
     }
 
@@ -427,7 +444,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
             if (ret > 0) {
-                return ret;
+                return ngx_http_modsecurity_access_intervention(r, ret);
             }
         }
 
@@ -450,7 +467,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             return NGX_DECLINED;
             }
         if (ret > 0) {
-            return ret;
+            return ngx_http_modsecurity_access_intervention(r, ret);
         }
     }
 

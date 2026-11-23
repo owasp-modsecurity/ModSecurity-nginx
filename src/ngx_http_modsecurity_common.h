@@ -71,15 +71,32 @@
 #define MODSECURITY_NGINX_WHOAMI "ModSecurity-nginx v" \
     MODSECURITY_NGINX_VERSION
 
+#define NGX_HTTP_MODSEC_PHASE4_MODE_OFF 0
+#define NGX_HTTP_MODSEC_PHASE4_BODY_LIMIT_DEFAULT 1048576U
+#define NGX_HTTP_MODSEC_PHASE4_MODE_SAFE 1
+#define NGX_HTTP_MODSEC_PHASE4_MODE_STRICT 2
+
 typedef struct {
     ngx_str_t name;
     ngx_str_t value;
 } ngx_http_modsecurity_header_t;
 
 
+typedef struct ngx_http_modsecurity_conf_s ngx_http_modsecurity_conf_t;
+
 typedef struct {
     ngx_http_request_t *r;
+    struct {
+        ngx_pool_t *pool;
+        const ngx_http_modsecurity_conf_t *conf;
+    } lifetime;
+    struct {
+        ngx_str_t target;
+        ngx_int_t status;
+        ngx_int_t response_status;
+    } error_page;
     Transaction *modsec_transaction;
+    ModSecurityIntervention pending_request_intervention;
     ModSecurityIntervention *delayed_intervention;
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
@@ -98,8 +115,34 @@ typedef struct {
     unsigned body_requested:1;
     unsigned processed:1;
     unsigned logged:1;
+    unsigned native_logging_failed:1;
+    unsigned request_policy_superseded:1;
+    unsigned request_intervention_active:1;
+    unsigned request_intervention_pending:1;
+    unsigned native_request_body_limit_rejection:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
+    unsigned phase4_headers_checked:1;
+    unsigned phase4_processed:1;
+    unsigned phase4_strict_abort:1;
+    unsigned phase4_started:1;
+    unsigned phase4_append_active:1;
+    unsigned phase4_failed:1;
+    unsigned phase4_error_emitting:1;
+    unsigned response_body_seen:1;
+    unsigned response_body_truncated:1;
+    unsigned intervention_late:1;
+    unsigned intervention_failed:1;
+    unsigned intervention_body_limit:1;
+    unsigned response_replaced:1;
+    unsigned replacement_body_terminal_sent:1;
+    unsigned intervention_redirect_location_installed:1;
+    size_t response_body_bytes_seen;
+    size_t response_body_bytes_inspected;
+    u_char *phase4_file_scratch;
+    u_char *request_file_scratch;
+    ngx_str_t last_intervention_log;
+    ngx_int_t last_intervention_status;
 } ngx_http_modsecurity_ctx_t;
 
 
@@ -112,10 +155,12 @@ typedef struct {
 } ngx_http_modsecurity_main_conf_t;
 
 
-typedef struct {
+struct ngx_http_modsecurity_conf_s {
     void                      *pool;
     /* RulesSet or Rules */
     void                      *rules_set;
+    const void                *rules_identity;
+    unsigned                   rules_configured:1;
 
     ngx_flag_t                 enable;
     ngx_flag_t                 use_error_log;
@@ -124,7 +169,12 @@ typedef struct {
 #endif
 
     ngx_http_complex_value_t  *transaction_id;
-} ngx_http_modsecurity_conf_t;
+    ngx_uint_t                 phase4_mode;
+    /* Deprecated compatibility value; libModSecurity owns inspection limits. */
+    size_t                     phase4_body_limit;
+    ngx_open_file_t           *phase4_log_file;
+    ngx_str_t                  phase4_log_path;
+};
 
 
 typedef ngx_int_t (*ngx_http_modsecurity_resolv_header_pt)(ngx_http_request_t *r, ngx_str_t name, off_t offset);
@@ -142,6 +192,9 @@ extern ngx_module_t ngx_http_modsecurity_module;
 int ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log);
 ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_create_ctx(ngx_http_request_t *r);
 ngx_http_modsecurity_ctx_t *ngx_http_modsecurity_get_module_ctx(ngx_http_request_t *r);
+ngx_int_t ngx_http_modsecurity_prepare_location(ngx_http_request_t *r, const ngx_http_modsecurity_conf_t *mcf);
+ngx_int_t ngx_http_modsecurity_log_request_contexts(ngx_http_request_t *r);
+ngx_int_t ngx_http_modsecurity_capture_request_body_intervention(ngx_http_request_t *r);
 char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p);
 #if (NGX_PCRE2)
 #define ngx_http_modsecurity_pcre_malloc_init(x) NULL
@@ -165,6 +218,7 @@ int ngx_http_modsecurity_store_ctx_header(ngx_http_request_t *r, ngx_str_t *name
 /* ngx_http_modsecurity_log.c */
 void ngx_http_modsecurity_log(void *log, const void* data);
 ngx_int_t ngx_http_modsecurity_log_handler(ngx_http_request_t *r);
+ngx_int_t ngx_http_modsecurity_log_context(ngx_http_modsecurity_ctx_t *ctx);
 
 /* ngx_http_modsecurity_access.c */
 ngx_int_t ngx_http_modsecurity_access_handler(ngx_http_request_t *r);

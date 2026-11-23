@@ -14,6 +14,7 @@
  */
 
 #include <ngx_config.h>
+#include <limits.h>
 
 #ifndef MODSECURITY_DDEBUG
 #define MODSECURITY_DDEBUG 0
@@ -350,6 +351,19 @@ ngx_http_modsecurity_resolv_header_transfer_encoding(ngx_http_request_t *r, ngx_
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 
+    (void) offset;
+#if (NGX_HTTP_V2)
+    /* Transfer-Encoding is an HTTP/1.x hop-by-hop header. */
+    if (r->stream) {
+        return 1;
+    }
+#endif
+#if defined(nginx_version) && nginx_version >= 1025000
+    if (r->http_version == NGX_HTTP_VERSION_30) {
+        return 1;
+    }
+#endif
+
     if (r->chunked) {
         ngx_str_t value = ngx_string("chunked");
 
@@ -514,6 +528,16 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
         status = r->headers_out.status;
     }
 
+    /* The native API accepts int; validate the wider NGINX status before
+     * narrowing it, independently of protocol/header representation. */
+    if (status > INT_MAX) {
+        ctx->intervention_triggered = 1;
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: response status exceeds the native integer range");
+        return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
+            NGX_HTTP_INTERNAL_SERVER_ERROR);
+    }
+
     /*
      * NGINX always sends HTTP response with HTTP/1.1, except cases when
      * HTTP V2 module is enabled, and request has been posted with HTTP/2.0.
@@ -526,13 +550,44 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
 #endif
 
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-    msc_process_response_headers(ctx->modsec_transaction, status, http_response_ver);
+    ret = msc_process_response_headers(ctx->modsec_transaction, (int) status,
+        http_response_ver);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+    if (ret != 1) {
+        ctx->intervention_triggered = 1;
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+            "ModSecurity: response header phase processing failed");
+        return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module,
+            NGX_HTTP_INTERNAL_SERVER_ERROR);
+    }
     ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-    if (r->error_page) {
-        return ngx_http_next_header_filter(r);
+    if (ret < 0) {
+        ctx->intervention_triggered = 1;
+        r->connection->error = 1;
+        return NGX_ERROR;
     }
     if (ret > 0) {
+        /* An error_page response must honor its own response intervention.
+         * Mark the decision before finalization re-enters the filter. */
+        ctx->intervention_triggered = 1;
+        if (ctx->intervention_redirect_location_installed) {
+            ctx->response_replaced = 1;
+            ngx_http_clear_content_length(r);
+            ngx_http_clear_last_modified(r);
+            ngx_http_clear_etag(r);
+            ngx_http_clear_accept_ranges(r);
+            ngx_str_null(&r->headers_out.content_type);
+            r->headers_out.content_type_len = 0;
+            if (r->headers_out.content_encoding != NULL) {
+                r->headers_out.content_encoding->hash = 0;
+                r->headers_out.content_encoding = NULL;
+            }
+            r->headers_out.status = ret;
+            ngx_str_null(&r->headers_out.status_line);
+            r->headers_out.content_length_n = 0;
+            r->header_only = 1;
+            return ngx_http_next_header_filter(r);
+        }
         return ngx_http_filter_finalize_request(r, &ngx_http_modsecurity_module, ret);
     }
 

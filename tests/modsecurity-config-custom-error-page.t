@@ -103,6 +103,81 @@ http {
         location / {
         }
     }
+
+    server {
+        listen       127.0.0.1:8080;
+        server_name  s3;
+        root %%TESTDIR%%/http;
+
+        error_page 404 = /protected-error.txt;
+
+        location = /trigger {
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecAction "id:910501,phase:1,pass,nolog"
+            ';
+            try_files /missing-error-source =404;
+        }
+
+        location = /protected-error.txt {
+            internal;
+            modsecurity on;
+            modsecurity_rules '
+                SecRuleEngine On
+                SecRule REQUEST_HEADERS:X-Phase1-Deny "@streq yes" "id:910502,phase:1,deny,status:451,nolog"
+                SecRule REQUEST_HEADERS:X-Phase2-Deny "@streq yes" "id:910503,phase:2,deny,status:403,nolog"
+            ';
+        }
+    }
+
+    server {
+        listen       127.0.0.1:8080;
+        server_name  s4;
+        root %%TESTDIR%%/http;
+        modsecurity on;
+        modsecurity_rules '
+            SecRuleEngine On
+            SecRule REQUEST_HEADERS:X-Scanner "@streq yes" "id:910510,phase:1,deny,status:403,log"
+            SecRule REQUEST_HEADERS:X-Body-Deny "@streq yes" "id:910511,phase:2,deny,status:403,log"
+            SecAuditEngine On
+            SecAuditLogParts ABHZ
+            SecAuditLog %%TESTDIR%%/auditlog-redirect-all.txt
+            SecAuditLogType Serial
+        ';
+        error_page 403 /block.html;
+
+        location = /attack.html { }
+        location = /block.html { internal; }
+        location = /same-origin { try_files /missing-same-origin /same-target.html; }
+        location = /same-target.html { }
+        location = /changed-origin { try_files /missing-changed-origin /changed-target.html; }
+        location = /changed-target.html {
+            modsecurity_rules 'SecAction "id:910514,phase:1,pass,nolog"';
+        }
+    }
+
+    server {
+        listen       127.0.0.1:8080;
+        server_name  s5;
+        root %%TESTDIR%%/http;
+        client_body_buffer_size 64k;
+        modsecurity on;
+        modsecurity_rules '
+            SecRuleEngine On
+            SecRequestBodyAccess On
+            SecRequestBodyLimit 11
+            SecRequestBodyLimitAction ProcessPartial
+            SecRule REQUEST_BODY "@beginsWith partial-hit" "id:910520,phase:2,deny,status:409,nolog"
+            SecRule REQUEST_BODY "@contains beyond-limit" "id:910521,phase:2,deny,status:418,nolog"
+            SecAuditEngine Off
+        ';
+        error_page 405 =200 /partial-accepted.txt;
+        location = /file-partial { client_body_in_file_only clean; }
+        location = /memory-partial { }
+        location = /partial-accepted.txt { internal; modsecurity off; }
+    }
+
 }
 EOF
 
@@ -112,9 +187,17 @@ my $custom_txt = "This is a custom error page.";
 $t->write_file("/index.html", $index_txt);
 mkdir($t->testdir() . '/http');
 $t->write_file("/http/403.html", $custom_txt);
+my $protected_txt = "This is a protected error target.";
+$t->write_file("/http/protected-error.txt", $protected_txt);
+my $block_txt = "Configured WAF block page.";
+$t->write_file('/http/block.html', $block_txt);
+for my $name (qw/attack.html same-target.html changed-target.html file-partial memory-partial/) {
+    $t->write_file('/http/' . $name, 'allowed static response');
+}
+$t->write_file('/http/partial-accepted.txt', 'accepted partial request');
 
 $t->run();
-$t->plan(10);
+$t->plan(29);
 
 ###############################################################################
 
@@ -160,13 +243,81 @@ unlike($global, qr/what=other/, 'ModSecurity at server / other not present in au
 like($local, qr/Access denied with code 403/, 'ModSecurity at location / 403 in auditlog');
 like($global, qr/Access denied with code 403/, 'ModSecurity at server / 403 in auditlog');
 
+# The origin runs access processing before try_files redirects to a different
+# protected location. The target must get its own transaction and run P1/P2.
+my $target_allow = http_get_host('s3', '/trigger');
+my $target_p1 = http_get_host('s3', '/trigger', 'X-Phase1-Deny: yes');
+my $target_p2 = http_get_host('s3', '/trigger', 'X-Phase2-Deny: yes');
+like($target_allow, qr/^HTTP\/1\.[01] 200/, 'error-page target allows legitimate request');
+like($target_allow, qr/\Q$protected_txt\E/, 'error-page target delivers legitimate content');
+like($target_p1, qr/^HTTP\/1\.[01] 451/, 'error-page target preserves P1 deny');
+like($target_p2, qr/^HTTP\/1\.[01] 403/, 'error-page target continues from P1 allow to P2 deny');
+
+# A configured block page must not run the original scanner/header rules again.
+my $blocked_p1 = http_get_host('s4', '/attack.html?marker=p1-scan', 'X-Scanner: yes');
+my $blocked_p2 = http_get_host('s4', '/attack.html?marker=p2-scan', 'X-Body-Deny: yes');
+like($blocked_p1, qr/^HTTP\/1\.[01] 403/, 'P1 denial keeps its status through the configured block page');
+like($blocked_p1, qr/\Q$block_txt\E/, 'P1 denial serves the configured block page');
+like($blocked_p2, qr/^HTTP\/1\.[01] 403/, 'P2 denial keeps its status through the configured block page');
+like($blocked_p2, qr/\Q$block_txt\E/, 'P2 denial serves the configured block page');
+
+my $same_policy = http_get_host('s4', '/same-origin?marker=same-policy');
+my $changed_policy = http_get_host('s4', '/changed-origin?marker=changed-policy');
+like($same_policy, qr/^HTTP\/1\.[01] 200/, 'equivalent inherited policy permits the internal redirect');
+like($changed_policy, qr/^HTTP\/1\.[01] 200/, 'changed target policy permits its legitimate control');
+my $redirect_audit = do {
+    local $/ = undef;
+    open my $fh, '<', "$d/auditlog-redirect-all.txt" or die "could not open: $!";
+    <$fh>;
+};
+# Part B has one exact HTTP request line per serial native audit transaction.
+for my $observation (
+    ['/attack.html?marker=p1-scan', 1, 'P1 block is audited once'],
+    ['/attack.html?marker=p2-scan', 1, 'original P2 block is audited once'],
+    ['/same-origin?marker=same-policy', 1, 'equivalent inherited policy does not duplicate audits'],
+    ['/changed-origin?marker=changed-policy', 2, 'both changed-policy transaction owners are audited'],
+) {
+    my ($uri, $expected, $name) = @$observation;
+    my $count = () = $redirect_audit =~ /^GET \Q$uri\E HTTP\/1\.[01]\r?$/mg;
+    is($count, $expected, $name);
+}
+
+# The retained prefix is inspected identically in memory and a forced temp file.
+# The allowed control's forbidden tail must stay beyond the engine-owned limit.
+my $partial_hit = 'partial-hit-beyond-limit';
+my $partial_allow = 'allowed-xxxbeyond-limit';
+my $file_hit = http_post_host('s5', '/file-partial', $partial_hit);
+my $memory_hit = http_post_host('s5', '/memory-partial', $partial_hit);
+my $file_allow = http_post_host('s5', '/file-partial', $partial_allow);
+my $memory_allow = http_post_host('s5', '/memory-partial', $partial_allow);
+like($file_hit, qr/^HTTP\/1\.[01] 409/, 'file-backed ProcessPartial runs P2 on the retained prefix');
+like($memory_hit, qr/^HTTP\/1\.[01] 409/, 'memory ProcessPartial runs P2 on the retained prefix');
+like($file_allow, qr/^HTTP\/1\.[01] 200/, 'file-backed ProcessPartial permits its retained-prefix control');
+like($memory_allow, qr/^HTTP\/1\.[01] 200/, 'memory ProcessPartial permits its retained-prefix control');
+like($file_allow, qr/accepted partial request/, 'file-backed partial control delivers the expected response');
+
 ###############################################################################
 
+sub http_post_host {
+    my ($host, $url, $body) = @_;
+    my $length = length($body);
+    return http(<<EOF);
+POST $url HTTP/1.0
+Host: $host
+Content-Type: text/plain
+Content-Length: $length
+
+$body
+EOF
+}
+
 sub http_get_host {
-	my ($host, $url) = @_;
+	my ($host, $url, $headers) = @_;
+	$headers = '' unless defined $headers;
 	return http(<<EOF);
 GET $url HTTP/1.0
 Host: $host
+$headers
 
 EOF
 }

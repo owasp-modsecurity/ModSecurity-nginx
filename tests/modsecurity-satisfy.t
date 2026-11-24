@@ -103,7 +103,7 @@ $t->write_file('phase1', 'should be moved/blocked before this.');
 $t->write_file('phase2', 'should be moved/blocked before this.');
 $t->write_file('bodylimit', 'should be blocked before this.');
 $t->run();
-$t->plan(13);
+$t->plan(16);
 
 ###############################################################################
 
@@ -138,6 +138,17 @@ like(http_post_split('/bodylimit', 'what=' . ('x' x 32), 'x' x 32),
 # Nothing to detect
 like(http_get('/phase1?what=nothing'), qr/should be moved\/blocked before this./, 'nothing phase 1');
 like(http_get('/phase2?what=nothing'), qr/should be moved\/blocked before this./, 'nothing phase 2');
+
+# Nothing to detect in a request body: the request goes on to the static
+# module, which does not accept POST (405), in one buffer and in two (where
+# the handler is resumed from the request body post handler)
+
+like(http_post('/phase2', 'what=nothing'), qr/^HTTP.*405/,
+	'nothing phase 2, request body');
+like(http_post_split('/phase2', 'what=no', 'thing'), qr/^HTTP.*405/,
+	'nothing phase 2, request body in two buffers');
+like(http_post('/bodylimit', 'what=x'), qr/^HTTP.*405/,
+	'body under the limit');
 
 ###############################################################################
 

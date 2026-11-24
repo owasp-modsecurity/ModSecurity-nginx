@@ -47,14 +47,24 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
  * With "satisfy any" the access phase checker takes a 401 or 403 (and,
  * since nginx 1.31.0, a 407) returned by a handler as one vote only and
  * serves the request if another access module (allow, auth_basic,
- * auth_request) admits the client.  An intervention is final, so finalize
- * the request here instead of returning its status to the checker.  As a
- * consequence, auth_delay does not apply to a 401 or 407 from a rule.
+ * auth_request) admits the client.  An intervention is final, so under
+ * "satisfy any" finalize the request here instead of returning its status
+ * to the checker; auth_delay does not apply to a 401 or 407 from a rule
+ * there.  Under "satisfy all" return the status: the checker finalizes the
+ * request with it, after auth_delay for a 401 or 407.
  */
 static ngx_int_t
 ngx_http_modsecurity_access_intervention(ngx_http_request_t *r,
     ngx_int_t status)
 {
+    ngx_http_core_loc_conf_t  *clcf;
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    if (clcf->satisfy == NGX_HTTP_SATISFY_ALL) {
+        return status;
+    }
+
     ngx_http_finalize_request(r, status);
 
     return NGX_DONE;
@@ -187,10 +197,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             dd("Was not able to extract connection information.");
         }
         /*
-         * An intervention finalizes the request here, through
-         * ngx_http_modsecurity_access_intervention(): the same call the
-         * access phase checker makes for a returned status (after
-         * auth_delay, for a 401 or 407).
+         * An intervention is enforced through
+         * ngx_http_modsecurity_access_intervention(): under "satisfy any"
+         * it finalizes the request here, under "satisfy all" the access
+         * phase checker finalizes it with the returned status.
          */
         dd("Processing intervention with the connection information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);

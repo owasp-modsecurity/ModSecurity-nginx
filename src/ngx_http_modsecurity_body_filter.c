@@ -146,11 +146,38 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
         u_char *data = chain->buf->pos;
         int ret;
 
-        msc_append_response_body(ctx->modsec_transaction, data, chain->buf->last - data);
+        /*
+         * msc_append_response_body() returns 0 both on a genuine failure
+         * and, indistinguishably, on SecResponseBodyLimitAction
+         * ProcessPartial's by-design truncation at SecResponseBodyLimit
+         * (its docstring: "@retval false Operation failed, process partial
+         * demanded"). The truncated content is still evaluated, so this
+         * must not fail the request closed. See the matching comment on
+         * msc_request_body_from_file() in ngx_http_modsecurity_access.c.
+         */
+        msc_append_response_body(ctx->modsec_transaction, data,
+            chain->buf->last - data);
+
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-        if (ret > 0) {
-            return ngx_http_filter_finalize_request(r,
-                &ngx_http_modsecurity_module, ret);
+        if (ret != 0) {
+            /*
+             * By the time the body filter runs the response headers have
+             * already been sent: ngx_http_header_filter() sets
+             * r->header_sent before the first body buffer reaches us. So
+             * process_intervention() can only report a wanted intervention
+             * as -1 (it cannot rewrite the status line any more); the only
+             * positive values it can return here are its own internal
+             * errors (missing ctx/conf), which are equally unrecoverable.
+             * ngx_http_filter_finalize_request() would call
+             * ngx_http_clean_header() and try to send a fresh status line
+             * and headers anyway, producing nginx's own "header already
+             * sent" alert and a corrupted response. NGX_ERROR is the
+             * correct signal: ngx_http_finalize_request() turns it into
+             * ngx_http_terminate_request(), which closes the connection
+             * without resending anything.
+             */
+            ctx->intervention_triggered = 1;
+            return NGX_ERROR;
         }
 
 /* XXX: chain->buf->last_buf || chain->buf->last_in_chain */
@@ -160,19 +187,24 @@ ngx_http_modsecurity_body_filter(ngx_http_request_t *r, ngx_chain_t *in)
             ngx_pool_t *old_pool;
 
             old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-            msc_process_response_body(ctx->modsec_transaction);
+            ret = msc_process_response_body(ctx->modsec_transaction);
             ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+            if (ret != 1) {
+                /* Headers are already out; see the comment above. */
+                ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                    "ModSecurity: response body phase processing failed");
+                ctx->intervention_triggered = 1;
+                return NGX_ERROR;
+            }
 
 /* XXX: I don't get how body from modsec being transferred to nginx's buffer.  If so - after adjusting of nginx's
    XXX: body we can proceed to adjust body size (content-length).  see xslt_body_filter() for example */
             ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-            if (ret > 0) {
-                return ret;
-            }
-            else if (ret < 0) {
-                return ngx_http_filter_finalize_request(r,
-                    &ngx_http_modsecurity_module, NGX_HTTP_INTERNAL_SERVER_ERROR);
-
+            if (ret != 0) {
+                /* See the comment on the identical check above. */
+                ctx->intervention_triggered = 1;
+                return NGX_ERROR;
             }
         }
     }

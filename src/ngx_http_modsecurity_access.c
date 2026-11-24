@@ -1,6 +1,7 @@
 /*
  * ModSecurity connector for nginx, http://www.modsecurity.org/
  * Copyright (c) 2015 Trustwave Holdings, Inc. (http://www.trustwave.com/)
+ * Copyright (c) 2026 OWASP Foundation (http://www.owasp.org/)
  *
  * You may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
@@ -32,6 +33,12 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 #if defined(nginx_version) && nginx_version >= 8011
     r->main->count--;
 #endif
+
+    if (ctx == NULL) {
+        dd("ctx is null in the request body post handler");
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
 
     if (ctx->waiting_more_body)
     {

@@ -324,6 +324,11 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
     }
 
+    if (ctx->modsec_transaction == NULL) {
+        dd("failed to create the transaction");
+        return NULL;
+    }
+
     dd("transaction created");
 
     cln->handler = ngx_http_modsecurity_cleanup;

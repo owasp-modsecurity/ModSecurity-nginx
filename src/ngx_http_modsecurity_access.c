@@ -35,7 +35,9 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 #endif
 
     if (ctx == NULL) {
-        dd("ctx is null in the request body post handler");
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
+                      "ModSecurity: no context in the request body "
+                      "post handler");
         ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
         return;
     }
@@ -94,7 +96,8 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         dd("ctx was NULL, creating new context: %p", ctx);
 
         if (ctx == NULL) {
-            dd("ctx still null; Nothing we can do, returning an error.");
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "ModSecurity: failed to set up the transaction");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 

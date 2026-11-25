@@ -106,6 +106,7 @@ typedef struct {
 typedef struct {
     void                      *pool;
     ModSecurity               *modsec;
+    void                      *empty_rules_set;
     ngx_uint_t                 rules_inline;
     ngx_uint_t                 rules_file;
     ngx_uint_t                 rules_remote;

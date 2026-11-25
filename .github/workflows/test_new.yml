@@ -31,6 +31,9 @@ jobs:
         run: |
           sudo apt-get update -y -qq
           sudo apt-get install -y make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
+          # HTTP/3 tests: SSL for the QUIC listener, CryptX for the
+          # Test::Nginx::HTTP3 client, openssl to make the test certificate.
+          sudo apt-get install -y libssl-dev openssl libcryptx-perl
       - name: Get libModSecurity source
         uses: actions/checkout@v6
         with:
@@ -92,7 +95,7 @@ jobs:
       - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --with-http_v2_module --with-http_ssl_module --with-http_v3_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
           make
           make modules
           sudo make install

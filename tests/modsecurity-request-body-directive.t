@@ -93,6 +93,15 @@ http {
             proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
 
+        location /limiterror {
+            modsecurity_rules '
+                SecRequestBodyLimit 16
+                SecRequestBodyLimitAction Reject
+            ';
+            error_page 403 /denied;
+            proxy_pass http://127.0.0.1:%%PORT_8081%%;
+        }
+
         location /denied {
             proxy_pass http://127.0.0.1:%%PORT_8081%%;
         }
@@ -122,7 +131,7 @@ EOF
 
 $t->run_daemon(\&http_daemon);
 $t->run()->waitforsocket('127.0.0.1:' . port(8081));
-$t->plan(21);
+$t->plan(22);
 
 ###############################################################################
 
@@ -142,6 +151,8 @@ like(http_post('/redirect', 'VERY BAD BODY'), qr/LEN=13/,
 	'off redirected to on: first location applies, body not inspected');
 like(http_post('/errorpage?what=badarg', 'VERY BAD BODY'),
 	qr/^HTTP.*403.*TEST-OK/s, 'off: phase 2 deny with error_page');
+like(http_post_split('/limiterror?what=badarg', 'x' x 32, 'x' x 32),
+	qr/^HTTP.*403.*TEST-OK/s, 'body limit reject between buffers with error_page');
 
 my $mp = "--XyZ\r\nContent-Disposition: form-data; name=\"a\"\r\n\r\n"
 	. "VERY BAD BODY\r\n--XyZ--\r\n";
@@ -176,6 +187,18 @@ like(http_read($s, 5), qr/^HTTP.*403/,
 	'on + proxy_request_buffering off: complete body still inspected');
 
 ###############################################################################
+
+sub http_post_split {
+	my ($uri, $first, $rest) = @_;
+
+	return http(<<EOF . $first, sleep => 0.2, body => $rest);
+POST $uri HTTP/1.0
+Host: localhost
+Content-Type: application/x-www-form-urlencoded
+Content-Length: @{[ length($first . $rest) ]}
+
+EOF
+}
 
 sub http_post {
 	my ($url, $body, $type) = @_;

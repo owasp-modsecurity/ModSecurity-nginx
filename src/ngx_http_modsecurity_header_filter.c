@@ -210,6 +210,30 @@ ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, o
 }
 
 
+/*
+ * nginx drops Content-Length and Content-Type from a 204 in its terminal
+ * header filters, which run after this one: always for HTTP/2 and HTTP/3,
+ * and for HTTP/1 when it builds the status line itself (a status line passed
+ * through from an upstream keeps the headers as received).  The rules must
+ * not see headers that are not sent.
+ */
+static ngx_int_t
+ngx_http_modsecurity_204_stripped(ngx_http_request_t *r)
+{
+    if (r->headers_out.status != NGX_HTTP_NO_CONTENT) {
+        return 0;
+    }
+
+#if defined(nginx_version) && nginx_version >= 1009005
+    if (r->http_version >= NGX_HTTP_VERSION_20) {
+        return 1;
+    }
+#endif
+
+    return r->headers_out.status_line.len == 0;
+}
+
+
 static ngx_int_t
 ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str_t name, off_t offset)
 {
@@ -219,7 +243,12 @@ ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
-    if (r->headers_out.content_length_n > 0)
+    /* a 204 built by nginx (try_files =204, a DAV PUT) has a zero length */
+    if (ngx_http_modsecurity_204_stripped(r)) {
+        return 1;
+    }
+
+    if (r->headers_out.content_length_n >= 0)
     {
         ngx_sprintf((u_char *)buf, "%O%Z", r->headers_out.content_length_n);
         value.data = (unsigned char *)buf;
@@ -245,6 +274,10 @@ ngx_http_modsecurity_resolv_header_content_type(ngx_http_request_t *r, ngx_str_t
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
+
+    if (ngx_http_modsecurity_204_stripped(r)) {
+        return 1;
+    }
 
     if (r->headers_out.content_type.len > 0)
     {

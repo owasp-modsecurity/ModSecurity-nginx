@@ -1,6 +1,7 @@
 /*
  * ModSecurity connector for nginx, http://www.modsecurity.org/
  * Copyright (c) 2015 Trustwave Holdings, Inc. (http://www.trustwave.com/)
+ * Copyright (c) 2026 OWASP Foundation (http://www.owasp.org/)
  *
  * You may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
@@ -307,36 +308,39 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         return NULL;
     }
 
-    mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
-    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
+    /*
+     * Allocate everything that can fail before the transaction exists, so
+     * that a failure leaves neither a transaction nobody frees nor a
+     * half-initialised context in r->ctx.
+     */
+    cln = ngx_pool_cleanup_add(r->pool, 0);
+    if (cln == NULL)
+    {
+        dd("failed to create the ModSecurity context cleanup");
+        return NULL;
+    }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ctx->sanity_headers_out = ngx_array_create(r->pool, 12, sizeof(ngx_http_modsecurity_header_t));
     if (ctx->sanity_headers_out == NULL) {
-        return NGX_CONF_ERROR;
+        return NULL;
     }
 #endif
 
-    /*
-     * The cleanup is armed, and the ctx published, only once the
-     * transaction exists.
-     */
-    cln = ngx_pool_cleanup_add(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
-    if (cln == NULL)
-    {
-        dd("failed to create the ModSecurity context cleanup");
-        return NGX_CONF_ERROR;
-    }
+    mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
+    mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
-            return NGX_CONF_ERROR;
+            return NULL;
         }
     }
 
     msclog = &ctx->msclog;
 
 #if (NGX_THREADS) && (NGX_PCRE2)
+    lt = NULL;
+
     if (mmcf->log_thread_pool_used) {
         lt = ngx_calloc(sizeof(ngx_http_modsecurity_log_task_t),
                         r->connection->log);
@@ -344,7 +348,6 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
             return NULL;
         }
 
-        ctx->log_task = lt;
         msclog = &lt->msclog;
     }
 #endif
@@ -360,7 +363,21 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
         ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, msclog);
     }
 
+    if (ctx->modsec_transaction == NULL) {
+        dd("failed to create the transaction");
+#if (NGX_THREADS) && (NGX_PCRE2)
+        if (lt != NULL) {
+            ngx_free(lt);
+        }
+#endif
+        return NULL;
+    }
+
     dd("transaction created");
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ctx->log_task = lt;
+#endif
 
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;

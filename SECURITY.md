@@ -30,7 +30,7 @@ related projects to them directly:
 - **libmodsecurity** (rule engine, operators, transformations, body parsers):
   [owasp-modsecurity/ModSecurity](https://github.com/owasp-modsecurity/ModSecurity/security/advisories/new)
 - **OWASP CRS** (rule false negatives/bypasses):
-  [coreruleset/coreruleset](https://github.com/coreruleset/coreruleset/security/policy)
+  [coreruleset/coreruleset](https://github.com/coreruleset/coreruleset/security/advisories/new)
 
 If you are not sure which component is at fault, report it here and we will
 route it.

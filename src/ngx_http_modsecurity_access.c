@@ -1,6 +1,7 @@
 /*
  * ModSecurity connector for nginx, http://www.modsecurity.org/
  * Copyright (c) 2015 Trustwave Holdings, Inc. (http://www.trustwave.com/)
+ * Copyright (c) 2026 OWASP Foundation (http://www.owasp.org/)
  *
  * You may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
@@ -32,6 +33,14 @@ ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 #if defined(nginx_version) && nginx_version >= 8011
     r->main->count--;
 #endif
+
+    if (ctx == NULL) {
+        ngx_log_error(NGX_LOG_ALERT, r->connection->log, 0,
+                      "ModSecurity: no context in the request body "
+                      "post handler");
+        ngx_http_finalize_request(r, NGX_HTTP_INTERNAL_SERVER_ERROR);
+        return;
+    }
 
     if (ctx->waiting_more_body)
     {
@@ -87,7 +96,8 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         dd("ctx was NULL, creating new context: %p", ctx);
 
         if (ctx == NULL) {
-            dd("ctx still null; Nothing we can do, returning an error.");
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "ModSecurity: failed to set up the transaction");
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 

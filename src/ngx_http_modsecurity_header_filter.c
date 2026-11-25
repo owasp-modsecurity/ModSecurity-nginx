@@ -1,6 +1,7 @@
 /*
  * ModSecurity connector for nginx, http://www.modsecurity.org/
  * Copyright (c) 2015 Trustwave Holdings, Inc. (http://www.trustwave.com/)
+ * Copyright (c) 2026 OWASP Foundation (http://www.owasp.org/)
  *
  * You may not use this file except in compliance with
  * the License.  You may obtain a copy of the License at
@@ -157,10 +158,10 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
     if (r->headers_out.server == NULL) {
         if (clcf->server_tokens) {
             value.data = (u_char *)ngx_http_server_full_string;
-            value.len = sizeof(ngx_http_server_full_string);
+            value.len = sizeof(ngx_http_server_full_string) - 1;
         } else {
             value.data = (u_char *)ngx_http_server_string;
-            value.len = sizeof(ngx_http_server_string);
+            value.len = sizeof(ngx_http_server_string) - 1;
         }
     } else {
         ngx_table_elt_t *h = r->headers_out.server;

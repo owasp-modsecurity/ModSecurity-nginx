@@ -210,6 +210,63 @@ ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, o
 }
 
 
+/*
+ * nginx's chunked header filter runs after this one, so r->chunked is not
+ * set yet when the rules see the headers.  Mirror its decision so that the
+ * rules see what goes on the wire: 1 when it will send the body chunked, -1
+ * when it cannot chunk a body of unknown length and closes the connection
+ * instead (r->keepalive = 0), and 0 when it leaves the response alone.
+ *
+ * The HTTP/2 and HTTP/3 header filters end the chain before the chunked
+ * filter runs, and a filter running after this one (gzip) can still drop
+ * the length; that case is not covered here.
+ */
+static ngx_int_t
+ngx_http_modsecurity_chunked_outcome(ngx_http_request_t *r)
+{
+    ngx_http_core_loc_conf_t *clcf;
+    ngx_uint_t trailers = 0;
+
+#if defined(nginx_version) && nginx_version >= 1009005
+    if (r->http_version >= NGX_HTTP_VERSION_20) {
+        return 0;
+    }
+#endif
+
+    if (r->headers_out.status == NGX_HTTP_NOT_MODIFIED
+        || r->headers_out.status == NGX_HTTP_NO_CONTENT
+        || r->headers_out.status < NGX_HTTP_OK
+        || r != r->main
+        || r->method == NGX_HTTP_HEAD
+#if defined(nginx_version) && nginx_version >= 1029003
+        || (r->method == NGX_HTTP_CONNECT
+            && r->headers_out.status < NGX_HTTP_SPECIAL_RESPONSE)
+#endif
+       )
+    {
+        return 0;
+    }
+
+#if defined(nginx_version) && nginx_version >= 1013002
+    trailers = r->expect_trailers;
+#endif
+
+    if (r->headers_out.content_length_n != -1 && !trailers) {
+        return 0;
+    }
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+    if (r->http_version >= NGX_HTTP_VERSION_11
+        && clcf->chunked_transfer_encoding)
+    {
+        return 1;
+    }
+
+    return r->headers_out.content_length_n == -1 ? -1 : 0;
+}
+
+
 static ngx_int_t
 ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str_t name, off_t offset)
 {
@@ -218,6 +275,13 @@ ngx_http_modsecurity_resolv_header_content_length(ngx_http_request_t *r, ngx_str
     char buf[NGX_INT64_LEN+2];
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
+
+#if defined(nginx_version) && nginx_version >= 1013002
+    /* The chunked filter drops the length when it sends trailers. */
+    if (r->expect_trailers && ngx_http_modsecurity_chunked_outcome(r) == 1) {
+        return 1;
+    }
+#endif
 
     if (r->headers_out.content_length_n > 0)
     {
@@ -305,9 +369,15 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
+    /*
+     * The chunked filter and, while the worker shuts down, the HTTP/1 header
+     * filter clear r->keepalive after this filter has run.
+     */
     if (r->headers_out.status == NGX_HTTP_SWITCHING_PROTOCOLS) {
         connection = "upgrade";
-    } else if (r->keepalive) {
+    } else if (r->keepalive && !ngx_terminate && !ngx_exiting
+               && ngx_http_modsecurity_chunked_outcome(r) != -1)
+    {
         connection = "keep-alive";
         if (clcf->keepalive_header)
         {
@@ -351,7 +421,7 @@ ngx_http_modsecurity_resolv_header_transfer_encoding(ngx_http_request_t *r, ngx_
 {
     ngx_http_modsecurity_ctx_t *ctx = NULL;
 
-    if (r->chunked) {
+    if (ngx_http_modsecurity_chunked_outcome(r) == 1) {
         ngx_str_t value = ngx_string("chunked");
 
         ctx = ngx_http_modsecurity_get_module_ctx(r);

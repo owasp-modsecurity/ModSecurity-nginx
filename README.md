@@ -59,7 +59,7 @@ Further information about building nginx third-party modules is available [here]
 # Usage
 
 ModSecurity for nginx extends your nginx configuration directives.
-It adds six new directives and they are:
+It adds the following directives:
 
 modsecurity
 -----------
@@ -212,6 +212,102 @@ modsecurity_use_error_log
 **default:** *on*
 
 Turns on or off ModSecurity error log functionality.
+
+modsecurity_log_thread_pool
+---------------------------
+**syntax:** *modsecurity_log_thread_pool &lt;name&gt; [max_pending=&lt;number&gt;] | off*
+
+**context:** *http, server, location*
+
+**default:** *off*
+
+Runs the LOGGING phase (phase 5) rules and the audit log write in the named
+nginx `thread_pool` instead of on the worker's event loop, so that audit log
+I/O no longer stalls the other connections handled by the worker. The
+transaction is detached from the request when the task is posted and is
+cleaned up once the task completes. Whether a request is offloaded is decided
+by the configuration of the location the request is finally logged in.
+
+Each posted task keeps the complete transaction in memory until it has run,
+including the buffered request and response bodies, up to
+`SecRequestBodyLimit` and `SecResponseBodyLimit`. The optional `max_pending`
+parameter limits the number of logging tasks a worker has posted, to any pool,
+and not yet completed (default 128); a request that finds the limit reached is
+logged on the event loop, as without this directive, and a warning is written
+at most once every 10 seconds. Size it so that `max_pending` times the per-request
+memory fits the worker's budget, and use a pool dedicated to this directive
+with `max_queue` greater than `max_pending`. A pool that refuses a task makes
+nginx log a `queue overflow` error, and at worker exit a full queue leaves no
+room for the pool's own exit task (see below).
+
+Within a worker, phase 5 and the audit log write are serialised: the thread,
+the inline fallback and the early logging of a disruptive intervention all
+hold one per-worker mutex around them. The serial audit log writer of
+libmodsecurity only takes an `fcntl()` lock, which belongs to the process, so
+two threads of one worker do not exclude each other, and one thread releasing
+the lock lets another process write while the other thread is still writing.
+As a consequence a thread pool with more than one thread gives no additional
+logging parallelism, and inline or early logging on the event loop can wait
+for the mutex while another transaction's phase 5 and audit write run, so that
+wait is not bounded by the request's own logging time. `threads=1` is enough.
+
+This directive requires nginx built with `--with-threads` and with PCRE2;
+other builds refuse it at configuration time, except for
+`modsecurity_log_thread_pool off`, which is accepted everywhere. Builds using
+the original PCRE library are excluded because there the connector has to swap
+the process-global `pcre_malloc` and `pcre_free` pointers around every
+libmodsecurity call, which is not thread-safe.
+
+Rule messages emitted during phase 5 are written using the thread pool's log,
+which is the main context `error_log` at its configured level, rather than the
+`error_log` of the server or location the request was handled by, and they lack
+the usual client and request context. As they are emitted at the `info` level,
+the main `error_log` has to be set to `info` or lower for them to appear, and it
+has to be a file: an `error_log` that writes to `syslog:` or `memory:` must not
+be used with this directive, because those writers are not thread-safe. Any
+`SecDebugLog` output produced during phase 5 is likewise written from the
+thread.
+
+The logging performed early by a disruptive intervention stays synchronous, as
+does everything up to phase 4. The logging phase runs once per transaction, for
+the main request; with `log_subrequest on`, the log phase of a subrequest does
+not process it.
+
+The feature is experimental, and it needs a libmodsecurity that supports
+processing transactions concurrently -- the way the threaded Apache MPMs use
+it: phases 1 to 4 of one transaction still run on the event loop while phase 5
+of another runs in the thread. Two caveats are worth knowing about:
+
+* `SecDebugLog` writes made during phases 1 to 4 are not covered by the mutex
+  and can interleave with debug log writes from the thread;
+* the LMDB collection backend (`--with-lmdb`) has not been reviewed for use
+  from several threads of one process.
+
+The thread destroys the transaction once it has been logged, so temporary
+files of the transaction, such as saved uploads, are removed even if the
+worker exits before the task's completion handler runs.
+
+On graceful shutdown (`nginx -s quit`) the worker does not exit while logging
+tasks are pending: it keeps a timer armed until their completion handlers have
+run. Use graceful shutdown when queued audit records must be written. A worker
+that receives `SIGTERM` exits at once, and the thread pool runs the tasks still
+queued before its threads exit, provided the pool's exit task fits into the
+queue -- hence `max_queue` greater than `max_pending` on a dedicated pool. On
+fast shutdown (`nginx -s stop`), though, the master sends `SIGKILL` to workers
+that have not exited after about 1.5 seconds, so queued and running logging tasks
+can be lost and their temporary files left behind, whatever the queue size. A
+thread blocked on a contended audit log delays a graceful exit, and
+`worker_shutdown_timeout` does not shorten that wait.
+
+```nginx
+thread_pool modsec threads=1 max_queue=256;
+
+http {
+    modsecurity on;
+    modsecurity_rules_file /etc/modsecurity/main.conf;
+    modsecurity_log_thread_pool modsec max_pending=128;
+}
+```
 
 # Contributing
 

@@ -30,6 +30,10 @@
 #define strdup _strdup
 #endif
 
+#if (NGX_THREADS) && (NGX_PCRE2)
+#define NGX_HTTP_MODSECURITY_LOG_MAX_PENDING  128
+#endif
+
 static ngx_int_t ngx_http_modsecurity_init(ngx_conf_t *cf);
 static void *ngx_http_modsecurity_create_main_conf(ngx_conf_t *cf);
 static char *ngx_http_modsecurity_init_main_conf(ngx_conf_t *cf, void *conf);
@@ -262,7 +266,17 @@ ngx_http_modsecurity_cleanup(void *data)
 
     ctx = (ngx_http_modsecurity_ctx_t *) data;
 
-    msc_transaction_cleanup(ctx->modsec_transaction);
+    if (ctx->modsec_transaction != NULL) {
+        msc_transaction_cleanup(ctx->modsec_transaction);
+        ctx->modsec_transaction = NULL;
+    }
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    if (ctx->log_task != NULL) {
+        ngx_free(ctx->log_task);
+        ctx->log_task = NULL;
+    }
+#endif
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     /*
@@ -277,11 +291,15 @@ ngx_http_modsecurity_cleanup(void *data)
 ngx_http_modsecurity_ctx_t *
 ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
 {
-    ngx_str_t                          s;
+    ngx_str_t                          s = ngx_null_string;
     ngx_pool_cleanup_t                *cln;
     ngx_http_modsecurity_ctx_t        *ctx;
     ngx_http_modsecurity_conf_t       *mcf;
+    ngx_http_modsecurity_msclog_t     *msclog;
     ngx_http_modsecurity_main_conf_t  *mmcf;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_log_task_t   *lt;
+#endif
 
     ctx = ngx_pcalloc(r->pool, sizeof(ngx_http_modsecurity_ctx_t));
     if (ctx == NULL)
@@ -312,24 +330,54 @@ ngx_http_modsecurity_create_ctx(ngx_http_request_t *r)
     mmcf = ngx_http_get_module_main_conf(r, ngx_http_modsecurity_module);
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
 
-    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
-
     if (mcf->transaction_id) {
         if (ngx_http_complex_value(r, mcf->transaction_id, &s) != NGX_OK) {
             return NULL;
         }
-        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, r->connection->log);
+    }
+
+    msclog = &ctx->msclog;
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    lt = NULL;
+
+    if (mmcf->log_thread_pool_used) {
+        lt = ngx_calloc(sizeof(ngx_http_modsecurity_log_task_t),
+                        r->connection->log);
+        if (lt == NULL) {
+            return NULL;
+        }
+
+        msclog = &lt->msclog;
+    }
+#endif
+
+    msclog->log = r->connection->log;
+
+    dd("creating transaction with the following rules: '%p' -- ms: '%p'", mcf->rules_set, mmcf->modsec);
+
+    if (mcf->transaction_id) {
+        ctx->modsec_transaction = msc_new_transaction_with_id(mmcf->modsec, mcf->rules_set, (char *) s.data, msclog);
 
     } else {
-        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, r->connection->log);
+        ctx->modsec_transaction = msc_new_transaction(mmcf->modsec, mcf->rules_set, msclog);
     }
 
     if (ctx->modsec_transaction == NULL) {
         dd("failed to create the transaction");
+#if (NGX_THREADS) && (NGX_PCRE2)
+        if (lt != NULL) {
+            ngx_free(lt);
+        }
+#endif
         return NULL;
     }
 
     dd("transaction created");
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ctx->log_task = lt;
+#endif
 
     cln->handler = ngx_http_modsecurity_cleanup;
     cln->data = ctx;
@@ -498,6 +546,79 @@ char *ngx_conf_set_transaction_id(ngx_conf_t *cf, ngx_command_t *cmd, void *conf
 }
 
 
+static char *
+ngx_conf_set_log_thread_pool(ngx_conf_t *cf, ngx_command_t *cmd, void *conf)
+{
+    ngx_str_t                         *value;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_int_t                          n;
+    ngx_http_modsecurity_conf_t       *mcf = conf;
+    ngx_http_modsecurity_main_conf_t  *mmcf;
+#endif
+
+    value = cf->args->elts;
+
+#if (NGX_THREADS) && (NGX_PCRE2)
+
+    if (mcf->log_thread_pool != NGX_CONF_UNSET_PTR) {
+        return "is duplicate";
+    }
+
+    if (ngx_strcmp(value[1].data, "off") == 0) {
+        if (cf->args->nelts > 2) {
+            goto invalid;
+        }
+
+        mcf->log_thread_pool = NULL;
+        mcf->log_max_pending = 0;
+        return NGX_CONF_OK;
+    }
+
+    mcf->log_max_pending = NGX_HTTP_MODSECURITY_LOG_MAX_PENDING;
+
+    if (cf->args->nelts > 2) {
+        if (ngx_strncmp(value[2].data, "max_pending=", 12) != 0) {
+            goto invalid;
+        }
+
+        n = ngx_atoi(value[2].data + 12, value[2].len - 12);
+        if (n == NGX_ERROR || n == 0) {
+            ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                               "invalid max_pending value \"%V\"", &value[2]);
+            return NGX_CONF_ERROR;
+        }
+
+        mcf->log_max_pending = n;
+    }
+
+    mcf->log_thread_pool = ngx_thread_pool_add(cf, &value[1]);
+    if (mcf->log_thread_pool == NULL) {
+        return NGX_CONF_ERROR;
+    }
+
+    mmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_modsecurity_module);
+    mmcf->log_thread_pool_used = 1;
+
+    return NGX_CONF_OK;
+
+invalid:
+
+    ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
+                       "invalid parameter \"%V\"", &value[2]);
+    return NGX_CONF_ERROR;
+
+#else
+
+    if (cf->args->nelts == 2 && ngx_strcmp(value[1].data, "off") == 0) {
+        return NGX_CONF_OK;
+    }
+
+    return "requires nginx built with --with-threads and PCRE2";
+
+#endif
+}
+
+
 static ngx_command_t ngx_http_modsecurity_commands[] =  {
   {
     ngx_string("modsecurity"),
@@ -540,6 +661,14 @@ static ngx_command_t ngx_http_modsecurity_commands[] =  {
     NULL
   },
   {
+    ngx_string("modsecurity_log_thread_pool"),
+    NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE12,
+    ngx_conf_set_log_thread_pool,
+    NGX_HTTP_LOC_CONF_OFFSET,
+    0,
+    NULL
+  },
+  {
     ngx_string("modsecurity_use_error_log"),
     NGX_HTTP_LOC_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_MAIN_CONF|NGX_CONF_FLAG,
     ngx_conf_set_flag_slot,
@@ -573,7 +702,11 @@ ngx_module_t ngx_http_modsecurity_module = {
     NGX_HTTP_MODULE,                       /* module type */
     NULL,                                  /* init master */
     NULL,                                  /* init module */
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_http_modsecurity_log_init_process, /* init process */
+#else
     NULL,                                  /* init process */
+#endif
     NULL,                                  /* init thread */
     NULL,                                  /* exit thread */
     NULL,                                  /* exit process */
@@ -625,7 +758,7 @@ ngx_http_modsecurity_init(ngx_conf_t *cf)
         dd("Not able to create a new NGX_HTTP_LOG_PHASE handle");
         return NGX_ERROR;
     }
-    *h_log = ngx_http_modsecurity_log_handler;
+    *h_log = ngx_http_modsecurity_log_phase_handler;
 
 
     rc = ngx_http_modsecurity_header_filter_init();
@@ -742,6 +875,10 @@ ngx_http_modsecurity_create_conf(ngx_conf_t *cf)
     conf->pool = cf->pool;
     conf->transaction_id = NGX_CONF_UNSET_PTR;
     conf->use_error_log = NGX_CONF_UNSET;
+#if (NGX_THREADS) && (NGX_PCRE2)
+    conf->log_thread_pool = NGX_CONF_UNSET_PTR;
+    conf->log_max_pending = NGX_CONF_UNSET_UINT;
+#endif
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     conf->sanity_checks_enabled = NGX_CONF_UNSET;
 #endif
@@ -782,6 +919,10 @@ ngx_http_modsecurity_merge_conf(ngx_conf_t *cf, void *parent, void *child)
     ngx_conf_merge_value(c->enable, p->enable, 0);
     ngx_conf_merge_ptr_value(c->transaction_id, p->transaction_id, NULL);
     ngx_conf_merge_value(c->use_error_log, p->use_error_log, 1);
+#if (NGX_THREADS) && (NGX_PCRE2)
+    ngx_conf_merge_ptr_value(c->log_thread_pool, p->log_thread_pool, NULL);
+    ngx_conf_merge_uint_value(c->log_max_pending, p->log_max_pending, 0);
+#endif
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_conf_merge_value(c->sanity_checks_enabled, p->sanity_checks_enabled, 0);
 #endif

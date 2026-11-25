@@ -192,12 +192,18 @@ Turns on or off ModSecurity error log functionality.
 When `modsecurity` is on, the connector reads the **whole** request body in
 nginx's ACCESS phase, before the content handler (for example `proxy_pass`)
 runs, and libmodsecurity keeps its own copy of it. Only `modsecurity off`
-avoids this: `SecRuleEngine Off` or `DetectionOnly` and
+avoids this (apart from a request blocked in phase 1, which is rejected before
+its body is read): `SecRuleEngine Off` or `DetectionOnly` and
 `SecRequestBodyAccess Off` change what libmodsecurity does with the copy, not
 whether the body is buffered and copied. Consequences:
 
 * `proxy_request_buffering off` has no effect in such locations: the body has
-  already been buffered by the time the proxy module sees it.
+  already been buffered by the time the proxy module sees it. The same goes
+  for `fastcgi_request_buffering`, `scgi_request_buffering` and
+  `uwsgi_request_buffering`. `grpc_pass`, which never buffers the request
+  body, is affected as well: a client-streaming or bidirectional gRPC call
+  stalls, because the connector waits for the end of the request stream
+  before anything is passed to the backend.
 * A body that does not fit in nginx's body buffer is written to a temporary
   file under `client_body_temp_path`. Over HTTP/1.x with a Content-Length,
   bodies up to about 1.25 times `client_body_buffer_size` (twice the system
@@ -215,24 +221,28 @@ whether the body is buffered and copied. Consequences:
   a buffer of the full size (otherwise a body that stays in memory gets one
   of its own size, and an HTTP/1.x body that fits in the rest of the request
   header buffer needs none), so a large value multiplies worker memory under
-  concurrency. Size it against the
-  bodies you actually expect, not against `client_max_body_size`, which only
-  decides which requests are accepted, nor against `SecRequestBodyLimit`,
-  which is applied after the connector has already read the body.
+  concurrency. Size it against the bodies you actually expect, not against
+  `client_max_body_size`, which only decides which requests are accepted, nor
+  against `SecRequestBodyLimit`, which is applied after the connector has
+  already read the body.
 * The spilled file keeps its name under `client_body_temp_path` for the
   duration of the request, because libmodsecurity reopens it by path; it is
   created with mode 0600 and deleted when the request ends (unless
   `client_body_in_file_only on` asks nginx to keep it). nginx creates a
   missing `client_body_temp_path` with mode 0700, but never removes group or
   other access from an existing directory: keep that directory private to
-  the nginx user. A tmpfs-backed `client_body_temp_path` keeps the spill off disk, at
-  the price of holding it in RAM.
+  the nginx user. A tmpfs-backed `client_body_temp_path` keeps the spill off
+  disk, at the price of holding it in RAM.
+* With `SecRequestBodyAccess On`, libmodsecurity holds about three copies of
+  the body until the transaction ends: its own buffer and the `FULL_REQUEST`
+  and `REQUEST_BODY` variables set in phase 2, plus temporary copies while
+  phase 2 runs.
 * With `SecRequestBodyAccess Off`, libmodsecurity still runs the request
   body processor (multipart, urlencoded, or JSON/XML when selected with
   `ctl:requestBodyProcessor`) over its copy in phase 2, and only then returns
-  before evaluating the phase 2 rules. Only a body over
-  `SecRequestBodyNoFilesLimit` skips the urlencoded, JSON and XML parsers;
-  multipart is always parsed. `SecRuleEngine Off` skips the parsing
+  before evaluating the phase 2 rules. When `SecRequestBodyNoFilesLimit` is
+  set (it has no default), a body over it skips the urlencoded, JSON and XML
+  parsers; multipart is always parsed. `SecRuleEngine Off` skips the parsing
   as well, but not the buffering or the copy.
 
 ## Response body
@@ -251,7 +261,12 @@ regardless of `SecResponseBodyAccess` and `SecRuleEngine`; again only
   the copy only for responses whose Content-Type is not in a non-empty
   `SecResponseBodyMimeType` list, and caps it at `SecResponseBodyLimit`
   according to `SecResponseBodyLimitAction`. To limit the copy, list only the
-  types you inspect.
+  types you inspect. With `SecResponseBodyAccess On`, phase 4 also keeps the
+  `RESPONSE_BODY` variable next to that copy, so about two copies.
+* `SecResponseBodyLimitAction Reject` does not reject: the limit is reached
+  after the response headers have been sent, and the connector does not act
+  on that intervention, so the response is delivered in full (#384 addresses
+  this).
 * Do not use `SecResponseBodyMimeTypesClear` to turn response inspection off.
   If it leaves the list empty, libmodsecurity copies every response, but
   phase 4 inspects none of them.

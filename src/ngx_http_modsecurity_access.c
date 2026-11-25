@@ -141,7 +141,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         int server_port = ngx_inet_get_port(connection->local_sockaddr);
 
         const char *client_addr = ngx_str_to_char(addr_text, r->pool);
-        if (client_addr == (char*)-1) {
+        if (client_addr == (char*)-1 || client_addr == NULL) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
@@ -193,7 +193,7 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         }
 
         const char *server_addr = ngx_str_to_char(s, r->pool);
-        if (server_addr == (char*)-1) {
+        if (server_addr == (char*)-1 || server_addr == NULL) {
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
@@ -294,11 +294,16 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
              */
 
             dd("Adding request header: %.*s with value %.*s", (int)data[i].key.len, data[i].key.data, (int) data[i].value.len, data[i].value.data);
-            msc_add_n_request_header(ctx->modsec_transaction,
+            if (msc_add_n_request_header(ctx->modsec_transaction,
                 (const unsigned char *) data[i].key.data,
                 data[i].key.len,
                 (const unsigned char *) data[i].value.data,
-                data[i].value.len);
+                data[i].value.len) != 1)
+            {
+                ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                    "ModSecurity: failed to add request header \"%V\" "
+                    "for inspection", &data[i].key);
+            }
         }
 
         /**

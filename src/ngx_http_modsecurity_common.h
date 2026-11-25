@@ -100,6 +100,7 @@ typedef struct {
     unsigned logged:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
+    unsigned response_body:1;
 } ngx_http_modsecurity_ctx_t;
 
 
@@ -119,6 +120,7 @@ typedef struct {
 
     ngx_flag_t                 enable;
     ngx_flag_t                 use_error_log;
+    ngx_flag_t                 response_body;
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
     ngx_flag_t                 sanity_checks_enabled;
 #endif

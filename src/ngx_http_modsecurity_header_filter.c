@@ -398,6 +398,102 @@ ngx_http_modsecurity_resolv_header_vary(ngx_http_request_t *r, ngx_str_t name, o
     return 1;
 }
 
+/*
+ * nginx's terminal header filters (HTTP/1, HTTP/2 and HTTP/3), which run
+ * after this one, turn a relative Location into an absolute URL when
+ * absolute_redirect is on.  Build the same value so that the rules see the
+ * Location that is sent.  Returns the value as it is when nginx leaves it
+ * alone.
+ */
+static ngx_int_t
+ngx_http_modsecurity_location(ngx_http_request_t *r, ngx_str_t *value)
+{
+    ngx_http_core_loc_conf_t  *clcf;
+    ngx_http_core_srv_conf_t  *cscf;
+    ngx_connection_t          *c;
+    ngx_str_t                  host;
+    ngx_uint_t                 port, https;
+    u_char                    *p;
+    u_char                     addr[NGX_SOCKADDR_STRLEN];
+
+    *value = r->headers_out.location->value;
+
+    if (value->len == 0 || value->data[0] != '/') {
+        return NGX_OK;
+    }
+
+    clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
+
+#if defined(nginx_version) && nginx_version >= 1011008
+    if (!clcf->absolute_redirect) {
+        return NGX_OK;
+    }
+#endif
+
+    c = r->connection;
+
+    if (clcf->server_name_in_redirect) {
+        cscf = ngx_http_get_module_srv_conf(r, ngx_http_core_module);
+        host = cscf->server_name;
+
+    } else if (r->headers_in.server.len) {
+        host = r->headers_in.server;
+
+    } else {
+        host.len = NGX_SOCKADDR_STRLEN;
+        host.data = addr;
+
+        if (ngx_connection_local_sockaddr(c, &host, 0) != NGX_OK) {
+            return NGX_ERROR;
+        }
+    }
+
+    https = 0;
+
+#if defined(nginx_version) && nginx_version >= 1025000
+    if (r->http_version >= NGX_HTTP_VERSION_30) {
+        https = 1;
+    }
+#endif
+
+#if (NGX_HTTP_SSL)
+    if (c->ssl) {
+        https = 1;
+    }
+#endif
+
+    port = 0;
+
+    if (clcf->port_in_redirect) {
+        port = ngx_inet_get_port(c->local_sockaddr);
+        if (port == (https ? 443 : 80)) {
+            port = 0;
+        }
+    }
+
+    p = ngx_pnalloc(r->pool, sizeof("https://:65535") - 1 + host.len
+                             + r->headers_out.location->value.len);
+    if (p == NULL) {
+        return NGX_ERROR;
+    }
+
+    value->data = p;
+
+    p = ngx_sprintf(p, "%s://%V", https ? "https" : "http", &host);
+
+    if (port) {
+        p = ngx_sprintf(p, ":%ui", port);
+    }
+
+    p = ngx_cpymem(p, r->headers_out.location->value.data,
+                   r->headers_out.location->value.len);
+
+    value->len = p - value->data;
+
+    return NGX_OK;
+}
+
+
 ngx_int_t
 ngx_http_modsecurity_header_filter_init(void)
 {
@@ -414,6 +510,7 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     ngx_http_modsecurity_ctx_t *ctx;
     ngx_list_part_t *part = &r->headers_out.headers.part;
     ngx_table_elt_t *data = part->elts;
+    ngx_str_t key, value;
     ngx_uint_t i = 0;
     int ret = 0;
     ngx_uint_t status;
@@ -494,18 +591,32 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             i = 0;
         }
 
+        key = data[i].key;
+        value = data[i].value;
+
+        if (&data[i] == r->headers_out.location) {
+            if (ngx_http_modsecurity_location(r, &value) != NGX_OK) {
+                return NGX_ERROR;
+            }
+
+            /* nginx sends an absolute Location under this name */
+            if (value.data != data[i].value.data) {
+                ngx_str_set(&key, "Location");
+            }
+        }
+
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
-        ngx_http_modsecurity_store_ctx_header(r, &data[i].key, &data[i].value);
+        ngx_http_modsecurity_store_ctx_header(r, &key, &value);
 #endif
 
         /*
          * Doing this ugly cast here, explanation on the request_header
          */
         msc_add_n_response_header(ctx->modsec_transaction,
-            (const unsigned char *) data[i].key.data,
-            data[i].key.len,
-            (const unsigned char *) data[i].value.data,
-            data[i].value.len);
+            (const unsigned char *) key.data,
+            key.len,
+            (const unsigned char *) value.data,
+            value.len);
     }
 
     /* prepare extra paramters for msc_process_response_headers() */

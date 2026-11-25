@@ -35,8 +35,32 @@ Or, to build a dynamic module:
 ./configure --add-dynamic-module=/path/to/ModSecurity-nginx --with-compat
 ```
 
-Note that when building a dynamic module, your nginx source version
-needs to match the version of nginx you're compiling this for.
+When building a dynamic module, build it against the same nginx that will
+load it: the same version, the same `./configure` options and the same source
+tree. A distribution's nginx package is usually patched, and a patch can
+change internal structures without changing the version number or the module
+signature that nginx checks when it loads a module. Such a module loads, and
+`nginx -t` succeeds, but at run time requests can hang (for example under
+concurrent HTTP/2 traffic), the module can misbehave, or the worker can crash.
+`--with-compat` does not protect against this. Rebuild the module after every
+update of the nginx package.
+
+For a distribution-packaged nginx, use the distribution's module package if
+there is one (for example `libnginx-mod-http-modsecurity` on Debian and
+Ubuntu), or build against the sources the distribution provides. On Debian and
+Ubuntu, the `nginx-dev` package installs the patched source tree and the exact
+configure options in `/usr/share/nginx/src`; it must be the same version as
+the installed `nginx` package. In bash (`conf_flags` sets a bash array and
+calls tools from `dpkg-dev`), starting from a fresh directory each time:
+
+```
+rm -rf nginx-src && cp -a /usr/share/nginx/src nginx-src && cd nginx-src
+. ./conf_flags
+./configure "${NGX_CONF_FLAGS[@]}" --add-dynamic-module=/path/to/ModSecurity-nginx
+make -f objs/Makefile modules
+```
+
+The module is then `objs/ngx_http_modsecurity_module.so`.
 
 If libmodsecurity is not installed in the system library path or in
 `/usr/local/modsecurity`, point the build at it with the `MODSECURITY_INC` and

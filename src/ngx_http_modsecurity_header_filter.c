@@ -147,6 +147,9 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
 {
     static char ngx_http_server_full_string[] = NGINX_VER;
     static char ngx_http_server_string[] = "nginx";
+#if defined(nginx_version) && nginx_version >= 1011010
+    static char ngx_http_server_build_string[] = NGINX_VER_BUILD;
+#endif
 
     ngx_http_core_loc_conf_t *clcf = NULL;
     ngx_http_modsecurity_ctx_t *ctx = NULL;
@@ -156,6 +159,12 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
     if (r->headers_out.server == NULL) {
+#if defined(nginx_version) && nginx_version >= 1011010
+        if (clcf->server_tokens == NGX_HTTP_SERVER_TOKENS_BUILD) {
+            value.data = (u_char *)ngx_http_server_build_string;
+            value.len = sizeof(ngx_http_server_build_string) - 1;
+        } else
+#endif
         if (clcf->server_tokens) {
             value.data = (u_char *)ngx_http_server_full_string;
             value.len = sizeof(ngx_http_server_full_string) - 1;
@@ -165,6 +174,12 @@ ngx_http_modsecurity_resolv_header_server(ngx_http_request_t *r, ngx_str_t name,
         }
     } else {
         ngx_table_elt_t *h = r->headers_out.server;
+
+        /* deleted (e.g. more_clear_headers Server): nginx sends no Server */
+        if (h->hash == 0) {
+            return 1;
+        }
+
         value.data = h->value.data;
         value.len =  h->value.len;
     }
@@ -194,6 +209,12 @@ ngx_http_modsecurity_resolv_header_date(ngx_http_request_t *r, ngx_str_t name, o
         date.len = ngx_cached_http_time.len;
     } else {
         ngx_table_elt_t *h = r->headers_out.date;
+
+        /* deleted: nginx sends no Date */
+        if (h->hash == 0) {
+            return 1;
+        }
+
         date.data = h->value.data;
         date.len = h->value.len;
     }
@@ -274,6 +295,42 @@ ngx_http_modsecurity_resolv_header_last_modified(ngx_http_request_t *r, ngx_str_
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
     if (r->headers_out.last_modified_time == -1) {
+        return 1;
+    }
+
+    /*
+     * A Last-Modified entry in the header list (an upstream's) is sent as
+     * is, whatever the status: nginx's terminal header filters only reset
+     * the dedicated field, and still write the list entry.  The list walk
+     * skips that entry, so submit its value here.
+     */
+    if (r->headers_out.last_modified != NULL) {
+        if (r->headers_out.last_modified->hash == 0) {
+            return 1;
+        }
+
+        value = r->headers_out.last_modified->value;
+
+#if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
+        ngx_http_modsecurity_store_ctx_header(r, &name, &value);
+#endif
+
+        return msc_add_n_response_header(ctx->modsec_transaction,
+            (const unsigned char *) name.data,
+            name.len,
+            (const unsigned char *) value.data,
+            value.len);
+    }
+
+    /*
+     * A Last-Modified built from last_modified_time is only sent with 200,
+     * 206 and 304 (the terminal header filters, which run after this one,
+     * drop it otherwise).
+     */
+    if (r->headers_out.status != NGX_HTTP_OK
+        && r->headers_out.status != NGX_HTTP_PARTIAL_CONTENT
+        && r->headers_out.status != NGX_HTTP_NOT_MODIFIED)
+    {
         return 1;
     }
 
@@ -492,6 +549,30 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
             part = part->next;
             data = part->elts;
             i = 0;
+        }
+
+        /*
+         * A header deleted by another filter (ssi, sub_filter, headers-more,
+         * ...) has its hash set to 0 and is not sent; nginx's own header
+         * filter skips it the same way.
+         */
+        if (data[i].hash == 0) {
+            continue;
+        }
+
+        /*
+         * Server, Date and Last-Modified were submitted by the resolvers
+         * above.  When they come from an upstream or another module, the
+         * dedicated fields point at entries of this very list, so skip those
+         * entries (by identity, not by name: a second header of the same name
+         * is still sent and must still be inspected).
+         */
+        if (&data[i] == r->headers_out.server
+            || &data[i] == r->headers_out.date
+            || (&data[i] == r->headers_out.last_modified
+                && r->headers_out.last_modified_time != -1))
+        {
+            continue;
         }
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)

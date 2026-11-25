@@ -305,6 +305,17 @@ ngx_http_modsecurity_resolv_header_connection(ngx_http_request_t *r, ngx_str_t n
     clcf = ngx_http_get_module_loc_conf(r, ngx_http_core_module);
     ctx = ngx_http_modsecurity_get_module_ctx(r);
 
+#if defined(nginx_version) && nginx_version >= 1009005
+    /*
+     * Connection and Keep-Alive are HTTP/1 only: HTTP/2 and HTTP/3 forbid
+     * connection-specific header fields (RFC 9113 8.2.2, RFC 9114 4.2) and
+     * nginx does not send them there.
+     */
+    if (r->http_version >= NGX_HTTP_VERSION_20) {
+        return 1;
+    }
+#endif
+
     if (r->headers_out.status == NGX_HTTP_SWITCHING_PROTOCOLS) {
         connection = "upgrade";
     } else if (r->keepalive) {
@@ -516,12 +527,17 @@ ngx_http_modsecurity_header_filter(ngx_http_request_t *r)
     }
 
     /*
-     * NGINX always sends HTTP response with HTTP/1.1, except cases when
-     * HTTP V2 module is enabled, and request has been posted with HTTP/2.0.
+     * nginx answers HTTP/1.x requests with HTTP/1.1, and HTTP/2 and HTTP/3
+     * requests with their own version.
      */
     http_response_ver = "HTTP 1.1";
-#if (NGX_HTTP_V2)
-    if (r->stream) {
+#if defined(nginx_version) && nginx_version >= 1025000
+    if (r->http_version >= NGX_HTTP_VERSION_30) {
+        http_response_ver = "HTTP 3.0";
+    } else
+#endif
+#if defined(nginx_version) && nginx_version >= 1009005
+    if (r->http_version >= NGX_HTTP_VERSION_20) {
         http_response_ver = "HTTP 2.0";
     }
 #endif

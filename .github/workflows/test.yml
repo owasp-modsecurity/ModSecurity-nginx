@@ -50,7 +50,7 @@ jobs:
         CXX: "/usr/bin/${{ matrix.compiler == 'gcc' && 'g' || 'clang' }}++"
         COMPDEPS: "${{ matrix.compiler == 'gcc' && 'gcc g++' || 'clang' }}"
         PCREDEPS: "${{ matrix.pcre == 'pcre1' && 'libpcre3-dev' || '' }}"
-        NGINX_PCRE_OPT: "${{ matrix.pcre == 'pcre1' && '--without-pcre2' || '' }}"
+        NGINX_PCRE: ${{ matrix.pcre }}
     steps:
       - name: Setup Dependencies
         run: |
@@ -79,6 +79,8 @@ jobs:
       - name: Resolve latest Nginx version
         id: nginx_ref
         shell: bash
+        # Also sets PCRE2_VERSION, ZLIB_VERSION and OPENSSL_VERSION (with their
+        # SHA-256 sums) for this nginx version, for the steps below.
         run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
 
       - name: Get Nginx source
@@ -99,6 +101,9 @@ jobs:
           echo "Commit=$(git rev-parse HEAD)"
           echo "Describe=$(git describe --tags --always)"
           grep '#define NGINX_VERSION' src/core/nginx.h || true
+
+      - name: Get PCRE2, zlib and OpenSSL sources
+        run: bash ModSecurity-nginx/.github/scripts/fetch-nginx-libs.sh nginx/objs/lib
 
       - name: Get Nginx tests
         uses: actions/checkout@v7
@@ -121,20 +126,32 @@ jobs:
       - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" $NGINX_PCRE_OPT --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
-          make
+          if [ "${NGINX_PCRE}" = pcre1 ]; then
+            # nginx builds only PCRE2 from source here; PCRE1 is the system's libpcre3-dev
+            pcre_opt=--without-pcre2
+          else
+            pcre_opt="--with-pcre=objs/lib/pcre2-${PCRE2_VERSION}"
+          fi
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" "${pcre_opt}" \
+            --with-zlib="objs/lib/zlib-${ZLIB_VERSION}" \
+            --with-openssl="objs/lib/openssl-${OPENSSL_VERSION}" \
+            --with-http_ssl_module --with-http_v2_module --with-http_auth_request_module \
+            --add-module=../ModSecurity-nginx
+          make -j"$(nproc)"
           make modules
           sudo make install
-      - name: Check the PCRE library nginx was built with
+      - name: Check the libraries nginx was built with
         working-directory: nginx
         run: |
+          objs/nginx -V
           if grep -q '^#define NGX_PCRE2 ' objs/ngx_auto_config.h; then
             built=pcre2
           else
             built=pcre1
           fi
-          echo "nginx was built with ${built}, expected ${{ matrix.pcre }}"
-          [ "${built}" = "${{ matrix.pcre }}" ]
+          echo "nginx was built with ${built}, expected ${NGINX_PCRE}"
+          [ "${built}" = "${NGINX_PCRE}" ]
+          objs/nginx -V 2>&1 | grep -F "built with OpenSSL ${OPENSSL_VERSION} "
       - name: Run ModSecurity-nginx tests
         working-directory: nginx/test
         run: |

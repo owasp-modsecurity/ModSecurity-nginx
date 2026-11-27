@@ -21,7 +21,7 @@ elif [[ "${VERSION}" =~ ^release-[0-9]+\.[0-9]+\.[0-9]+$ || "${VERSION}" == "mas
   REF="${VERSION}"
 else
   echo "Unsupported NGINX_VERSION=${VERSION}" >&2
-  echo "Use e.g. 1.30.x, 1.29.x, 1.28.x or exact tag release-1.30.0" >&2
+  echo "Use e.g. master, 1.31.x, 1.30.x or exact tag release-1.30.0" >&2
   exit 1
 fi
 

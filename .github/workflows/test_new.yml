@@ -11,7 +11,7 @@ permissions: {}
 
 jobs:
   build-linux:
-    name: linux-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}
+    name: linux-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}${{ matrix.pcre == 'pcre1' && '-pcre1' || '' }}
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
@@ -20,17 +20,37 @@ jobs:
       matrix:
         os: [ubuntu-24.04]
         compiler: [gcc, clang]
-        nginx_version: ["1.30.x", "1.29.x", "1.28.x"]
+        # The nginx versions to build against, one per line. build-windows uses
+        # the same list (*nginx_versions). Add a line to build against another
+        # version, comment one out to skip it. resolve-nginx-ref.sh resolves
+        # "X.Y.x" to the newest release-X.Y.N tag; "release-X.Y.Z" and "master"
+        # are used as they are.
+        nginx_version: &nginx_versions
+          - "master"  # development tip: catches upstream API changes before a release
+          - "1.31.x"  # mainline
+          - "1.30.x"  # stable
+          - "1.29.x"
+          - "1.28.x"
+        pcre: [pcre2]
+        include:
+          # One build of nginx against PCRE1 (--without-pcre2), the only build
+          # that compiles the module's "#if !(NGX_PCRE2)" pcre_malloc workaround.
+          - os: ubuntu-24.04
+            compiler: gcc
+            nginx_version: "1.30.x"
+            pcre: pcre1
     env:
         NGINX_VERSION: ${{ matrix.nginx_version }}
         CC: "/usr/bin/${{ matrix.compiler }}"
         CXX: "/usr/bin/${{ matrix.compiler == 'gcc' && 'g' || 'clang' }}++"
         COMPDEPS: "${{ matrix.compiler == 'gcc' && 'gcc g++' || 'clang' }}"
+        PCREDEPS: "${{ matrix.pcre == 'pcre1' && 'libpcre3-dev' || '' }}"
+        NGINX_PCRE_OPT: "${{ matrix.pcre == 'pcre1' && '--without-pcre2' || '' }}"
     steps:
       - name: Setup Dependencies
         run: |
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
+          sudo apt-get install -y make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS $PCREDEPS
       - name: Get libModSecurity source
         uses: actions/checkout@v6
         with:
@@ -92,10 +112,20 @@ jobs:
       - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" $NGINX_PCRE_OPT --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
           make
           make modules
           sudo make install
+      - name: Check the PCRE library nginx was built with
+        working-directory: nginx
+        run: |
+          if grep -q '^#define NGX_PCRE2 ' objs/ngx_auto_config.h; then
+            built=pcre2
+          else
+            built=pcre1
+          fi
+          echo "nginx was built with ${built}, expected ${{ matrix.pcre }}"
+          [ "${built}" = "${{ matrix.pcre }}" ]
       - name: Run ModSecurity-nginx tests
         working-directory: nginx/test
         run: |
@@ -276,7 +306,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        nginx_version: ["1.30.x", "1.29.x", "1.28.x"]
+        # The same nginx versions as build-linux: edit the list there.
+        nginx_version: *nginx_versions
     env:
       NGINX_VERSION: ${{ matrix.nginx_version }}
     defaults:

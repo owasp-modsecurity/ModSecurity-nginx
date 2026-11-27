@@ -57,8 +57,9 @@ jobs:
           sudo apt-get update -y -qq
           sudo apt-get install -y make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS $PCREDEPS
       - name: Get libModSecurity source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: owasp-modsecurity/ModSecurity
           path: ModSecurity
           submodules: recursive
@@ -70,8 +71,9 @@ jobs:
           ./configure --without-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: ModSecurity-nginx
           fetch-depth: 1
       - name: Resolve latest Nginx version
@@ -80,8 +82,9 @@ jobs:
         run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
 
       - name: Get Nginx source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx
           ref: ${{ steps.nginx_ref.outputs.ref }}
           path: nginx
@@ -98,8 +101,9 @@ jobs:
           grep '#define NGINX_VERSION' src/core/nginx.h || true
 
       - name: Get Nginx tests
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx-tests
           path: nginx/test
           fetch-depth: 0
@@ -327,8 +331,9 @@ jobs:
           msystem: UCRT64
           path-type: inherit
       - name: Get ModSecurity-nginx workflow scripts
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: ModSecurity-nginx
           fetch-depth: 1
       - name: Resolve latest Nginx version
@@ -337,8 +342,9 @@ jobs:
         run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
 
       - name: Get Nginx source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx
           ref: ${{ steps.nginx_ref.outputs.ref }}
           path: nginx
@@ -355,8 +361,9 @@ jobs:
           grep '#define NGINX_VERSION' src/core/nginx.h || true
 
       - name: Get Nginx tests
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx-tests
           path: nginx/test
           fetch-depth: 0
@@ -405,8 +412,9 @@ jobs:
             rm -f "$archive"
           done
       - name: Get libModSecurity source
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: owasp-modsecurity/ModSecurity
           submodules: recursive
           path: nginx/objs/lib/ModSecurity
@@ -431,8 +439,9 @@ jobs:
         run: |
           vcbuild.bat
       - name: Get ModSecurity-nginx source code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: nginx/objs/lib/ModSecurity-nginx
       - name: Copy ModSecurity-nginx tests to nginx/test
         working-directory: nginx/test

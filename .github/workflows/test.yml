@@ -1,34 +1,64 @@
 name: Quality Assurance
 
 on:
-  push:
   pull_request:
+  push: 
+  workflow_dispatch:
 
-  # Default: none
+
+# Default: none
 permissions: {}
 
 jobs:
   build-linux:
+    name: ${{ matrix.os }}-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}${{ matrix.pcre == 'pcre1' && '-pcre1' || '' }}
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false
       matrix:
-        os: [ubuntu-22.04]
+        # The Ubuntu releases to build on, one per line, like nginx_version.
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
         compiler: [gcc, clang]
+        # The nginx versions to build against, one per line. build-windows uses
+        # the same list (*nginx_versions). Add a line to build against another
+        # version, comment one out to skip it. resolve-nginx-ref.sh resolves
+        # "X.Y.x" to the newest release-X.Y.N tag; "release-X.Y.Z" and "master"
+        # are used as they are.
+        nginx_version: &nginx_versions
+          - "master"  # development tip: catches upstream API changes before a release
+          - "1.31.x"  # mainline
+          - "1.30.x"  # stable
+          - "1.29.x"
+        pcre: [pcre2]
+        include:
+          # One build of nginx against PCRE1 (--without-pcre2), the only build
+          # that compiles the module's "#if !(NGX_PCRE2)" pcre_malloc workaround.
+          # It runs on 24.04: Ubuntu 26.04 no longer ships PCRE1 (libpcre3-dev).
+          - os: ubuntu-24.04
+            compiler: gcc
+            nginx_version: "1.30.x"
+            pcre: pcre1
     env:
+        NGINX_VERSION: ${{ matrix.nginx_version }}
         CC: "/usr/bin/${{ matrix.compiler }}"
         CXX: "/usr/bin/${{ matrix.compiler == 'gcc' && 'g' || 'clang' }}++"
         COMPDEPS: "${{ matrix.compiler == 'gcc' && 'gcc g++' || 'clang' }}"
+        PCREDEPS: "${{ matrix.pcre == 'pcre1' && 'libpcre3-dev' || '' }}"
+        NGINX_PCRE: ${{ matrix.pcre }}
     steps:
       - name: Setup Dependencies
         run: |
-          sudo dpkg --add-architecture i386
           sudo apt-get update -y -qq
-          sudo apt-get install -y make autoconf automake make libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS
+          sudo apt-get install -y make autoconf automake pcre2-utils libpcre2-dev libyajl-dev libxml2-dev libmaxminddb-dev libcurl4-gnutls-dev $COMPDEPS $PCREDEPS
       - name: Get libModSecurity source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: owasp-modsecurity/ModSecurity
           path: ModSecurity
           submodules: recursive
@@ -40,40 +70,96 @@ jobs:
           ./configure --without-lmdb --prefix=/usr
           make -j $(nproc)
           sudo make install
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: ModSecurity-nginx
           fetch-depth: 1
+      - name: Resolve latest Nginx version
+        id: nginx_ref
+        shell: bash
+        # Also sets PCRE2_VERSION, ZLIB_VERSION and OPENSSL_VERSION (with their
+        # SHA-256 sums) for this nginx version, for the steps below.
+        run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
+
       - name: Get Nginx source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx
+          ref: ${{ steps.nginx_ref.outputs.ref }}
           path: nginx
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Show Nginx source version
+        working-directory: nginx
+        shell: bash
+        run: |
+          echo "Requested NGINX_VERSION=${NGINX_VERSION}"
+          echo "Resolved ref=${{ steps.nginx_ref.outputs.ref }}"
+          echo "Commit=$(git rev-parse HEAD)"
+          echo "Describe=$(git describe --tags --always)"
+          grep '#define NGINX_VERSION' src/core/nginx.h || true
+
+      - name: Get PCRE2, zlib and OpenSSL sources
+        run: bash ModSecurity-nginx/.github/scripts/fetch-nginx-libs.sh nginx/objs/lib
+
       - name: Get Nginx tests
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: nginx/nginx-tests
           path: nginx/test
-          fetch-depth: 1
+          fetch-depth: 0
+
+      - name: Show Nginx tests version
+        working-directory: nginx/test
+        shell: bash
+        run: |
+          echo "Commit=$(git rev-parse HEAD)"
+          echo "Describe=$(git describe --tags --always)"
+          git log -1 --oneline
       - name: Copy ModSecurity-nginx tests to nginx/test
         run: |
           cp ModSecurity-nginx/tests/* nginx/test
       - name: Build nginx with ModSecurity-nginx module
         working-directory: nginx
         run: |
-          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" --without-pcre2 --with-http_v2_module --with-http_auth_request_module --add-module=../ModSecurity-nginx
-          make
+          if [ "${NGINX_PCRE}" = pcre1 ]; then
+            # nginx builds only PCRE2 from source here; PCRE1 is the system's libpcre3-dev
+            pcre_opt=--without-pcre2
+          else
+            pcre_opt="--with-pcre=objs/lib/pcre2-${PCRE2_VERSION}"
+          fi
+          ./auto/configure --with-ld-opt="-Wl,-rpath,/usr/local/lib" "${pcre_opt}" \
+            --with-zlib="objs/lib/zlib-${ZLIB_VERSION}" \
+            --with-openssl="objs/lib/openssl-${OPENSSL_VERSION}" \
+            --with-http_ssl_module --with-http_v2_module --with-http_auth_request_module \
+            --add-module=../ModSecurity-nginx
+          make -j"$(nproc)"
           make modules
           sudo make install
+      - name: Check the libraries nginx was built with
+        working-directory: nginx
+        run: |
+          objs/nginx -V
+          if grep -q '^#define NGX_PCRE2 ' objs/ngx_auto_config.h; then
+            built=pcre2
+          else
+            built=pcre1
+          fi
+          echo "nginx was built with ${built}, expected ${NGINX_PCRE}"
+          [ "${built}" = "${NGINX_PCRE}" ]
+          objs/nginx -V 2>&1 | grep -F "built with OpenSSL ${OPENSSL_VERSION} "
       - name: Run ModSecurity-nginx tests
         working-directory: nginx/test
         run: |
           TEST_NGINX_BINARY=../objs/nginx prove modsecurity*.t
       - name: Start Nginx
         run: |
-          sudo cp /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/docs/* /usr/local/nginx/html/
-          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf
+          sudo mkdir -p /usr/local/nginx/html
+          sudo cp "${{ github.workspace }}/ModSecurity-nginx/.github/nginx/docs/"* /usr/local/nginx/html/
+          sudo /usr/local/nginx/sbin/nginx -c "${{ github.workspace }}/ModSecurity-nginx/.github/nginx/nginx.conf"
       - name: Run attack test vhost 1
         run: |
           status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")
@@ -165,7 +251,7 @@ jobs:
       - name: Start Nginx with redir
         run: |
           sudo killall nginx
-          sudo /usr/local/nginx/sbin/nginx -c /home/runner/work/ModSecurity-nginx/ModSecurity-nginx/ModSecurity-nginx/.github/nginx/nginx.conf.redir
+          sudo /usr/local/nginx/sbin/nginx -c "${{ github.workspace }}/ModSecurity-nginx/.github/nginx/nginx.conf.redir"
       - name: Run attack test vhost 1
         run: |
           status=$(curl -sSo /dev/null -w %{http_code} -I -X GET -H "Host: modsectest1" "http://localhost/?q=attack")
@@ -237,7 +323,18 @@ jobs:
 
 
   build-windows:
+    name: windows-nginx-${{ matrix.nginx_version }}
+    # windows-2025 now ships Visual Studio 2026 and CMake 4, with which Conan builds yajl
+    # from source and its configure step fails on CMP0026 (owasp-modsecurity/ModSecurity#3604).
+    # Stay on windows-2022, like libModSecurity's own CI, until that is fixed.
     runs-on: windows-2022
+    strategy:
+      fail-fast: false
+      matrix:
+        # The same nginx versions as build-linux: edit the list there.
+        nginx_version: *nginx_versions
+    env:
+      NGINX_VERSION: ${{ matrix.nginx_version }}
     defaults:
       run:
         shell: msys2 {0}
@@ -249,57 +346,59 @@ jobs:
         with:
           msystem: UCRT64
           path-type: inherit
-      - name: Get Nginx source
-        uses: actions/checkout@v4
+      - name: Get ModSecurity-nginx workflow scripts
+        uses: actions/checkout@v7
         with:
-          repository: nginx/nginx
-          path: nginx
+          persist-credentials: false
+          path: ModSecurity-nginx
           fetch-depth: 1
-      - name: Get Nginx tests
-        uses: actions/checkout@v4
+      - name: Resolve latest Nginx version
+        id: nginx_ref
+        shell: bash
+        # Also sets PCRE2_VERSION, ZLIB_VERSION and OPENSSL_VERSION (with their
+        # SHA-256 sums) for this nginx version, for the steps below.
+        run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
+
+      - name: Get Nginx source
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
+          repository: nginx/nginx
+          ref: ${{ steps.nginx_ref.outputs.ref }}
+          path: nginx
+          fetch-depth: 0
+
+      - name: Show Nginx source version
+        working-directory: nginx
+        shell: bash
+        run: |
+          echo "Requested NGINX_VERSION=${NGINX_VERSION}"
+          echo "Resolved ref=${{ steps.nginx_ref.outputs.ref }}"
+          echo "Commit=$(git rev-parse HEAD)"
+          echo "Describe=$(git describe --tags --always)"
+          grep '#define NGINX_VERSION' src/core/nginx.h || true
+
+      - name: Get Nginx tests
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
           repository: nginx/nginx-tests
           path: nginx/test
-          fetch-depth: 1
-      - name: Set up third-party libraries
-        working-directory: nginx
+          fetch-depth: 0
+
+      - name: Show Nginx tests version
+        working-directory: nginx/test
+        shell: bash
         run: |
-          mkdir objs
-          mkdir objs/lib
-          cd objs/lib
-          # Download to a file before extracting, rather than piping straight
-          # into tar: a retried download restarts from byte 0, which a pipe
-          # that tar already consumed can't rewind. The retry loop is at the
-          # shell level (one wget attempt per iteration, partial file removed
-          # in between) because wget's own --tries neither retries HTTP 5xx /
-          # DNS failures nor rewrites a partial -O file: it sends a Range
-          # request and appends, which corrupts the archive when the server
-          # ignores Range. -nv keeps wget's errors and one-line summary
-          # without the dot progress meter.
-          for url in \
-            https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.39/pcre2-10.39.tar.gz \
-            https://www.zlib.net/fossils/zlib-1.3.tar.gz \
-            https://www.openssl.org/source/openssl-3.0.13.tar.gz \
-          ; do
-            archive="$(basename "$url")"
-            for attempt in 1 2 3; do
-              rm -f "$archive"
-              if wget -nv --tries=1 --timeout=60 -O "$archive" "$url" \
-                 && tar -xzf "$archive"; then
-                break
-              fi
-              if [ "$attempt" -eq 3 ]; then
-                echo "::error::failed to fetch $url after $attempt attempts"
-                exit 1
-              fi
-              echo "fetching $url failed (attempt $attempt), retrying in 5s"
-              sleep 5
-            done
-            rm -f "$archive"
-          done
+          echo "Commit=$(git rev-parse HEAD)"
+          echo "Describe=$(git describe --tags --always)"
+          git log -1 --oneline
+      - name: Get PCRE2, zlib and OpenSSL sources
+        run: bash ModSecurity-nginx/.github/scripts/fetch-nginx-libs.sh nginx/objs/lib
       - name: Get libModSecurity source
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           repository: owasp-modsecurity/ModSecurity
           submodules: recursive
           path: nginx/objs/lib/ModSecurity
@@ -324,8 +423,9 @@ jobs:
         run: |
           vcbuild.bat
       - name: Get ModSecurity-nginx source code
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
+          persist-credentials: false
           path: nginx/objs/lib/ModSecurity-nginx
       - name: Copy ModSecurity-nginx tests to nginx/test
         working-directory: nginx/test
@@ -362,15 +462,20 @@ jobs:
               --http-scgi-temp-path=temp/scgi_temp \
               --http-uwsgi-temp-path=temp/uwsgi_temp \
               --with-cc-opt=-DFD_SETSIZE=1024 \
-              --with-pcre=objs/lib/pcre2-10.39 \
-              --with-zlib=objs/lib/zlib-1.3 \
-              --with-openssl=objs/lib/openssl-3.0.13 \
+              --with-pcre=objs/lib/pcre2-${PCRE2_VERSION} \
+              --with-zlib=objs/lib/zlib-${ZLIB_VERSION} \
+              --with-openssl=objs/lib/openssl-${OPENSSL_VERSION} \
               --with-openssl-opt=no-asm \
               --with-http_ssl_module \
               --with-http_v2_module \
               --with-http_auth_request_module \
               --add-module=objs/lib/ModSecurity-nginx
           nmake
+      - name: Check the OpenSSL version nginx was built with
+        working-directory: nginx
+        run: |
+          objs/nginx.exe -V
+          objs/nginx.exe -V 2>&1 | grep -F "built with OpenSSL ${OPENSSL_VERSION} "
       - name: Run ModSecurity-nginx tests
         working-directory: nginx/test
         shell: cmd  # tests need to run on a "windows" shell

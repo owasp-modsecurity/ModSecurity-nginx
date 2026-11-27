@@ -6,14 +6,14 @@
 # resolve-nginx-ref.sh sets them.
 set -euo pipefail
 
-if [ "$#" -ne 1 ]; then
+if [[ "$#" -ne 1 ]]; then
   echo "usage: $0 <directory>" >&2
   exit 1
 fi
 
 for var in PCRE2_VERSION PCRE2_SHA256 ZLIB_VERSION ZLIB_SHA256 \
            OPENSSL_VERSION OPENSSL_SHA256; do
-  if [ -z "${!var:-}" ]; then
+  if [[ -z "${!var:-}" ]]; then
     echo "$var is not set" >&2
     exit 1
   fi
@@ -47,7 +47,7 @@ for entry in \
        && tar -xzf "$archive"; then
       break
     fi
-    if [ "$attempt" -eq 3 ]; then
+    if [[ "$attempt" -eq 3 ]]; then
       echo "::error::failed to fetch $url after $attempt attempts"
       exit 1
     fi

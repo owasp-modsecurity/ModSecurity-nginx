@@ -339,6 +339,8 @@ jobs:
       - name: Resolve latest Nginx version
         id: nginx_ref
         shell: bash
+        # Also sets PCRE2_VERSION, ZLIB_VERSION and OPENSSL_VERSION (with their
+        # SHA-256 sums) for this nginx version, for the steps below.
         run: bash ModSecurity-nginx/.github/scripts/resolve-nginx-ref.sh
 
       - name: Get Nginx source
@@ -375,42 +377,8 @@ jobs:
           echo "Commit=$(git rev-parse HEAD)"
           echo "Describe=$(git describe --tags --always)"
           git log -1 --oneline
-      - name: Set up third-party libraries
-        working-directory: nginx
-        run: |
-          mkdir objs
-          mkdir objs/lib
-          cd objs/lib
-          # Download to a file before extracting, rather than piping straight
-          # into tar: a retried download restarts from byte 0, which a pipe
-          # that tar already consumed can't rewind. The retry loop is at the
-          # shell level (one wget attempt per iteration, partial file removed
-          # in between) because wget's own --tries neither retries HTTP 5xx /
-          # DNS failures nor rewrites a partial -O file: it sends a Range
-          # request and appends, which corrupts the archive when the server
-          # ignores Range. -nv keeps wget's errors and one-line summary
-          # without the dot progress meter.
-          for url in \
-            https://github.com/PCRE2Project/pcre2/releases/download/pcre2-10.49/pcre2-10.49.tar.gz \
-            https://github.com/madler/zlib/releases/download/v1.4/zlib-1.4.tar.gz \
-            https://www.openssl.org/source/openssl-3.6.2.tar.gz \
-          ; do
-            archive="$(basename "$url")"
-            for attempt in 1 2 3; do
-              rm -f "$archive"
-              if wget -nv --tries=1 --timeout=60 -O "$archive" "$url" \
-                 && tar -xzf "$archive"; then
-                break
-              fi
-              if [ "$attempt" -eq 3 ]; then
-                echo "::error::failed to fetch $url after $attempt attempts"
-                exit 1
-              fi
-              echo "fetching $url failed (attempt $attempt), retrying in 5s"
-              sleep 5
-            done
-            rm -f "$archive"
-          done
+      - name: Get PCRE2, zlib and OpenSSL sources
+        run: bash ModSecurity-nginx/.github/scripts/fetch-nginx-libs.sh nginx/objs/lib
       - name: Get libModSecurity source
         uses: actions/checkout@v7
         with:
@@ -478,15 +446,20 @@ jobs:
               --http-scgi-temp-path=temp/scgi_temp \
               --http-uwsgi-temp-path=temp/uwsgi_temp \
               --with-cc-opt=-DFD_SETSIZE=1024 \
-              --with-pcre=objs/lib/pcre2-10.49 \
-              --with-zlib=objs/lib/zlib-1.4 \
-              --with-openssl=objs/lib/openssl-3.6.2 \
+              --with-pcre=objs/lib/pcre2-${PCRE2_VERSION} \
+              --with-zlib=objs/lib/zlib-${ZLIB_VERSION} \
+              --with-openssl=objs/lib/openssl-${OPENSSL_VERSION} \
               --with-openssl-opt=no-asm \
               --with-http_ssl_module \
               --with-http_v2_module \
               --with-http_auth_request_module \
               --add-module=objs/lib/ModSecurity-nginx
           nmake
+      - name: Check the OpenSSL version nginx was built with
+        working-directory: nginx
+        run: |
+          objs/nginx.exe -V
+          objs/nginx.exe -V 2>&1 | grep -F "built with OpenSSL ${OPENSSL_VERSION} "
       - name: Run ModSecurity-nginx tests
         working-directory: nginx/test
         shell: cmd  # tests need to run on a "windows" shell

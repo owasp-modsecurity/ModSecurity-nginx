@@ -34,7 +34,6 @@ jobs:
           - "1.31.x"  # mainline
           - "1.30.x"  # stable
           - "1.29.x"
-          - "1.28.x"
         pcre: [pcre2]
         include:
           # One build of nginx against PCRE1 (--without-pcre2), the only build

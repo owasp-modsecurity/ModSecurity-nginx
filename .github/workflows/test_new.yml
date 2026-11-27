@@ -11,14 +11,18 @@ permissions: {}
 
 jobs:
   build-linux:
-    name: linux-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}${{ matrix.pcre == 'pcre1' && '-pcre1' || '' }}
+    name: ${{ matrix.os }}-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}${{ matrix.pcre == 'pcre1' && '-pcre1' || '' }}
     permissions:
       contents: read
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-24.04]
+        # The Ubuntu releases to build on, one per line, like nginx_version.
+        os:
+          - ubuntu-22.04
+          - ubuntu-24.04
+          - ubuntu-26.04
         compiler: [gcc, clang]
         # The nginx versions to build against, one per line. build-windows uses
         # the same list (*nginx_versions). Add a line to build against another
@@ -35,6 +39,7 @@ jobs:
         include:
           # One build of nginx against PCRE1 (--without-pcre2), the only build
           # that compiles the module's "#if !(NGX_PCRE2)" pcre_malloc workaround.
+          # It runs on 24.04: Ubuntu 26.04 no longer ships PCRE1 (libpcre3-dev).
           - os: ubuntu-24.04
             compiler: gcc
             nginx_version: "1.30.x"

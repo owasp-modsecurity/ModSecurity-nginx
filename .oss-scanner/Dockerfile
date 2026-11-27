@@ -1,7 +1,7 @@
 # Build environment for Anthropic's OSS Scanner (https://github.com/anthropics/oss-scanner).
 # The scanner builds this image with the repository checkout as the build context, then
 # analyses it with no network access, so everything the build and the tests need is fetched
-# here. Keep it aligned with the build-linux job in .github/workflows/test_new.yml.
+# here. Keep it aligned with the build-linux job in .github/workflows/test.yml.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \

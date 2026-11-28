@@ -1,0 +1,31 @@
+name: Helper regressions
+
+on:
+  pull_request:
+  push:
+  workflow_dispatch:
+
+
+# Default: none
+permissions: {}
+
+jobs:
+  request-body:
+    # Compiles the request body code of src/ngx_http_modsecurity_access.c
+    # with NGINX and libModSecurity doubles, see the test file.
+    name: request-body-${{ matrix.compiler }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: "/usr/bin/${{ matrix.compiler }}"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Run the request body helper regressions
+        run: python3 -m unittest tests/test_request_body_runtime.py -v

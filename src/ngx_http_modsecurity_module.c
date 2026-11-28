@@ -137,10 +137,19 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 }
 
 
+/*
+ * Applies the intervention libModSecurity holds for the transaction.
+ *
+ * Returns 0 when there is nothing to do, or the HTTP status to finalize the
+ * request with: the status of the rule, or 500 when the intervention cannot
+ * be processed.  Once the response header is sent neither can be applied,
+ * and NGX_ERROR is returned instead.  A negative value therefore means
+ * r->header_sent is set.
+ */
 int
 ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log)
 {
-    int                           status;
+    int                           rc, status;
     size_t                        len;
     u_char                       *url;
     ngx_table_elt_t              *location;
@@ -148,27 +157,40 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     ngx_http_modsecurity_conf_t  *mcf;
     ModSecurityIntervention       intervention;
 
-    intervention.status = 200;
-    intervention.url = NULL;
-    intervention.log = NULL;
-    intervention.disruptive = 0;
-
     dd("processing intervention");
 
     ctx = ngx_http_modsecurity_get_module_ctx(r);
-    if (ctx == NULL)
-    {
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
-    }
-
-    if (msc_intervention(transaction, &intervention) == 0) {
-        dd("nothing to do");
-        return 0;
-    }
-
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
-    if (mcf == NULL) {
-        status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+
+    if (ctx == NULL || mcf == NULL || transaction == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: no context, configuration or "
+                      "transaction to process the intervention");
+        return r->header_sent ? NGX_ERROR : NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
+    /*
+     * msc_intervention() writes to the structure only when it returns 1.
+     * Up to libModSecurity 3.0.12 it returns the "disruptive" field it was
+     * given and sets "url" and "log" only when the rule has them, so every
+     * field starts with the value libModSecurity resets it to.
+     */
+    ngx_memzero(&intervention, sizeof(ModSecurityIntervention));
+    intervention.status = 200;
+
+    rc = msc_intervention(transaction, &intervention);
+
+    if (rc != 0 && rc != 1) {
+        /* libModSecurity returns a C++ bool here, 0 or 1 */
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: invalid intervention result %d", rc);
+        status = r->header_sent ? NGX_ERROR : NGX_HTTP_INTERNAL_SERVER_ERROR;
+        goto done;
+    }
+
+    if (rc == 0 || !intervention.disruptive) {
+        dd("nothing to do");
+        status = 0;
         goto done;
     }
 
@@ -249,7 +271,7 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
          * required pieces like response headers etc.
          *
          */
-        msc_update_status_code(ctx->modsec_transaction, intervention.status);
+        msc_update_status_code(transaction, intervention.status);
 
         if (early_log) {
             dd("intervention -- calling log handler manually with code: %d", intervention.status);

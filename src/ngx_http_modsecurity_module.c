@@ -239,9 +239,14 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
         if (early_log) {
             dd("intervention -- calling log handler manually with code: %d", intervention.status);
-            ngx_http_modsecurity_log_handler(r);
-            ctx->logged = 1;
-	}
+            /*
+             * The handler marks the transaction as logged before the native
+             * call, so the LOG phase does not run it again, and it logs a
+             * failure itself. A failed logging phase does not change the
+             * intervention: the status below is returned either way.
+             */
+            (void) ngx_http_modsecurity_log_handler(r);
+        }
 
         if (r->header_sent)
         {

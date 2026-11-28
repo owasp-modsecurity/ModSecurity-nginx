@@ -97,7 +97,22 @@ typedef struct {
     unsigned waiting_more_body:1;
     unsigned body_requested:1;
     unsigned processed:1;
+    /*
+     * State of the native logging phase, msc_process_logging(), which
+     * ngx_http_modsecurity_log_handler() runs at most once per transaction:
+     *
+     *   logged  native_logging_failed
+     *     0       0                    not attempted yet
+     *     1       1                    attempt in progress, or it failed
+     *     1       0                    attempt completed successfully
+     *
+     * "logged" is set before the native call and never cleared, so neither a
+     * repeated call nor a call re-entering from libModSecurity runs the
+     * logging phase again. An attempt only counts as successful once
+     * msc_process_logging() has returned 1.
+     */
     unsigned logged:1;
+    unsigned native_logging_failed:1;
     unsigned intervention_triggered:1;
     unsigned request_body_processed:1;
 } ngx_http_modsecurity_ctx_t;

@@ -10,6 +10,24 @@ on:
 permissions: {}
 
 jobs:
+  intervention-unit-tests:
+    name: intervention-unit-tests-${{ matrix.compiler }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: "/usr/bin/${{ matrix.compiler }}"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - name: Run the intervention regressions
+        run: python3 -m unittest discover -s tests -p 'test_native_intervention_runtime.py' -v
+
   build-linux:
     name: linux-${{ matrix.compiler }}-nginx-${{ matrix.nginx_version }}
     permissions:

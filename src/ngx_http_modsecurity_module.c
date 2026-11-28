@@ -140,14 +140,18 @@ ngx_inline char *ngx_str_to_char(ngx_str_t a, ngx_pool_t *p)
 int
 ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_request_t *r, ngx_int_t early_log)
 {
-    char *log = NULL;
-    ModSecurityIntervention intervention;
+    int                           status;
+    size_t                        len;
+    u_char                       *url;
+    ngx_table_elt_t              *location;
+    ngx_http_modsecurity_ctx_t   *ctx;
+    ngx_http_modsecurity_conf_t  *mcf;
+    ModSecurityIntervention       intervention;
+
     intervention.status = 200;
     intervention.url = NULL;
     intervention.log = NULL;
     intervention.disruptive = 0;
-    ngx_http_modsecurity_ctx_t *ctx = NULL;
-    ngx_http_modsecurity_conf_t  *mcf;
 
     dd("processing intervention");
 
@@ -164,26 +168,15 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
 
     mcf = ngx_http_get_module_loc_conf(r, ngx_http_modsecurity_module);
     if (mcf == NULL) {
-        if (intervention.log != NULL) {
-            free(intervention.log);
-        }
-        if (intervention.url != NULL) {
-            free(intervention.url);
-        }
-        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+        status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+        goto done;
     }
 
     // logging to nginx error log can be disable by setting `modsecurity_use_error_log` to off
     if (mcf->use_error_log) {
-        log = intervention.log;
-        if (intervention.log == NULL) {
-          log = "(no log message was specified)";
-        }
-        ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s", log);
-    }
-
-    if (intervention.log != NULL) {
-        free(intervention.log);
+        ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0, "%s",
+                      intervention.log != NULL
+                      ? intervention.log : "(no log message was specified)");
     }
 
     if (intervention.url != NULL)
@@ -193,8 +186,23 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");
-            return -1;
+            status = NGX_ERROR;
+            goto done;
         }
+
+        /*
+         * intervention.url is freed below, but the header is sent later:
+         * give the header a copy from the request pool.
+         */
+        len = ngx_strlen(intervention.url);
+
+        url = ngx_pnalloc(r->pool, len);
+        if (url == NULL) {
+            status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+            goto done;
+        }
+
+        ngx_memcpy(url, intervention.url, len);
 
         /**
          * Not sure if it sane to do this indepent of the phase
@@ -207,24 +215,30 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
          * that location->hash should be set to 1.
          *
          */
-        ngx_http_clear_location(r);
-        ngx_str_t a = ngx_string("");
-
-        a.data = (unsigned char *)intervention.url;
-        a.len = strlen(intervention.url);
-
-        ngx_table_elt_t *location = NULL;
         location = ngx_list_push(&r->headers_out.headers);
+        if (location == NULL) {
+            status = NGX_HTTP_INTERNAL_SERVER_ERROR;
+            goto done;
+        }
+
+        location->hash = 1;
+#if defined(nginx_version) && nginx_version >= 1023000
+        location->next = NULL;
+#endif
         ngx_str_set(&location->key, "Location");
-        location->value = a;
+        location->value.len = len;
+        location->value.data = url;
+
+        ngx_http_clear_location(r);
+
         r->headers_out.location = location;
-        r->headers_out.location->hash = 1;
 
 #if defined(MODSECURITY_SANITY_CHECKS) && (MODSECURITY_SANITY_CHECKS)
         ngx_http_modsecurity_store_ctx_header(r, &location->key, &location->value);
 #endif
 
-        return intervention.status;
+        status = intervention.status;
+        goto done;
     }
 
     if (intervention.status != 200)
@@ -246,12 +260,32 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");
-            return -1;
+            status = NGX_ERROR;
+            goto done;
         }
         dd("intervention -- returning code: %d", intervention.status);
-        return intervention.status;
+        status = intervention.status;
+        goto done;
     }
-    return 0;
+
+    status = 0;
+
+done:
+
+    /*
+     * libModSecurity hands out strdup() copies of "url" and "log": the
+     * caller frees them, whatever the result.  Nothing above keeps a
+     * pointer to them.
+     */
+    if (intervention.log != NULL) {
+        free(intervention.log);
+    }
+
+    if (intervention.url != NULL) {
+        free(intervention.url);
+    }
+
+    return status;
 }
 
 

@@ -1,0 +1,15 @@
+--- a/src/http/v2/ngx_http_v2.c
++++ b/src/http/v2/ngx_http_v2.c
+@@ -4803,3 +4803,12 @@
+     if (h2c->processing || h2c->blocked) {
++        /*
++         * A reset queued while finalizing this stream must not wait for
++         * another stream to finish or for a new socket read event.  Let the
++         * existing write handler flush it after this request is destroyed.
++         */
++        if (h2c->last_out && !h2c->blocked) {
++            ngx_post_event(h2c->connection->write, &ngx_posted_events);
++        }
++
+         return;
+     }

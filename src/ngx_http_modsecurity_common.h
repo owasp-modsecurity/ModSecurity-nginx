@@ -96,6 +96,8 @@ typedef struct {
 
     unsigned waiting_more_body:1;
     unsigned body_requested:1;
+    /* The request body could not be handed to ModSecurity. */
+    unsigned request_body_failed:1;
     unsigned processed:1;
     unsigned logged:1;
     unsigned intervention_triggered:1;

@@ -23,6 +23,202 @@
 
 #include "ngx_http_modsecurity_common.h"
 
+
+/*
+ * A request body that NGINX buffered to a temporary file is read and handed
+ * to ModSecurity in chunks of at most this size.
+ */
+#define NGX_HTTP_MODSECURITY_BODY_CHUNK_SIZE  32768
+
+
+/*
+ * Hands one piece of the request body to ModSecurity.  SecRequestBodyLimit
+ * is enforced by libModSecurity, and neither of its limit actions is a
+ * failure: with Reject, msc_append_request_body() returns 1 and leaves a
+ * disruptive intervention in the transaction, with ProcessPartial it keeps
+ * the body up to the limit and returns 0.  Either way the request body phase
+ * runs on what was kept.  No other result is defined.
+ */
+static ngx_int_t
+ngx_http_modsecurity_append_request_chunk(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, const u_char *data, size_t size)
+{
+    int  rc;
+
+    rc = msc_append_request_body(ctx->modsec_transaction, data, size);
+
+    if (rc != 0 && rc != 1) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: msc_append_request_body() returned %d",
+                      rc);
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
+static ngx_int_t
+ngx_http_modsecurity_append_request_body(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    ngx_buf_t    *b;
+    ngx_chain_t  *cl;
+
+    if (r->request_body == NULL) {
+        return NGX_OK;
+    }
+
+    for (cl = r->request_body->bufs; cl; cl = cl->next) {
+        b = cl->buf;
+
+        if (b == NULL) {
+            goto invalid;
+        }
+
+        if (!ngx_buf_special(b)) {
+            if (b->pos == NULL || b->last == NULL || b->last < b->pos) {
+                goto invalid;
+            }
+
+            if (ngx_http_modsecurity_append_request_chunk(r, ctx, b->pos,
+                    (size_t) (b->last - b->pos))
+                != NGX_OK)
+            {
+                return NGX_ERROR;
+            }
+        }
+
+        if (b->last_buf) {
+            break;
+        }
+    }
+
+    return NGX_OK;
+
+invalid:
+
+    ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                  "ModSecurity: invalid request body buffer");
+
+    return NGX_ERROR;
+}
+
+
+/*
+ * Checks that the request body file NGINX holds open is a regular file of
+ * the size NGINX wrote to it.
+ */
+static ngx_int_t
+ngx_http_modsecurity_check_request_body_file(ngx_http_request_t *r,
+    ngx_file_t *file, off_t size)
+{
+    ngx_file_info_t  fi;
+
+    if (file->fd == NGX_INVALID_FILE || size < 0) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: invalid request body file \"%V\"",
+                      &file->name);
+        return NGX_ERROR;
+    }
+
+    if (ngx_fd_info(file->fd, &fi) == NGX_FILE_ERROR) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, ngx_errno,
+                      "ModSecurity: " ngx_fd_info_n " \"%V\" failed",
+                      &file->name);
+        return NGX_ERROR;
+    }
+
+    if (!ngx_is_file(&fi) || ngx_file_size(&fi) != size) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: request body file \"%V\" is not "
+                      "a regular file of %O bytes", &file->name, size);
+        return NGX_ERROR;
+    }
+
+    return NGX_OK;
+}
+
+
+/*
+ * Reads a request body that NGINX buffered to a temporary file through the
+ * descriptor NGINX holds, one bounded chunk at a time, instead of opening
+ * the file again by its name and loading it whole into memory.
+ */
+static ngx_int_t
+ngx_http_modsecurity_inspect_request_body_file(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx)
+{
+    off_t        size, offset, file_offset;
+    size_t       amount;
+    u_char      *buf;
+    ssize_t      n;
+    ngx_int_t    rc;
+    ngx_file_t  *file;
+
+    file = &r->request_body->temp_file->file;
+    size = r->request_body->temp_file->offset;
+
+    if (ngx_http_modsecurity_check_request_body_file(r, file, size)
+        != NGX_OK)
+    {
+        return NGX_ERROR;
+    }
+
+    if (size == 0) {
+        return NGX_OK;
+    }
+
+    buf = ngx_pnalloc(r->pool, NGX_HTTP_MODSECURITY_BODY_CHUNK_SIZE);
+    if (buf == NULL) {
+        return NGX_ERROR;
+    }
+
+    rc = NGX_OK;
+
+    /* ngx_read_file() advances file->offset, which belongs to NGINX */
+    file_offset = file->offset;
+
+    for (offset = 0; offset < size; offset += (off_t) amount) {
+
+        if (size - offset > NGX_HTTP_MODSECURITY_BODY_CHUNK_SIZE) {
+            amount = NGX_HTTP_MODSECURITY_BODY_CHUNK_SIZE;
+
+        } else {
+            amount = (size_t) (size - offset);
+        }
+
+        n = ngx_read_file(file, buf, amount, offset);
+
+        if (n < 0 || (size_t) n != amount) {
+            ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                          "ModSecurity: reading %uz bytes at %O from the "
+                          "request body file \"%V\" returned %z",
+                          amount, offset, &file->name, n);
+            rc = NGX_ERROR;
+            break;
+        }
+
+        rc = ngx_http_modsecurity_append_request_chunk(r, ctx, buf, amount);
+        if (rc != NGX_OK) {
+            break;
+        }
+    }
+
+    file->offset = file_offset;
+
+    ngx_pfree(r->pool, buf);
+
+    if (rc != NGX_OK) {
+        return NGX_ERROR;
+    }
+
+    /* the body must not have changed while it was read */
+
+    return ngx_http_modsecurity_check_request_body_file(r, file, size);
+}
+
+
 void
 ngx_http_modsecurity_request_read(ngx_http_request_t *r)
 {
@@ -349,6 +545,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
         return NGX_DECLINED;
     }
 
+    if (ctx->request_body_failed) {
+        /* part of the body may be in the transaction already: do not retry */
+        return NGX_HTTP_INTERNAL_SERVER_ERROR;
+    }
+
     if (ctx->waiting_more_body == 1)
     {
         dd("waiting for more data before proceed. / count: %d",
@@ -405,13 +606,11 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
     if (ctx->waiting_more_body == 0)
     {
         int ret = 0;
-        int already_inspected = 0;
+        ngx_int_t rc;
 
         dd("request body is ready to be processed");
 
         r->write_event_handler = ngx_http_core_run_phases;
-
-        ngx_chain_t *chain = r->request_body->bufs;
 
         /**
          * TODO: Speed up the analysis by sending chunk while they arrive.
@@ -422,48 +621,27 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          * function.
          */
 
-        if (r->request_body->temp_file != NULL) {
-            ngx_str_t file_path = r->request_body->temp_file->file.name;
-            const char *file_name = ngx_str_to_char(file_path, r->pool);
-            if (file_name == (char*)-1) {
-                return NGX_HTTP_INTERNAL_SERVER_ERROR;
-            }
-            /*
-             * Request body was saved to a file, probably we don't have a
-             * copy of it in memory.
-             */
-            dd("request body inspection: file -- %s", file_name);
+        /*
+         * The whole body goes to ModSecurity before an intervention is
+         * looked for.  Rules see the body only in the request body phase,
+         * so the only intervention appending it can raise is that of
+         * SecRequestBodyLimitAction Reject, and the transaction keeps it
+         * for the check after msc_process_request_body() below.  A failure
+         * to hand the body over is an error of the connector, not a rule
+         * decision, and fails the request.
+         */
+        if (r->request_body != NULL && r->request_body->temp_file != NULL) {
+            dd("inspecting the request body in its temporary file");
+            rc = ngx_http_modsecurity_inspect_request_body_file(r, ctx);
 
-            msc_request_body_from_file(ctx->modsec_transaction, file_name);
-
-            already_inspected = 1;
         } else {
-            dd("inspection request body in memory.");
+            dd("inspecting the request body in memory");
+            rc = ngx_http_modsecurity_append_request_body(r, ctx);
         }
 
-        while (chain && !already_inspected)
-        {
-            u_char *data = chain->buf->pos;
-
-            msc_append_request_body(ctx->modsec_transaction, data,
-                chain->buf->last - data);
-
-            if (chain->buf->last_buf) {
-                break;
-            }
-            chain = chain->next;
-
-/* XXX: chains are processed one-by-one, maybe worth to pass all chains and then call intervention() ? */
-
-            /**
-             * ModSecurity may perform stream inspection on this buffer,
-             * it may ask for a intervention in consequence of that.
-             *
-             */
-            ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 0);
-            if (ret > 0) {
-                return ngx_http_modsecurity_access_intervention(r, ret);
-            }
+        if (rc != NGX_OK) {
+            ctx->request_body_failed = 1;
+            return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
 
         /**

@@ -1,0 +1,2 @@
+/.github/scripts/apply-nginx-http2-patch.sh text eol=lf
+/patches/*.patch text eol=lf

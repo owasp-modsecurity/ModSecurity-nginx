@@ -190,6 +190,24 @@ ngx_http_modsecurity_process_intervention (Transaction *transaction, ngx_http_re
     {
         dd("intervention -- redirecting to: %s with status code: %d", intervention.url, intervention.status);
 
+        /*
+         * libmodsecurity expands the redirect URL at run time, e.g. from
+         * %{ARGS.to}, whose value is URL-decoded, and does not check it.
+         * nginx writes the Location value into the response as it is, so
+         * a CR or LF would end the header there. Refuse such a URL before
+         * any response header is changed, and do not log it, as it would
+         * carry the CR or LF into the error log. The URL is a C string:
+         * this check, like the strlen() below, sees the bytes up to its
+         * terminating NUL, which are all that can reach the header.
+         */
+        if (strpbrk(intervention.url, "\r\n") != NULL)
+        {
+            ngx_log_error(NGX_LOG_ERR, (ngx_log_t *)r->connection->log, 0,
+                "ModSecurity: the redirect URL contains CR or LF, not redirecting");
+            free(intervention.url);
+            return r->header_sent ? NGX_ERROR : NGX_HTTP_INTERNAL_SERVER_ERROR;
+        }
+
         if (r->header_sent)
         {
             dd("Headers are already sent. Cannot perform the redirection at this point.");

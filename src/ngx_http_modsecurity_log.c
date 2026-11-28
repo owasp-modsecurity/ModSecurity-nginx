@@ -45,6 +45,18 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
     dd("catching a new _log_ phase handler");
 
     /*
+     * Subrequests share the pool of the main request, so the cleanup scan in
+     * ngx_http_modsecurity_get_module_ctx() finds its context. With
+     * "log_subrequest on" their LOG phase must not use up the single logging
+     * attempt of a transaction whose response is still being sent; the main
+     * request logs it.
+     */
+    if (r != r->main) {
+        dd("subrequest, the main request logs the transaction");
+        return NGX_OK;
+    }
+
+    /*
     if (r->method != NGX_HTTP_GET &&
         r->method != NGX_HTTP_POST && r->method != NGX_HTTP_HEAD) {
         dd("ModSecurity is not ready to deal with anything different from " \

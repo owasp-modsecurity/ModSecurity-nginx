@@ -36,9 +36,23 @@ ngx_http_modsecurity_log(void *log, const void* data)
 }
 
 
+/*
+ * Runs the native logging phase (phase 5 rules and the audit log) of the
+ * request's transaction. It is called from the NGINX LOG phase and, for an
+ * intervention in the access phase, from
+ * ngx_http_modsecurity_process_intervention() ("early logging").
+ *
+ * msc_process_logging() runs at most once per transaction, whether the first
+ * attempt succeeded or not; later calls return the stored result. NGX_ERROR
+ * means that the native logging phase did not report success. NGX_OK only
+ * means that it returned 1: libModSecurity does not report whether an audit
+ * log record was written. NGINX ignores the result of LOG phase handlers, so
+ * a failure here never changes a response.
+ */
 ngx_int_t
 ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 {
+    int                           ret;
     ngx_pool_t                   *old_pool;
     ngx_http_modsecurity_ctx_t   *ctx;
 
@@ -75,13 +89,39 @@ ngx_http_modsecurity_log_handler(ngx_http_request_t *r)
 
     if (ctx->logged) {
         dd("already logged earlier");
-        return NGX_OK;
+        return ctx->native_logging_failed ? NGX_ERROR : NGX_OK;
+    }
+
+    /*
+     * Claim the attempt before the native call, so that a call re-entering
+     * from a libModSecurity callback cannot run the logging phase again. Until
+     * msc_process_logging() returns 1 the attempt counts as failed.
+     */
+    ctx->logged = 1;
+    ctx->native_logging_failed = 1;
+
+    if (ctx->modsec_transaction == NULL) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: no transaction to run the logging "
+                      "phase for");
+        return NGX_ERROR;
     }
 
     dd("calling msc_process_logging for %p", ctx);
     old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-    msc_process_logging(ctx->modsec_transaction);
+    ret = msc_process_logging(ctx->modsec_transaction);
     ngx_http_modsecurity_pcre_malloc_done(old_pool);
+
+    /* 1 is success and 0 failure; anything else is outside the API contract */
+    if (ret != 1) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: the logging phase %s (%d)",
+                      ret == 0 ? "failed" : "returned an unexpected result",
+                      ret);
+        return NGX_ERROR;
+    }
+
+    ctx->native_logging_failed = 0;
 
     return NGX_OK;
 }

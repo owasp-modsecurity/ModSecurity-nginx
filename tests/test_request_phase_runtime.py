@@ -269,6 +269,13 @@ static int msc_process_request_body(Transaction *t)
     if (t != &transaction) bad_arguments = 1;
     return native(REQUEST_BODY_PHASE);
 }
+static int status_updates, updated_status;
+static int msc_update_status_code(Transaction *t, int status)
+{
+    if (t != &transaction) bad_arguments = 1;
+    ++status_updates; updated_status = status;
+    return 1;
+}
 static int ngx_http_modsecurity_process_intervention(Transaction *t, ngx_http_request_t *r,
     ngx_int_t early_log)
 {
@@ -379,7 +386,7 @@ int main(int argc, char **argv)
 
     if (strcmp(scenario, "allow") == 0) {
         CHECK(result == NGX_DECLINED && outcome == SERVED);
-        CHECK(finalize_calls == 0 && error_log_calls == 0);
+        CHECK(finalize_calls == 0 && error_log_calls == 0 && status_updates == 0);
         CHECK(!created.intervention_triggered && created.request_body_processed);
         for (later = CONNECTION; later < PHASES; ++later) {
             CHECK(native_calls[later] == 1 && intervention_calls[later] == 1);
@@ -424,6 +431,10 @@ int main(int argc, char **argv)
         CHECK(intervention_calls[phase] == 0);
         CHECK(result == (request.header_sent ? NGX_ERROR : NGX_HTTP_INTERNAL_SERVER_ERROR));
         CHECK(outcome == result && finalize_calls == 0);
+        /* The audit log gets the 500; after the header, the sent status
+         * stands. */
+        if (request.header_sent) CHECK(status_updates == 0);
+        else CHECK(status_updates == 1 && updated_status == NGX_HTTP_INTERNAL_SERVER_ERROR);
         CHECK(error_log_calls == 1 && error_log_level == NGX_LOG_ERR);
         if (value == 0) {
             snprintf(expected, sizeof(expected),
@@ -435,7 +446,8 @@ int main(int argc, char **argv)
         }
         CHECK(strcmp(error_log_message, expected) == 0);
     } else {
-        CHECK(intervention_calls[phase] == 1 && error_log_calls == 0);
+        /* ngx_http_modsecurity_process_intervention() records the status. */
+        CHECK(intervention_calls[phase] == 1 && error_log_calls == 0 && status_updates == 0);
         if (core_conf.satisfy == NGX_HTTP_SATISFY_ANY) {
             /* #410: under "satisfy any" the handler finalizes it itself. */
             CHECK(result == NGX_DONE && finalize_calls == 1 && finalized_with == value);

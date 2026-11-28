@@ -86,10 +86,10 @@ ngx_http_modsecurity_access_intervention(ngx_http_request_t *r,
  * request was not inspected, so it must not be served.  Mark the
  * transaction the way an intervention does, so that neither a later run of
  * this handler nor the header and body filters process it; the log phase
- * still runs.  The access phase checker finalizes a 500 or NGX_ERROR under
- * "satisfy any" as well: it takes only a 401, 403 or 407 as a vote.  Once
- * the response header is sent no 500 can follow, NGX_ERROR closes the
- * request instead.
+ * still runs and logs the 500.  The access phase checker finalizes a 500
+ * or NGX_ERROR under "satisfy any" as well: it takes only a 401, 403 or 407
+ * as a vote.  Once the response header is sent no 500 can follow,
+ * NGX_ERROR closes the request instead.
  */
 static ngx_int_t
 ngx_http_modsecurity_request_phase_failed(ngx_http_request_t *r,
@@ -110,6 +110,14 @@ ngx_http_modsecurity_request_phase_failed(ngx_http_request_t *r,
     if (r->header_sent) {
         return NGX_ERROR;
     }
+
+    /*
+     * The header filter skips the transaction now, so record the status
+     * for the audit log here, as ngx_http_modsecurity_process_intervention()
+     * does for an intervention.
+     */
+    msc_update_status_code(ctx->modsec_transaction,
+                           NGX_HTTP_INTERNAL_SERVER_ERROR);
 
     return NGX_HTTP_INTERNAL_SERVER_ERROR;
 }

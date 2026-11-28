@@ -79,6 +79,50 @@ ngx_http_modsecurity_access_intervention(ngx_http_request_t *r,
 }
 
 
+/*
+ * msc_process_connection(), msc_process_uri() and
+ * msc_process_request_headers() return 1 when they processed the phase and
+ * 0 when they failed; no other value is defined.  Anything but 1 means the
+ * request was not inspected, so it must not be served.  Mark the
+ * transaction the way an intervention does, so that neither a later run of
+ * this handler nor the header and body filters process it; the log phase
+ * still runs and logs the 500.  The access phase checker finalizes a 500
+ * or NGX_ERROR under "satisfy any" as well: it takes only a 401, 403 or 407
+ * as a vote.  Once the response header is sent no 500 can follow,
+ * NGX_ERROR closes the request instead.
+ */
+static ngx_int_t
+ngx_http_modsecurity_request_phase_failed(ngx_http_request_t *r,
+    ngx_http_modsecurity_ctx_t *ctx, const char *phase, int ret)
+{
+    if (ret == 0) {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: %s phase processing failed", phase);
+
+    } else {
+        ngx_log_error(NGX_LOG_ERR, r->connection->log, 0,
+                      "ModSecurity: %s phase processing returned "
+                      "an unexpected result: %d", phase, ret);
+    }
+
+    ctx->intervention_triggered = 1;
+
+    if (r->header_sent) {
+        return NGX_ERROR;
+    }
+
+    /*
+     * The header filter skips the transaction now, so record the status
+     * for the audit log here, as ngx_http_modsecurity_process_intervention()
+     * does for an intervention.
+     */
+    msc_update_status_code(ctx->modsec_transaction,
+                           NGX_HTTP_INTERNAL_SERVER_ERROR);
+
+    return NGX_HTTP_INTERNAL_SERVER_ERROR;
+}
+
+
 ngx_int_t
 ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
 {
@@ -202,8 +246,10 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             client_addr, client_port,
             server_addr, server_port);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
-        if (ret != 1){
-            dd("Was not able to extract connection information.");
+        if (ret != 1) {
+            return ngx_http_modsecurity_request_phase_failed(r, ctx,
+                                                             "connection",
+                                                             ret);
         }
         /*
          * An intervention is enforced through
@@ -257,8 +303,13 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
             return NGX_HTTP_INTERNAL_SERVER_ERROR;
         }
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_uri(ctx->modsec_transaction, n_uri, n_method, http_version);
+        ret = msc_process_uri(ctx->modsec_transaction, n_uri, n_method,
+                              http_version);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        if (ret != 1) {
+            return ngx_http_modsecurity_request_phase_failed(r, ctx, "URI",
+                                                             ret);
+        }
 
         dd("Processing intervention with the transaction information filled in (uri, method and version)");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
@@ -307,8 +358,13 @@ ngx_http_modsecurity_access_handler(ngx_http_request_t *r)
          */
 
         old_pool = ngx_http_modsecurity_pcre_malloc_init(r->pool);
-        msc_process_request_headers(ctx->modsec_transaction);
+        ret = msc_process_request_headers(ctx->modsec_transaction);
         ngx_http_modsecurity_pcre_malloc_done(old_pool);
+        if (ret != 1) {
+            return ngx_http_modsecurity_request_phase_failed(r, ctx,
+                                                             "request headers",
+                                                             ret);
+        }
         dd("Processing intervention with the request headers information filled in");
         ret = ngx_http_modsecurity_process_intervention(ctx->modsec_transaction, r, 1);
         if (r->error_page) {

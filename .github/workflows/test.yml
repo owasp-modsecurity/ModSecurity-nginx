@@ -8,6 +8,27 @@ on:
 permissions: {}
 
 jobs:
+  request-phase-unit-tests:
+    # The native suites cannot make libModSecurity fail a request phase, so
+    # these regressions run the access handler with doubles instead.
+    name: request-phase-unit-tests-${{ matrix.compiler }}
+    permissions:
+      contents: read
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        compiler: [gcc, clang]
+    env:
+      CC: "/usr/bin/${{ matrix.compiler }}"
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Run the request phase regressions
+        run: python3 -m unittest discover -s tests -p 'test_request_phase_runtime.py' -v
+
   build-linux:
     permissions:
       contents: read
